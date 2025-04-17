@@ -33,8 +33,8 @@ class SpotifyPlayerController < ApplicationController
       device_id = params[:device_id]
       
       if track_uri.present? && device_id.present?
-        # Log the attempt
-        Rails.logger.info "Attempting to play track #{track_uri} on device #{device_id}"
+        # Log the attempt with more details
+        Rails.logger.info "Attempting to play track #{track_uri} on device #{device_id} for user #{current_spotify_user.id}"
         
         url = "https://api.spotify.com/v1/me/player/play"
         url += "?device_id=#{device_id}" if device_id.present?
@@ -44,6 +44,44 @@ class SpotifyPlayerController < ApplicationController
         
         # Make the API call to play the track
         begin
+          # First check if the device is actually available
+          devices_response = RestClient.get(
+            "https://api.spotify.com/v1/me/player/devices",
+            { Authorization: "Bearer #{current_spotify_user.access_token}" }
+          )
+          
+          devices = JSON.parse(devices_response.body)
+          device_exists = devices["devices"].any? { |d| d["id"] == device_id }
+          
+          unless device_exists
+            Rails.logger.warn "Device #{device_id} not found in user's available devices"
+            render json: { 
+              error: "Device not found", 
+              message: "The specified device was not found among your available devices.",
+              devices: devices["devices"].map { |d| { id: d["id"], name: d["name"] } }
+            }, status: 404
+            return
+          end
+          
+          # Then check if the track exists by getting its metadata
+          begin
+            track_id = track_uri.split(":").last
+            track_response = RestClient.get(
+              "https://api.spotify.com/v1/tracks/#{track_id}",
+              { Authorization: "Bearer #{current_spotify_user.access_token}" }
+            )
+            track_info = JSON.parse(track_response.body)
+            Rails.logger.info "Track found: #{track_info['name']} by #{track_info['artists'].map { |a| a['name'] }.join(', ')}"
+          rescue RestClient::NotFound
+            Rails.logger.warn "Track with URI #{track_uri} not found"
+            render json: { error: "Track not found", message: "The specified track could not be found." }, status: 404
+            return
+          rescue => e
+            Rails.logger.warn "Error checking track: #{e.message}"
+            # Continue anyway, as this is just a validation step
+          end
+          
+          # Now play the track
           response = RestClient.put(
             url,
             payload,
@@ -55,10 +93,23 @@ class SpotifyPlayerController < ApplicationController
           
           Rails.logger.info "Successfully sent play request to Spotify API"
           render json: { success: true }
+        rescue RestClient::NotFound => e
+          Rails.logger.error "Spotify API 404 error: #{e.message}"
+          render json: { error: "Not found", message: "The requested resource could not be found." }, status: 404
+        rescue RestClient::Unauthorized => e
+          Rails.logger.error "Spotify API auth error: #{e.message}"
+          render json: { error: "Authorization failed", message: "Your Spotify session may have expired." }, status: 401
+        rescue RestClient::Exception => e
+          Rails.logger.error "Spotify API error: #{e.message}"
+          Rails.logger.error "Response body: #{e.response.body}" if e.respond_to?(:response) && e.response
+          status_code = e.respond_to?(:response) ? e.response.code : 500
+          error_message = begin
+            JSON.parse(e.response.body)["error"]["message"] rescue e.message
+          end
+          render json: { error: error_message }, status: status_code
         rescue => e
           Rails.logger.error "Error playing track: #{e.message}"
-          Rails.logger.error e.response if e.respond_to?(:response)
-          render json: { error: e.message }, status: 422
+          render json: { error: e.message }, status: 500
         end
       else
         Rails.logger.warn "Missing track URI or device ID: uri=#{track_uri}, device_id=#{device_id}"

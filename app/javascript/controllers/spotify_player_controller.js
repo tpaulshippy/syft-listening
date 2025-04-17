@@ -1,5 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 
+// Note: onSpotifyWebPlaybackSDKReady is now defined in application.js
+
 // Spotify Player Controller
 // This controller provides an interface for controlling Spotify playback
 // throughout the application using Stimulus.
@@ -12,6 +14,7 @@ export default class extends Controller {
 
   player = null
   deviceId = null
+  currentTrackInfo = null
   
   connect() {
     console.log("Spotify Player Controller connected")
@@ -131,12 +134,6 @@ export default class extends Controller {
     }
     
     document.head.appendChild(script)
-    
-    // When the SDK is ready, it will trigger this event
-    window.onSpotifyWebPlaybackSDKReady = () => {
-      console.log('Spotify Web Playback SDK Ready')
-      document.dispatchEvent(new Event('spotify:sdk:ready'))
-    }
   }
 
   // Set up the Spotify Web Player
@@ -232,7 +229,14 @@ export default class extends Controller {
     event.preventDefault()
     
     const trackUri = event.currentTarget.dataset.trackUri
+    const trackName = event.currentTarget.dataset.trackName
+    const artistName = event.currentTarget.dataset.artistName
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
+    
+    // Store track info to update status display
+    if (trackName && artistName) {
+      this.currentTrackInfo = { name: trackName, artist: artistName }
+    }
     
     this._playTrackWithUri(trackUri, csrfToken)
   }
@@ -265,10 +269,82 @@ export default class extends Controller {
       console.log('Play track response status:', response.status)
       if (!response.ok) {
         return response.json().then(data => {
+          // Handle 404 errors specifically
+          if (response.status === 404) {
+            console.error('Track not found or device not available (404)')
+            // Try to refresh the device connection
+            this.player.disconnect().then(() => {
+              setTimeout(() => {
+                this.player.connect()
+              }, 1000)
+            })
+            throw new Error('The track could not be played. The device may need reconnecting or the track is unavailable.')
+          }
+          // Handle 401 errors (token expired)
+          else if (response.status === 401) {
+            console.error('Authentication error (401)')
+            // Trigger a token refresh
+            this._triggerEvent('tokenExpired', {})
+            throw new Error('Your Spotify session has expired. Please refresh the page.')
+          }
           throw new Error(data.error || `Error playing track (${response.status})`)
         })
       }
+      
+      // Update the status with track info after successful playback
+      if (this.currentTrackInfo && this.hasStatusTarget) {
+        this.statusTarget.textContent = `Playing: ${this.currentTrackInfo.name} by ${this.currentTrackInfo.artist}`
+      }
+      
+      // Fetch current playback to get complete track details
+      this._fetchCurrentPlayback()
+      
       return response.json()
+    })
+  }
+
+  // Fetch current playback state from Spotify API
+  _fetchCurrentPlayback() {
+    if (!this._token) return
+    
+    fetch('https://api.spotify.com/v1/me/player', {
+      headers: {
+        'Authorization': `Bearer ${this._token}`
+      }
+    })
+    .then(response => {
+      if (response.status === 204) {
+        return null // No content
+      }
+      return response.json()
+    })
+    .then(data => {
+      if (!data) return
+      
+      if (data.item && this.hasStatusTarget) {
+        const track = data.item
+        const artists = track.artists.map(a => a.name).join(', ')
+        const isPlaying = data.is_playing
+        
+        // Update the currentTrackInfo with complete details
+        this.currentTrackInfo = { name: track.name, artist: artists }
+        
+        // Update status display
+        this.statusTarget.textContent = `${isPlaying ? 'Playing:' : 'Paused:'} ${track.name} by ${artists}`
+        
+        // Trigger an event for other components that might need this info
+        this._triggerEvent('trackChanged', {
+          name: track.name,
+          artists: artists,
+          albumName: track.album?.name,
+          albumImage: track.album?.images?.[0]?.url,
+          duration: track.duration_ms,
+          isPlaying: data.is_playing
+        })
+      }
+    })
+    .catch(error => {
+      console.error('Error fetching current playback:', error)
     })
   }
 
@@ -311,10 +387,16 @@ export default class extends Controller {
   
   // Update the status target if available
   _updateStatusTarget(state) {
+    // Update status from WebSDK player state
     if (this.hasStatusTarget && state) {
       const { current_track, paused } = state
       if (current_track) {
         this.statusTarget.textContent = `${paused ? 'Paused:' : 'Playing:'} ${current_track.name} by ${current_track.artists[0].name}`
+        // Store track info in case we need it later
+        this.currentTrackInfo = { name: current_track.name, artist: current_track.artists[0].name }
+      } else if (this.currentTrackInfo) {
+        // If no current track but we have stored track info, keep showing that
+        this.statusTarget.textContent = `${paused ? 'Paused:' : 'Playing:'} ${this.currentTrackInfo.name} by ${this.currentTrackInfo.artist}`
       } else {
         this.statusTarget.textContent = 'No track playing'
       }

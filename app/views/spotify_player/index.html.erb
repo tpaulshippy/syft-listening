@@ -56,75 +56,77 @@
       
       <script>
         document.addEventListener('DOMContentLoaded', () => {
-          // Wait for the Spotify Web Playback SDK to be loaded
-          window.onSpotifyWebPlaybackSDKReady = () => {
-            const token = '<%= current_spotify_user&.access_token %>';
+          const token = '<%= current_spotify_user&.access_token %>';
+          const deviceStatusElement = document.getElementById('device-status');
+          const currentTrackElement = document.getElementById('current-track');
+          
+          // Initialize the shared Spotify player
+          window.SpotifyPlayerManager.initialize(token);
+          
+          // Check if the player is already initialized
+          if (window.SpotifyPlayerManager.isReady()) {
+            deviceStatusElement.textContent = 'Connected to Spotify';
+          }
+          
+          // Register event listeners
+          window.SpotifyPlayerManager.on('onReady', ({ device_id }) => {
+            deviceStatusElement.textContent = 'Connected to Spotify';
             
-            // Create a new Spotify Player
-            const player = new Spotify.Player({
-              name: 'Syft Listening App',
-              getOAuthToken: cb => { cb(token); },
-              volume: 0.5
+            // Transfer playback to this device
+            fetch('https://api.spotify.com/v1/me/player', {
+              method: 'PUT',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                device_ids: [device_id],
+                play: false,
+              }),
             });
-            
-            // Event listeners for player state changes
-            player.addListener('ready', ({ device_id }) => {
-              console.log('Ready with Device ID', device_id);
-              
-              // Store the device ID for the search page to use
-              localStorage.setItem('spotify_device_id', device_id);
-              
-              // Update the device status on the page
-              document.getElementById('device-status').textContent = 'Connected to Spotify';
-              
-              // Transfer playback to this device
-              fetch('https://api.spotify.com/v1/me/player', {
-                method: 'PUT',
-                headers: {
-                  'Authorization': `Bearer ${token}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  device_ids: [device_id],
-                  play: false,
-                }),
-              });
-            });
-            
-            player.addListener('not_ready', ({ device_id }) => {
-              console.log('Device ID has gone offline', device_id);
-              document.getElementById('device-status').textContent = 'Disconnected from Spotify';
-              localStorage.removeItem('spotify_device_id');
-            });
-            
-            player.addListener('player_state_changed', state => {
-              if (state) {
-                const currentTrack = state.track_window.current_track;
-                document.getElementById('current-track').textContent = 
-                  `${currentTrack.name} - ${currentTrack.artists.map(a => a.name).join(', ')}`;
-              }
-            });
-            
-            // Connect to the player
-            player.connect();
-            
-            // Control buttons
-            document.getElementById('play-button').addEventListener('click', () => {
-              player.resume();
-            });
-            
-            document.getElementById('pause-button').addEventListener('click', () => {
-              player.pause();
-            });
-            
-            document.getElementById('prev-button').addEventListener('click', () => {
-              player.previousTrack();
-            });
-            
-            document.getElementById('next-button').addEventListener('click', () => {
-              player.nextTrack();
-            });
-          };
+          });
+          
+          window.SpotifyPlayerManager.on('onNotReady', () => {
+            deviceStatusElement.textContent = 'Disconnected from Spotify';
+          });
+          
+          window.SpotifyPlayerManager.on('onPlayerStateChanged', state => {
+            if (state) {
+              const currentTrack = state.track_window.current_track;
+              currentTrackElement.textContent = 
+                `${currentTrack.name} - ${currentTrack.artists.map(a => a.name).join(', ')}`;
+            }
+          });
+          
+          window.SpotifyPlayerManager.on('onError', error => {
+            console.error('Player error:', error);
+            deviceStatusElement.textContent = `Error: ${error.message}`;
+          });
+          
+          // Control buttons
+          document.getElementById('play-button').addEventListener('click', () => {
+            if (window.SpotifyPlayerManager.player) {
+              window.SpotifyPlayerManager.player.resume();
+            }
+          });
+          
+          document.getElementById('pause-button').addEventListener('click', () => {
+            if (window.SpotifyPlayerManager.player) {
+              window.SpotifyPlayerManager.player.pause();
+            }
+          });
+          
+          document.getElementById('prev-button').addEventListener('click', () => {
+            if (window.SpotifyPlayerManager.player) {
+              window.SpotifyPlayerManager.player.previousTrack();
+            }
+          });
+          
+          document.getElementById('next-button').addEventListener('click', () => {
+            if (window.SpotifyPlayerManager.player) {
+              window.SpotifyPlayerManager.player.nextTrack();
+            }
+          });
         });
       </script>
     <% end %>

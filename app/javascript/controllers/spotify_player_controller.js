@@ -1,7 +1,5 @@
 import { Controller } from "@hotwired/stimulus"
 
-// Note: onSpotifyWebPlaybackSDKReady is now defined in application.js
-
 // Spotify Player Controller
 // This controller provides an interface for controlling Spotify playback
 // throughout the application using Stimulus.
@@ -19,18 +17,33 @@ export default class extends Controller {
   connect() {
     console.log("Spotify Player Controller connected")
     
-    // Check if we have a token value
-    if (this.hasTokenValue) {
-      this.initialize(this.tokenValue)
-    }
+    // Add a global listener for Spotify API errors
+    this._errorListener = this._handleGlobalSpotifyError.bind(this)
+    document.addEventListener('spotify:api:error', this._errorListener)
     
-    // Load Spotify Web Playback SDK if needed
-    if (!window.Spotify) {
-      this._loadSpotifyScript()
+    // Wait for proper initialization before configuring the player
+    if (window.spotifySDKLoaded && window.Spotify) {
+      // SDK already loaded
+      if (this.hasTokenValue) {
+        this.initialize(this.tokenValue)
+      }
+    } else {
+      // Listen for the SDK to be fully ready
+      document.addEventListener('spotify:sdk:ready', () => {
+        console.log('Spotify SDK ready event received')
+        // Give a short delay to ensure SDK is fully initialized
+        setTimeout(() => {
+          if (this.hasTokenValue) {
+            this.initialize(this.tokenValue)
+          }
+        }, 300)
+      }, { once: true })
     }
   }
   
   disconnect() {
+    // Remove the error listener when disconnecting
+    document.removeEventListener('spotify:api:error', this._errorListener)
     this._disconnectPlayer()
   }
   
@@ -52,23 +65,21 @@ export default class extends Controller {
 
     // Check if Spotify Web Playback SDK is loaded
     if (window.Spotify) {
-      this._setupPlayer()
-    } else {
-      // Wait for the Spotify SDK to load
-      document.addEventListener('spotify:sdk:ready', () => {
+      try {
         this._setupPlayer()
-      }, { once: true })
-      
-      // If the Spotify SDK fails to load, we'll set up a timeout
-      setTimeout(() => {
-        if (!window.Spotify) {
-          console.error('Spotify Web Playback SDK did not load within timeout period')
-          this._triggerEvent('error', { 
-            type: 'sdk_load', 
-            message: 'Spotify Web Playback SDK failed to load' 
-          })
-        }
-      }, 10000) // 10 second timeout
+      } catch (error) {
+        console.error('Error setting up player:', error)
+        this._triggerEvent('error', { 
+          type: 'initialization', 
+          message: 'Error setting up Spotify player: ' + error.message 
+        })
+      }
+    } else {
+      console.error('Spotify Web Playback SDK is not loaded')
+      this._triggerEvent('error', { 
+        type: 'sdk_missing', 
+        message: 'Spotify Web Playback SDK is not available' 
+      })
     }
 
     return true
@@ -123,19 +134,6 @@ export default class extends Controller {
     }
   }
   
-  // Load the Spotify Web Playback SDK
-  _loadSpotifyScript() {
-    const script = document.createElement('script')
-    script.src = 'https://sdk.scdn.co/spotify-player.js'
-    script.async = true
-    
-    script.onload = () => {
-      console.log('Spotify script loaded')
-    }
-    
-    document.head.appendChild(script)
-  }
-
   // Set up the Spotify Web Player
   _setupPlayer() {
     if (this.player) {
@@ -154,74 +152,188 @@ export default class extends Controller {
 
     console.log('Setting up Spotify Player with token', this._token ? '[token exists]' : '[no token]')
     
-    this.player = new Spotify.Player({
-      name: 'Syft Listening Player',
-      getOAuthToken: cb => { cb(this._token) },
-      volume: 0.5
-    })
-
-    // Error handling
-    this.player.addListener('initialization_error', ({ message }) => {
-      console.error('Spotify player initialization error:', message)
-      this._triggerEvent('error', { type: 'initialization', message })
-    })
-
-    this.player.addListener('authentication_error', ({ message }) => {
-      console.error('Spotify player authentication error:', message)
-      this._triggerEvent('error', { type: 'authentication', message })
-    })
-
-    this.player.addListener('account_error', ({ message }) => {
-      console.error('Spotify player account error:', message)
-      this._triggerEvent('error', { type: 'account', message })
-    })
-
-    this.player.addListener('playback_error', ({ message }) => {
-      console.error('Spotify player playback error:', message)
-      this._triggerEvent('error', { type: 'playback', message })
-    })
-
-    // Playback status updates
-    this.player.addListener('player_state_changed', state => {
-      this._triggerEvent('playerStateChanged', state)
-      this._updateStatusTarget(state)
-    })
-
-    // Ready
-    this.player.addListener('ready', ({ device_id }) => {
-      console.log('Spotify player ready with Device ID:', device_id)
-      this.deviceId = device_id
-      localStorage.setItem('spotify_device_id', device_id)
-      this._triggerEvent('ready', { device_id })
-    })
-
-    // Not Ready
-    this.player.addListener('not_ready', ({ device_id }) => {
-      console.log('Spotify player device ID has gone offline:', device_id)
-      this._triggerEvent('notReady', { device_id })
-    })
-
-    // Connect to the player!
-    console.log('Connecting to Spotify player...')
-    this.player.connect()
-      .then(success => {
-        if (success) {
-          console.log('Successfully connected to Spotify!')
-        } else {
-          console.error('Failed to connect to Spotify')
-          this._triggerEvent('error', { 
-            type: 'connection', 
-            message: 'Failed to connect to Spotify' 
-          })
-        }
+    try {
+      // Create the player instance
+      this.player = new Spotify.Player({
+        name: 'Syft Listening Player',
+        getOAuthToken: cb => { cb(this._token) },
+        volume: 0.5
       })
-      .catch(error => {
-        console.error('Error connecting to Spotify:', error)
-        this._triggerEvent('error', { 
-          type: 'connection', 
-          message: 'Error connecting to Spotify' 
+      
+      // Check if the player was created properly
+      if (!this.player) {
+        throw new Error("Failed to create Spotify player instance")
+      }
+      
+      // Safely add event listeners one by one with checks
+      if (typeof this.player.addListener === 'function') {
+        // Error handling
+        this._safeAddListener('initialization_error', ({ message }) => {
+          console.error('Spotify player initialization error:', message)
+          this._triggerEvent('error', { type: 'initialization', message })
+          this._reconnectPlayer()
         })
+
+        this._safeAddListener('authentication_error', ({ message }) => {
+          console.error('Spotify player authentication error:', message)
+          this._triggerEvent('error', { type: 'authentication', message })
+          this._triggerEvent('tokenExpired', {})
+        })
+
+        this._safeAddListener('account_error', ({ message }) => {
+          console.error('Spotify player account error:', message)
+          this._triggerEvent('error', { type: 'account', message })
+        })
+
+        this._safeAddListener('playback_error', ({ message }) => {
+          console.error('Spotify player playback error:', message)
+          this._triggerEvent('error', { type: 'playback', message })
+          
+          if (message && message.includes('404') && message.includes('cpapi.spotify.com')) {
+            console.warn('Detected cpapi.spotify.com 404 error, attempting to reconnect player')
+            this._reconnectPlayer()
+          }
+        })
+
+        // Player state changes
+        this._safeAddListener('player_state_changed', state => {
+          this._triggerEvent('playerStateChanged', state)
+          this._updateStatusTarget(state)
+        })
+
+        // Ready
+        this._safeAddListener('ready', ({ device_id }) => {
+          console.log('Spotify player ready with Device ID:', device_id)
+          this.deviceId = device_id
+          localStorage.setItem('spotify_device_id', device_id)
+          this._triggerEvent('ready', { device_id })
+        })
+
+        // Not Ready
+        this._safeAddListener('not_ready', ({ device_id }) => {
+          console.log('Spotify player device ID has gone offline:', device_id)
+          this._triggerEvent('notReady', { device_id })
+        })
+      } else {
+        console.error('Spotify player missing addListener method')
+        this._triggerEvent('error', { 
+          type: 'initialization', 
+          message: 'Spotify player API does not have required methods' 
+        })
+        return
+      }
+
+      // Connect to the player if connect method exists
+      if (typeof this.player.connect === 'function') {
+        console.log('Connecting to Spotify player...')
+        this.player.connect()
+          .then(success => {
+            if (success) {
+              console.log('Successfully connected to Spotify!')
+            } else {
+              console.error('Failed to connect to Spotify')
+              this._triggerEvent('error', { 
+                type: 'connection', 
+                message: 'Failed to connect to Spotify' 
+              })
+            }
+          })
+          .catch(error => {
+            console.error('Error connecting to Spotify:', error)
+            this._triggerEvent('error', { 
+              type: 'connection', 
+              message: 'Error connecting to Spotify: ' + error.message 
+            })
+          })
+      } else {
+        console.error('Spotify player missing connect method')
+        this._triggerEvent('error', { 
+          type: 'initialization', 
+          message: 'Spotify player API does not have required methods' 
+        })
+      }
+    } catch (error) {
+      console.error('Error during Spotify player setup:', error)
+      this._triggerEvent('error', { 
+        type: 'initialization', 
+        message: 'Error during player setup: ' + error.message 
       })
+    }
+  }
+
+  // Safely add listener with error handling
+  _safeAddListener(eventName, callback) {
+    try {
+      this.player.addListener(eventName, callback)
+    } catch (error) {
+      console.error(`Error adding listener for ${eventName}:`, error)
+    }
+  }
+
+  // Reconnect the player when experiencing errors
+  _reconnectPlayer() {
+    console.log('Attempting to reconnect the Spotify player')
+    if (this.player) {
+      try {
+        if (typeof this.player.disconnect === 'function') {
+          this.player.disconnect().then(() => {
+            console.log('Player disconnected, reconnecting after delay')
+            localStorage.removeItem('spotify_device_id')
+            this.deviceId = null
+            this.player = null
+            
+            // Wait briefly before reconnecting
+            setTimeout(() => {
+              if (this._token) {
+                this._setupPlayer()
+              }
+            }, 3000)
+          }).catch(error => {
+            console.error('Error disconnecting player:', error)
+            // Force reset and try again
+            this.player = null
+            this.deviceId = null
+            localStorage.removeItem('spotify_device_id')
+            
+            setTimeout(() => {
+              if (this._token) {
+                this._setupPlayer()
+              }
+            }, 3000)
+          })
+        } else {
+          // Player doesn't have disconnect method, just reset
+          this.player = null
+          this.deviceId = null
+          localStorage.removeItem('spotify_device_id')
+          
+          setTimeout(() => {
+            if (this._token) {
+              this._setupPlayer()
+            }
+          }, 3000)
+        }
+      } catch (error) {
+        console.error('Error during player reconnect:', error)
+        // Force reset and try again
+        this.player = null
+        this.deviceId = null
+        localStorage.removeItem('spotify_device_id')
+        
+        setTimeout(() => {
+          if (this._token) {
+            this._setupPlayer()
+          }
+        }, 3000)
+      }
+    } else {
+      // If no player exists, just try setting up a new one
+      if (this._token) {
+        setTimeout(() => {
+          this._setupPlayer()
+        }, 3000)
+      }
+    }
   }
 
   // Play a specific track (action method that can be called from HTML)
@@ -403,6 +515,16 @@ export default class extends Controller {
     }
   }
 
+  // Handle global Spotify API errors
+  _handleGlobalSpotifyError(event) {
+    const { message, type } = event.detail
+    
+    if (type === 'cpapi' && this.player) {
+      console.warn('Handling cpapi.spotify.com error via global listener')
+      this._reconnectPlayer()
+    }
+  }
+
   // Trigger a custom event on the element
   _triggerEvent(name, detail) {
     const event = new CustomEvent(`spotify:${name}`, { 
@@ -415,7 +537,15 @@ export default class extends Controller {
   // Disconnect the player
   _disconnectPlayer() {
     if (this.player) {
-      this.player.disconnect()
+      try {
+        if (typeof this.player.disconnect === 'function') {
+          this.player.disconnect().catch(error => {
+            console.error('Error disconnecting player:', error)
+          })
+        }
+      } catch (error) {
+        console.error('Error during player disconnect:', error)
+      }
       this.player = null
     }
   }

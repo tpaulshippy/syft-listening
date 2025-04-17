@@ -2,10 +2,11 @@
 import "@hotwired/turbo-rails"
 import "controllers"
 
+import 'spotify-player'
 
 // Define the Spotify callback function in the global scope
-// This MUST be defined before the Spotify SDK loads
 window.onSpotifyWebPlaybackSDKReady = function() {
-    console.log('Spotify Web Playback SDK Ready')
-    document.dispatchEvent(new Event('spotify:sdk:ready'))
-  }
+  console.log('Spotify Web Playback SDK Ready')
+  window.spotifySDKLoaded = true
+  document.dispatchEvent(new Event('spotify:sdk:ready'))
+}

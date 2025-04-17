@@ -10,16 +10,16 @@ Rails.application.routes.draw do
   get "up" => "rails/health#show", as: :rails_health_check
 
   # Spotify authentication routes
-  get '/auth/spotify/callback', to: 'spotify_auth#callback'
-  get '/login', to: 'spotify_auth#login', as: 'login'
-  get '/logout', to: 'spotify_auth#logout', as: 'logout'
-  
+  get "/auth/spotify/callback", to: "spotify_auth#callback"
+  get "/login", to: "spotify_auth#login", as: "login"
+  get "/logout", to: "spotify_auth#logout", as: "logout"
+
   # Spotify player routes
-  get '/player', to: 'spotify_player#index'
-  get '/search', to: 'spotify_player#search', as: 'search'
-  post '/play_track', to: 'spotify_player#play_track', as: 'play_track'
-  post '/play_playlist', to: 'spotify_player#play_playlist', as: 'play_playlist'
-  
+  get "/player", to: "spotify_player#index"
+  get "/search", to: "spotify_player#search", as: "search"
+  post "/play_track", to: "spotify_player#play_track", as: "play_track"
+  post "/play_playlist", to: "spotify_player#play_playlist", as: "play_playlist"
+
   # Defines the root path route ("/")
-  root 'spotify_player#index'
+  root "spotify_player#index"
 end

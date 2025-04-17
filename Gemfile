@@ -24,12 +24,12 @@ gem "rspotify", "~> 2.12.0"
 # RestClient is already included as a dependency of RSpotify
 
 # OmniAuth for authentication
-gem "omniauth", "~> 2.1.1"  
+gem "omniauth", "~> 2.1.1"
 gem "omniauth-rails_csrf_protection", "~> 1.0"  # Prevents CSRF attacks
 gem "omniauth-spotify", "~> 0.0.13"
 
 # Load environment variables from .env files
-gem "dotenv-rails", groups: [:development, :test]
+gem "dotenv-rails", groups: [ :development, :test ]
 
 # Use Active Model has_secure_password [https://guides.rubyonrails.org/active_model_basics.html#securepassword]
 gem "bcrypt", "~> 3.1.7"
@@ -70,5 +70,5 @@ group :development do
   gem "web-console"
 end
 
-gem "rspec-rails", "~> 7.1", :groups => [:development, :test]
-gem "factory_bot_rails", "~> 6.4", :groups => [:development, :test]
+gem "rspec-rails", "~> 7.1", groups: [ :development, :test ]
+gem "factory_bot_rails", "~> 6.4", groups: [ :development, :test ]

@@ -1,0 +1,258 @@
+<div class="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
+  <div class="w-full max-w-3xl bg-white rounded-lg shadow-lg p-6">
+    <h1 class="text-3xl font-bold mb-6 text-center text-emerald-600">Search Results</h1>
+    
+    <%= form_with url: search_path, method: :get, class: "mb-8" do %>
+      <div class="flex items-center gap-2">
+        <div class="flex-grow">
+          <%= text_field_tag :query, params[:query], 
+              class: "w-full border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500", 
+              placeholder: "Search for songs...",
+              autocomplete: "off" %>
+        </div>
+        <%= submit_tag "Search", class: "bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg" %>
+      </div>
+    <% end %>
+    
+    <div id="device-status" class="text-center mb-4">
+      <p class="text-sm text-gray-500" id="device-status-text">Checking Spotify connection...</p>
+    </div>
+    
+    <% if @tracks.present? %>
+      <div class="my-4">
+        <h2 class="text-xl font-semibold mb-4">Found <%= @tracks.length %> tracks</h2>
+        <ul class="divide-y divide-gray-200">
+          <% @tracks.each do |track| %>
+            <li class="py-4 hover:bg-gray-50 rounded track-item" data-uri="<%= track.uri %>">
+              <div class="flex items-center space-x-4">
+                <% if track.album.images.any? %>
+                  <img src="<%= track.album.images.last["url"] %>" alt="Album art" class="w-12 h-12 object-cover rounded">
+                <% else %>
+                  <div class="w-12 h-12 bg-gray-300 rounded"></div>
+                <% end %>
+                <div class="flex-1">
+                  <h3 class="text-lg font-medium text-gray-900"><%= track.name %></h3>
+                  <p class="text-gray-600"><%= track.artists.map(&:name).join(", ") %></p>
+                </div>
+                <button class="play-button bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-full"
+                        data-uri="<%= track.uri %>" 
+                        data-track-name="<%= track.name %>"
+                        data-artist-name="<%= track.artists.map(&:name).join(", ") %>">
+                  Play
+                </button>
+              </div>
+            </li>
+          <% end %>
+        </ul>
+      </div>
+    <% elsif params[:query].present? %>
+      <div class="text-center py-8">
+        <p class="text-gray-600">No tracks found matching "<%= params[:query] %>"</p>
+      </div>
+    <% end %>
+    
+    <div class="text-center mt-6">
+      <a href="<%= player_path %>" class="text-emerald-600 hover:text-emerald-800">
+        &larr; Back to Player
+      </a>
+    </div>
+  </div>
+</div>
+
+<%= csrf_meta_tags %>
+
+<!-- Include Spotify Web Playback SDK for device verification -->
+<script src="https://sdk.scdn.co/spotify-player.js"></script>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const deviceStatusText = document.getElementById('device-status-text');
+    let deviceId = localStorage.getItem('spotify_device_id');
+    const token = '<%= current_spotify_user&.access_token %>';
+    let player = null;
+    
+    // Check if we have a device ID in localStorage
+    if (!deviceId) {
+      deviceStatusText.textContent = 'No Spotify device found. Setting up a new connection...';
+      deviceStatusText.className = 'text-sm text-yellow-500';
+      
+      // Wait for the Spotify Web Playback SDK to be loaded
+      window.onSpotifyWebPlaybackSDKReady = () => {
+        // Create a new player instance
+        player = new Spotify.Player({
+          name: 'Syft Listening Search Page',
+          getOAuthToken: cb => { cb(token); },
+          volume: 0.5
+        });
+        
+        // Event listeners for player state changes
+        player.addListener('ready', ({ device_id }) => {
+          console.log('Ready with Device ID', device_id);
+          localStorage.setItem('spotify_device_id', device_id);
+          deviceId = device_id;
+          deviceStatusText.textContent = 'Connected to Spotify';
+          deviceStatusText.className = 'text-sm text-green-500';
+          
+          // Enable play buttons once device is ready
+          enablePlayButtons();
+        });
+        
+        player.addListener('not_ready', ({ device_id }) => {
+          console.log('Device ID has gone offline', device_id);
+          deviceStatusText.textContent = 'Disconnected from Spotify';
+          deviceStatusText.className = 'text-sm text-red-500';
+          disablePlayButtons();
+        });
+        
+        // Connect to the player
+        player.connect();
+      };
+    } else {
+      // We have a device ID, but let's verify it's still valid
+      deviceStatusText.textContent = 'Verifying Spotify connection...';
+      checkDeviceStatus(deviceId, token);
+    }
+    
+    function checkDeviceStatus(deviceId, token) {
+      fetch('https://api.spotify.com/v1/me/player/devices', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      .then(response => response.json())
+      .then(data => {
+        console.log('Available devices:', data);
+        
+        // Check if our device ID is in the list of available devices
+        const deviceFound = data.devices && data.devices.some(device => device.id === deviceId);
+        
+        if (deviceFound) {
+          deviceStatusText.textContent = 'Connected to Spotify';
+          deviceStatusText.className = 'text-sm text-green-500';
+          enablePlayButtons();
+        } else {
+          deviceStatusText.textContent = 'Previous device not found. Setting up a new connection...';
+          deviceStatusText.className = 'text-sm text-yellow-500';
+          localStorage.removeItem('spotify_device_id');
+          
+          // Try to set up a new player
+          if (!player && window.Spotify) {
+            setupNewPlayer();
+          }
+        }
+      })
+      .catch(error => {
+        console.error('Error checking device status:', error);
+        deviceStatusText.textContent = 'Error connecting to Spotify. Please try returning to the player page.';
+        deviceStatusText.className = 'text-sm text-red-500';
+      });
+    }
+    
+    function setupNewPlayer() {
+      player = new Spotify.Player({
+        name: 'Syft Listening Search Page',
+        getOAuthToken: cb => { cb(token); },
+        volume: 0.5
+      });
+      
+      player.addListener('ready', ({ device_id }) => {
+        console.log('Ready with Device ID', device_id);
+        localStorage.setItem('spotify_device_id', device_id);
+        deviceId = device_id;
+        deviceStatusText.textContent = 'Connected to Spotify';
+        deviceStatusText.className = 'text-sm text-green-500';
+        enablePlayButtons();
+      });
+      
+      player.connect();
+    }
+    
+    function enablePlayButtons() {
+      // Get all play buttons
+      const playButtons = document.querySelectorAll('.play-button');
+      
+      // Add click event to each play button
+      playButtons.forEach(button => {
+        button.disabled = false;
+        button.addEventListener('click', function() {
+          const trackUri = this.getAttribute('data-uri');
+          const trackName = this.getAttribute('data-track-name');
+          const artistName = this.getAttribute('data-artist-name');
+          
+          // Visual feedback
+          this.textContent = 'Playing...';
+          this.disabled = true;
+          
+          playTrack(trackUri, trackName, artistName);
+        });
+      });
+    }
+    
+    function disablePlayButtons() {
+      document.querySelectorAll('.play-button').forEach(button => {
+        button.disabled = true;
+        button.textContent = 'Device Offline';
+      });
+    }
+    
+    // Check for device readiness before setting up play buttons initially
+    if (deviceId) {
+      enablePlayButtons();
+    } else {
+      disablePlayButtons();
+    }
+    
+    // Function to play a track
+    function playTrack(trackUri, trackName, artistName) {
+      // Get the device ID from localStorage (which should be verified by now)
+      const currentDeviceId = localStorage.getItem('spotify_device_id');
+      
+      if (!currentDeviceId) {
+        alert('No active Spotify device found. Please wait for connection or go back to the player page.');
+        return;
+      }
+      
+      // Create the CSRF token
+      const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+      
+      // Send request to play the track
+      fetch('/play_track', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken
+        },
+        body: JSON.stringify({
+          uri: trackUri,
+          device_id: currentDeviceId
+        })
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Network response was not ok');
+        }
+        return response.json();
+      })
+      .then(data => {
+        if (data.error) {
+          console.error('Error playing track:', data.error);
+          alert('Error playing track: ' + data.error);
+        } else {
+          // Success feedback
+          console.log('Now playing:', trackName, 'by', artistName);
+        }
+      })
+      .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred while trying to play the track: ' + error.message);
+      })
+      .finally(() => {
+        // Reset all buttons
+        document.querySelectorAll('.play-button').forEach(btn => {
+          btn.textContent = 'Play';
+          btn.disabled = false;
+        });
+      });
+    }
+  });
+</script>

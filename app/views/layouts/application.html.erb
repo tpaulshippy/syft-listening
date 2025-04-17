@@ -20,9 +20,18 @@
     <%# Includes all stylesheet files in app/assets/stylesheets %>
     <%= stylesheet_link_tag :app, "data-turbo-track": "reload" %>
     <%= javascript_importmap_tags %>
+    
+    <!-- Spotify Web Playback SDK -->
+    <script src="https://sdk.scdn.co/spotify-player.js"></script>
   </head>
 
   <body>
+    <% flash.each do |type, message| %>
+      <div class="<%= type == 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700' %> p-3 mb-4 rounded">
+        <%= message %>
+      </div>
+    <% end %>
+    
     <main class="container mx-auto mt-28 px-5 flex">
       <%= yield %>
     </main>

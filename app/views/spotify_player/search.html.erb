@@ -2,59 +2,62 @@
   <div class="w-full max-w-3xl bg-white rounded-lg shadow-lg p-6">
     <h1 class="text-3xl font-bold mb-6 text-center text-emerald-600">Search Results</h1>
     
-    <%= form_with url: search_path, method: :get, class: "mb-8" do %>
-      <div class="flex items-center gap-2">
-        <div class="flex-grow">
-          <%= text_field_tag :query, params[:query], 
-              class: "w-full border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500", 
-              placeholder: "Search for songs...",
-              autocomplete: "off" %>
+    <div data-controller="spotify-player" data-spotify-player-token-value="<%= current_spotify_user&.access_token %>">
+      <%= form_with url: search_path, method: :get, class: "mb-8" do %>
+        <div class="flex items-center gap-2">
+          <div class="flex-grow">
+            <%= text_field_tag :query, params[:query], 
+                class: "w-full border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500", 
+                placeholder: "Search for songs...",
+                autocomplete: "off" %>
+          </div>
+          <%= submit_tag "Search", class: "bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg" %>
         </div>
-        <%= submit_tag "Search", class: "bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg" %>
+      <% end %>
+      
+      <div id="device-status" class="text-center mb-4">
+        <p class="text-sm text-gray-500" id="device-status-text">Checking Spotify connection...</p>
       </div>
-    <% end %>
-    
-    <div id="device-status" class="text-center mb-4">
-      <p class="text-sm text-gray-500" id="device-status-text">Checking Spotify connection...</p>
-    </div>
-    
-    <% if @tracks.present? %>
-      <div class="my-4">
-        <h2 class="text-xl font-semibold mb-4">Found <%= @tracks.length %> tracks</h2>
-        <ul class="divide-y divide-gray-200">
-          <% @tracks.each do |track| %>
-            <li class="py-4 hover:bg-gray-50 rounded track-item" data-uri="<%= track.uri %>">
-              <div class="flex items-center space-x-4">
-                <% if track.album.images.any? %>
-                  <img src="<%= track.album.images.last["url"] %>" alt="Album art" class="w-12 h-12 object-cover rounded">
-                <% else %>
-                  <div class="w-12 h-12 bg-gray-300 rounded"></div>
-                <% end %>
-                <div class="flex-1">
-                  <h3 class="text-lg font-medium text-gray-900"><%= track.name %></h3>
-                  <p class="text-gray-600"><%= track.artists.map(&:name).join(", ") %></p>
+      
+      <% if @tracks.present? %>
+        <div class="my-4">
+          <h2 class="text-xl font-semibold mb-4">Found <%= @tracks.length %> tracks</h2>
+          <ul class="divide-y divide-gray-200">
+            <% @tracks.each do |track| %>
+              <li class="py-4 hover:bg-gray-50 rounded track-item" data-uri="<%= track.uri %>">
+                <div class="flex items-center space-x-4">
+                  <% if track.album.images.any? %>
+                    <img src="<%= track.album.images.last["url"] %>" alt="Album art" class="w-12 h-12 object-cover rounded">
+                  <% else %>
+                    <div class="w-12 h-12 bg-gray-300 rounded"></div>
+                  <% end %>
+                  <div class="flex-1">
+                    <h3 class="text-lg font-medium text-gray-900"><%= track.name %></h3>
+                    <p class="text-gray-600"><%= track.artists.map(&:name).join(", ") %></p>
+                  </div>
+                  <button class="play-button bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-full"
+                          data-action="spotify-player#playTrack" 
+                          data-track-uri="<%= track.uri %>" 
+                          data-track-name="<%= track.name %>"
+                          data-artist-name="<%= track.artists.map(&:name).join(", ") %>">
+                    Play
+                  </button>
                 </div>
-                <button class="play-button bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-full"
-                        data-uri="<%= track.uri %>" 
-                        data-track-name="<%= track.name %>"
-                        data-artist-name="<%= track.artists.map(&:name).join(", ") %>">
-                  Play
-                </button>
-              </div>
-            </li>
-          <% end %>
-        </ul>
+              </li>
+            <% end %>
+          </ul>
+        </div>
+      <% elsif params[:query].present? %>
+        <div class="text-center py-8">
+          <p class="text-gray-600">No tracks found matching "<%= params[:query] %>"</p>
+        </div>
+      <% end %>
+      
+      <div class="text-center mt-6">
+        <a href="<%= player_path %>" class="text-emerald-600 hover:text-emerald-800">
+          &larr; Back to Player
+        </a>
       </div>
-    <% elsif params[:query].present? %>
-      <div class="text-center py-8">
-        <p class="text-gray-600">No tracks found matching "<%= params[:query] %>"</p>
-      </div>
-    <% end %>
-    
-    <div class="text-center mt-6">
-      <a href="<%= player_path %>" class="text-emerald-600 hover:text-emerald-800">
-        &larr; Back to Player
-      </a>
     </div>
   </div>
 </div>
@@ -64,123 +67,60 @@
 <script>
   document.addEventListener('DOMContentLoaded', function() {
     const deviceStatusText = document.getElementById('device-status-text');
-    const token = '<%= current_spotify_user&.access_token %>';
-    const playButtons = document.querySelectorAll('.play-button');
-    const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
     
-    // First check if SpotifyPlayerManager exists in window
-    if (!window.SpotifyPlayerManager) {
-      console.error('SpotifyPlayerManager not found. Import may have failed.');
-      deviceStatusText.textContent = 'Error: Player not available';
-      deviceStatusText.className = 'text-sm text-red-500';
-      disablePlayButtons('Player unavailable');
-      return;
-    }
-    
-    // Initialize the shared Spotify player
-    window.SpotifyPlayerManager.initialize(token);
-    
-    // Check if the player is already initialized
-    if (window.SpotifyPlayerManager.isReady()) {
+    // Listen for Spotify player events
+    document.addEventListener('spotify:ready', (event) => {
       deviceStatusText.textContent = 'Connected to Spotify';
       deviceStatusText.className = 'text-sm text-green-500';
-      enablePlayButtons();
-    } else {
-      // Player not ready, need to wait for initialization
-      deviceStatusText.textContent = 'Connecting to Spotify...';
-      deviceStatusText.className = 'text-sm text-yellow-500';
-      
-      // Set up event listeners for player readiness
-      window.SpotifyPlayerManager.on('onReady', () => {
-        deviceStatusText.textContent = 'Connected to Spotify';
-        deviceStatusText.className = 'text-sm text-green-500';
-        enablePlayButtons();
-      });
-      
-      window.SpotifyPlayerManager.on('onNotReady', () => {
-        deviceStatusText.textContent = 'Disconnected from Spotify';
-        deviceStatusText.className = 'text-sm text-red-500';
-        disablePlayButtons('Device offline');
-      });
-      
-      window.SpotifyPlayerManager.on('onError', error => {
-        console.error('Player error:', error);
-        deviceStatusText.textContent = `Error: ${error.message}`;
-        deviceStatusText.className = 'text-sm text-red-500';
-        disablePlayButtons('Error connecting');
-      });
-    }
+      enableAllPlayButtons();
+    });
     
-    function enablePlayButtons() {
-      // Add click event to each play button
-      playButtons.forEach(button => {
+    document.addEventListener('spotify:notReady', () => {
+      deviceStatusText.textContent = 'Disconnected from Spotify';
+      deviceStatusText.className = 'text-sm text-red-500';
+      disableAllPlayButtons('Device offline');
+    });
+    
+    document.addEventListener('spotify:error', (event) => {
+      console.error('Player error:', event.detail);
+      deviceStatusText.textContent = `Error: ${event.detail.message}`;
+      deviceStatusText.className = 'text-sm text-red-500';
+      disableAllPlayButtons('Error connecting');
+    });
+    
+    // These functions will handle the UI updates - Stimulus handles the actual playback
+    function enableAllPlayButtons() {
+      document.querySelectorAll('.play-button').forEach(button => {
         button.disabled = false;
-        button.addEventListener('click', handlePlayButtonClick);
       });
     }
     
-    function disablePlayButtons(message = 'Device Offline') {
-      playButtons.forEach(button => {
+    function disableAllPlayButtons(message = 'Device Offline') {
+      document.querySelectorAll('.play-button').forEach(button => {
         button.disabled = true;
         button.textContent = message;
       });
     }
     
-    function handlePlayButtonClick(event) {
-      const button = event.currentTarget;
-      const trackUri = button.getAttribute('data-uri');
-      const trackName = button.getAttribute('data-track-name');
-      const artistName = button.getAttribute('data-artist-name');
-      
-      if (!window.SpotifyPlayerManager || !window.SpotifyPlayerManager.playTrack) {
-        console.error('SpotifyPlayerManager not available or playTrack method missing');
-        alert('Error: Player not available');
-        return;
-      }
-      
-      // Visual feedback
-      button.textContent = 'Playing...';
-      button.disabled = true;
-      
-      window.SpotifyPlayerManager.playTrack(trackUri, csrfToken)
-        .then(data => {
-          if (data.error) {
-            console.error('Error playing track:', data.error);
-            alert('Error playing track: ' + data.error);
-            resetButton(button);
-          } else {
-            // Success feedback
-            console.log('Now playing:', trackName, 'by', artistName);
-            
-            // Update button state to show it's playing
-            button.textContent = 'Playing';
-            button.classList.add('bg-green-600');
-            button.classList.remove('bg-emerald-500', 'bg-emerald-600');
-            
-            // Reset other buttons
-            playButtons.forEach(btn => {
-              if (btn !== button) {
-                btn.textContent = 'Play';
-                btn.disabled = false;
-                btn.classList.remove('bg-green-600');
-                btn.classList.add('bg-emerald-500');
-              }
-            });
-          }
-        })
-        .catch(error => {
-          console.error('Error:', error);
-          alert('An error occurred while trying to play the track: ' + error.message);
-          resetButton(button);
+    // Add click event listener to handle visual feedback for play buttons
+    document.addEventListener('click', function(event) {
+      if (event.target.classList.contains('play-button')) {
+        // Visual feedback - will be triggered before the Stimulus action
+        const button = event.target;
+        const allButtons = document.querySelectorAll('.play-button');
+        
+        // Reset all buttons first
+        allButtons.forEach(btn => {
+          btn.textContent = 'Play';
+          btn.classList.remove('bg-green-600');
+          btn.classList.add('bg-emerald-500');
         });
-    }
-    
-    function resetButton(button) {
-      // Reset button state
-      button.textContent = 'Play';
-      button.disabled = false;
-      button.classList.remove('bg-green-600');
-      button.classList.add('bg-emerald-500');
-    }
+        
+        // Update this button to show it's playing
+        button.textContent = 'Playing';
+        button.classList.add('bg-green-600');
+        button.classList.remove('bg-emerald-500', 'bg-emerald-600');
+      }
+    });
   });
 </script>

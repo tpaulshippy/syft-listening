@@ -10,42 +10,44 @@
         </a>
       </div>
     <% else %>
-      <!-- Search Box -->
-      <div class="mb-8">
-        <%= form_with url: search_path, method: :get, class: "flex items-center gap-2" do %>
-          <div class="flex-grow">
-            <%= text_field_tag :query, params[:query], 
-                class: "w-full border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500", 
-                placeholder: "Search for songs...",
-                autocomplete: "off" %>
-          </div>
-          <%= submit_tag "Search", class: "bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg" %>
-        <% end %>
-      </div>
-
-      <div id="player-container" class="mb-8">
-        <div id="spotify-player" class="w-full h-20 bg-gray-200 rounded mb-4"></div>
-        
-        <div class="flex flex-wrap justify-center gap-4 mt-4">
-          <button id="prev-button" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded">
-            Previous
-          </button>
-          <button id="play-button" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded">
-            Play
-          </button>
-          <button id="pause-button" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded">
-            Pause
-          </button>
-          <button id="next-button" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded">
-            Next
-          </button>
+      <div data-controller="spotify-player" data-spotify-player-token-value="<%= current_spotify_user&.access_token %>">
+        <!-- Search Box -->
+        <div class="mb-8">
+          <%= form_with url: search_path, method: :get, class: "flex items-center gap-2" do %>
+            <div class="flex-grow">
+              <%= text_field_tag :query, params[:query], 
+                  class: "w-full border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500", 
+                  placeholder: "Search for songs...",
+                  autocomplete: "off" %>
+            </div>
+            <%= submit_tag "Search", class: "bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg" %>
+          <% end %>
         </div>
-      </div>
-      
-      <div id="now-playing" class="text-center mb-8">
-        <h2 class="text-xl font-semibold mb-2">Now Playing</h2>
-        <p id="current-track" class="text-gray-700">No track currently playing</p>
-        <p id="device-status" class="text-sm text-gray-500 mt-2">Connecting to Spotify...</p>
+
+        <div id="player-container" class="mb-8">
+          <div id="spotify-player" class="w-full h-20 bg-gray-200 rounded mb-4"></div>
+          
+          <div class="flex flex-wrap justify-center gap-4 mt-4">
+            <button data-action="click->spotify-player#previousTrack" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded">
+              Previous
+            </button>
+            <button data-action="click->spotify-player#resume" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded">
+              Play
+            </button>
+            <button data-action="click->spotify-player#pause" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded">
+              Pause
+            </button>
+            <button data-action="click->spotify-player#nextTrack" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded">
+              Next
+            </button>
+          </div>
+        </div>
+        
+        <div id="now-playing" class="text-center mb-8">
+          <h2 class="text-xl font-semibold mb-2">Now Playing</h2>
+          <p data-spotify-player-target="status" class="text-gray-700">No track currently playing</p>
+          <p id="device-status" class="text-sm text-gray-500 mt-2">Connecting to Spotify...</p>
+        </div>
       </div>
       
       <div class="text-center mt-8">
@@ -56,21 +58,14 @@
       
       <script>
         document.addEventListener('DOMContentLoaded', () => {
-          const token = '<%= current_spotify_user&.access_token %>';
           const deviceStatusElement = document.getElementById('device-status');
-          const currentTrackElement = document.getElementById('current-track');
+          const token = '<%= current_spotify_user&.access_token %>';
           
-          // Initialize the shared Spotify player
-          window.SpotifyPlayerManager.initialize(token);
-          
-          // Check if the player is already initialized
-          if (window.SpotifyPlayerManager.isReady()) {
+          // Listen for Spotify player events
+          document.addEventListener('spotify:ready', (event) => {
             deviceStatusElement.textContent = 'Connected to Spotify';
-          }
-          
-          // Register event listeners
-          window.SpotifyPlayerManager.on('onReady', ({ device_id }) => {
-            deviceStatusElement.textContent = 'Connected to Spotify';
+            
+            const { device_id } = event.detail;
             
             // Transfer playback to this device
             fetch('https://api.spotify.com/v1/me/player', {
@@ -86,46 +81,13 @@
             });
           });
           
-          window.SpotifyPlayerManager.on('onNotReady', () => {
+          document.addEventListener('spotify:notReady', () => {
             deviceStatusElement.textContent = 'Disconnected from Spotify';
           });
           
-          window.SpotifyPlayerManager.on('onPlayerStateChanged', state => {
-            if (state) {
-              const currentTrack = state.track_window.current_track;
-              currentTrackElement.textContent = 
-                `${currentTrack.name} - ${currentTrack.artists.map(a => a.name).join(', ')}`;
-            }
-          });
-          
-          window.SpotifyPlayerManager.on('onError', error => {
-            console.error('Player error:', error);
-            deviceStatusElement.textContent = `Error: ${error.message}`;
-          });
-          
-          // Control buttons
-          document.getElementById('play-button').addEventListener('click', () => {
-            if (window.SpotifyPlayerManager.player) {
-              window.SpotifyPlayerManager.player.resume();
-            }
-          });
-          
-          document.getElementById('pause-button').addEventListener('click', () => {
-            if (window.SpotifyPlayerManager.player) {
-              window.SpotifyPlayerManager.player.pause();
-            }
-          });
-          
-          document.getElementById('prev-button').addEventListener('click', () => {
-            if (window.SpotifyPlayerManager.player) {
-              window.SpotifyPlayerManager.player.previousTrack();
-            }
-          });
-          
-          document.getElementById('next-button').addEventListener('click', () => {
-            if (window.SpotifyPlayerManager.player) {
-              window.SpotifyPlayerManager.player.nextTrack();
-            }
+          document.addEventListener('spotify:error', (event) => {
+            console.error('Player error:', event.detail);
+            deviceStatusElement.textContent = `Error: ${event.detail.message}`;
           });
         });
       </script>

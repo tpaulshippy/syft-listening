@@ -11,17 +11,48 @@
       </div>
     <% else %>
       <div data-controller="spotify-player" data-spotify-player-token-value="<%= current_spotify_user&.access_token %>">
-        <!-- Search Box -->
+        <!-- Playlists Section -->
         <div class="mb-8">
-          <%= form_with url: search_path, method: :get, class: "flex items-center gap-2" do %>
-            <div class="flex-grow">
-              <%= text_field_tag :query, params[:query], 
-                  class: "w-full border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-500", 
-                  placeholder: "Search for songs...",
-                  autocomplete: "off" %>
-            </div>
-            <%= submit_tag "Search", class: "bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg" %>
-          <% end %>
+          <h2 class="text-xl font-semibold mb-4">Your Playlists</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <% if @playlists&.any? %>
+              <% @playlists.each do |playlist| %>
+                <div class="border border-gray-200 rounded-lg p-3 flex items-center hover:bg-gray-50 transition cursor-pointer"
+                     data-action="click->spotify-player#playPlaylist"
+                     data-playlist-uri="<%= playlist.uri %>"
+                     data-playlist-name="<%= playlist.name %>">
+                  <% if playlist.images&.any? %>
+                    <img src="<%= playlist.images.first['url'] %>" alt="<%= playlist.name %>" class="w-16 h-16 object-cover rounded mr-3">
+                  <% else %>
+                    <div class="w-16 h-16 bg-gray-200 rounded mr-3 flex items-center justify-center">
+                      <span class="text-gray-500">No Image</span>
+                    </div>
+                  <% end %>
+                  <div class="flex-grow">
+                    <h3 class="font-medium"><%= playlist.name %></h3>
+                    <p class="text-sm text-gray-600">
+                      <% if playlist.respond_to?(:tracks) && playlist.tracks.respond_to?(:total) %>
+                        <%= playlist.tracks.total %> tracks
+                      <% elsif playlist.respond_to?(:tracks) && playlist.tracks.is_a?(Array) %>
+                        <%= playlist.tracks.length %> tracks
+                      <% else %>
+                        Tracks: N/A
+                      <% end %>
+                    </p>
+                  </div>
+                  <button class="bg-emerald-500 hover:bg-emerald-600 text-white rounded-full p-2">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                      <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path>
+                    </svg>
+                  </button>
+                </div>
+              <% end %>
+            <% else %>
+              <div class="col-span-2 p-4 text-center bg-gray-50 rounded-lg">
+                <p>No playlists found. Create some playlists in your Spotify account first.</p>
+              </div>
+            <% end %>
+          </div>
         </div>
 
         <div id="player-container" class="mb-8">

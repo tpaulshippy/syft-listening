@@ -18,6 +18,7 @@ Rails.application.routes.draw do
   get '/player', to: 'spotify_player#index'
   get '/search', to: 'spotify_player#search', as: 'search'
   post '/play_track', to: 'spotify_player#play_track', as: 'play_track'
+  post '/play_playlist', to: 'spotify_player#play_playlist', as: 'play_playlist'
   
   # Defines the root path route ("/")
   root 'spotify_player#index'

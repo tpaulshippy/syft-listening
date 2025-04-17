@@ -353,6 +353,89 @@ export default class extends Controller {
     this._playTrackWithUri(trackUri, csrfToken)
   }
   
+  // Play a playlist (action method that can be called from HTML)
+  playPlaylist(event) {
+    event.preventDefault()
+    
+    const playlistUri = event.currentTarget.dataset.playlistUri
+    const playlistName = event.currentTarget.dataset.playlistName
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
+    
+    // Update status display
+    if (playlistName && this.hasStatusTarget) {
+      this.statusTarget.textContent = `Loading playlist: ${playlistName}...`
+    }
+    
+    this._playPlaylistWithUri(playlistUri, csrfToken)
+  }
+  
+  // Internal method to play a playlist with the specified URI
+  _playPlaylistWithUri(playlistUri, csrfToken) {
+    if (!this.deviceId) {
+      console.error('No Spotify device ID available')
+      this._triggerEvent('error', { 
+        type: 'device', 
+        message: 'No Spotify device ID available' 
+      })
+      return Promise.reject(new Error('No Spotify device ID available'))
+    }
+
+    console.log('Attempting to play playlist:', playlistUri, 'on device:', this.deviceId)
+
+    return fetch('/play_playlist', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken
+      },
+      body: JSON.stringify({
+        uri: playlistUri,
+        device_id: this.deviceId
+      })
+    })
+    .then(response => {
+      console.log('Play playlist response status:', response.status)
+      if (!response.ok) {
+        return response.json().then(data => {
+          // Handle 404 errors specifically
+          if (response.status === 404) {
+            console.error('Playlist not found or device not available (404)')
+            // Try to refresh the device connection
+            this.player.disconnect().then(() => {
+              setTimeout(() => {
+                this.player.connect()
+              }, 1000)
+            })
+            throw new Error('The playlist could not be played. The device may need reconnecting or the playlist is unavailable.')
+          }
+          // Handle 401 errors (token expired)
+          else if (response.status === 401) {
+            console.error('Authentication error (401)')
+            // Trigger a token refresh
+            this._triggerEvent('tokenExpired', {})
+            throw new Error('Your Spotify session has expired. Please refresh the page.')
+          }
+          throw new Error(data.error || `Error playing playlist (${response.status})`)
+        })
+      }
+      
+      // Fetch current playback to get complete track details after a short delay
+      // to allow Spotify to start playing the playlist
+      setTimeout(() => {
+        this._fetchCurrentPlayback()
+      }, 1000)
+      
+      return response.json()
+    })
+    .catch(error => {
+      console.error('Error playing playlist:', error)
+      if (this.hasStatusTarget) {
+        this.statusTarget.textContent = `Error: ${error.message}`
+      }
+      return Promise.reject(error)
+    })
+  }
+  
   // Internal method to play a track with the specified URI
   _playTrackWithUri(trackUri, csrfToken) {
     if (!this.deviceId) {

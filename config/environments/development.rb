@@ -15,6 +15,12 @@ Rails.application.configure do
   # Enable server timing.
   config.server_timing = true
 
+  # Allow hostnames specified via environment variable
+  if ENV["ALLOWED_HOSTS"].present?
+    hosts = ENV["ALLOWED_HOSTS"].split(",").map(&:strip)
+    hosts.each { |host| config.hosts << host }
+  end
+
   # Enable/disable Action Controller caching. By default Action Controller caching is disabled.
   # Run rails dev:cache to toggle Action Controller caching.
   if Rails.root.join("tmp/caching-dev.txt").exist?

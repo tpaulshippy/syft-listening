@@ -86,6 +86,75 @@ export default class extends Controller {
   }
   
   // Media control methods - callable from action attributes
+  togglePlayback() {
+    if (!this.player) {
+      console.warn('Player not initialized');
+      return;
+    }
+    
+    this.player.getCurrentState().then(state => {
+      if (!state) {
+        console.error('User is not playing music through the Web Playback SDK');
+        return;
+      }
+      
+      const isPlaying = !state.paused;
+      
+      if (isPlaying) {
+        // If currently playing, pause it
+        this.pause();
+        // Update button icon to show play
+        if (this.hasPlayButtonTarget) {
+          this._updatePlayButtonIcon(false);
+        }
+      } else {
+        // If currently paused, resume playback
+        this.resume();
+        // Update button icon to show pause
+        if (this.hasPlayButtonTarget) {
+          this._updatePlayButtonIcon(true);
+        }
+      }
+    });
+  }
+  
+  // Update the play/pause button icon based on playback state
+  _updatePlayButtonIcon(isPlaying) {
+    const button = this.playButtonTarget;
+    
+    // Clear existing content
+    while (button.firstChild) {
+      button.removeChild(button.firstChild);
+    }
+    
+    // Create icon SVG
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'w-5 h-5 mr-1');
+    svg.setAttribute('fill', 'currentColor');
+    svg.setAttribute('viewBox', '0 0 20 20');
+    svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    
+    // Create path for icon
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('fill-rule', 'evenodd');
+    path.setAttribute('clip-rule', 'evenodd');
+    
+    if (isPlaying) {
+      // Pause icon
+      path.setAttribute('d', 'M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 011-1h.01a1 1 0 010 2H8a1 1 0 01-1-1zm2 0a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z');
+    } else {
+      // Play icon
+      path.setAttribute('d', 'M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z');
+    }
+    
+    // Add path to SVG
+    svg.appendChild(path);
+    
+    // Add SVG and text to button
+    button.appendChild(svg);
+    button.appendChild(document.createTextNode(isPlaying ? 'Pause' : 'Play'));
+  }
+  
   resume() {
     if (this.player) {
       this.player.resume().then(() => {
@@ -583,17 +652,25 @@ export default class extends Controller {
   // Update the status target if available
   _updateStatusTarget(state) {
     // Update status from WebSDK player state
-    if (this.hasStatusTarget && state) {
+    if (state) {
       const { current_track, paused } = state
-      if (current_track) {
-        this.statusTarget.textContent = `${paused ? 'Paused:' : 'Playing:'} ${current_track.name} by ${current_track.artists[0].name}`
-        // Store track info in case we need it later
-        this.currentTrackInfo = { name: current_track.name, artist: current_track.artists[0].name }
-      } else if (this.currentTrackInfo) {
-        // If no current track but we have stored track info, keep showing that
-        this.statusTarget.textContent = `${paused ? 'Paused:' : 'Playing:'} ${this.currentTrackInfo.name} by ${this.currentTrackInfo.artist}`
-      } else {
-        this.statusTarget.textContent = 'No track playing'
+      
+      // Update the play/pause button to reflect current state if available
+      if (this.hasPlayButtonTarget) {
+        this._updatePlayButtonIcon(!paused);
+      }
+      
+      if (this.hasStatusTarget) {
+        if (current_track) {
+          this.statusTarget.textContent = `${paused ? 'Paused:' : 'Playing:'} ${current_track.name} by ${current_track.artists[0].name}`
+          // Store track info in case we need it later
+          this.currentTrackInfo = { name: current_track.name, artist: current_track.artists[0].name }
+        } else if (this.currentTrackInfo) {
+          // If no current track but we have stored track info, keep showing that
+          this.statusTarget.textContent = `${paused ? 'Paused:' : 'Playing:'} ${this.currentTrackInfo.name} by ${this.currentTrackInfo.artist}`
+        } else {
+          this.statusTarget.textContent = 'No track playing'
+        }
       }
     }
   }

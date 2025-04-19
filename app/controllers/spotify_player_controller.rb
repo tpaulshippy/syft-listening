@@ -4,7 +4,8 @@ class SpotifyPlayerController < ApplicationController
   def index
     if spotify_user_logged_in?
       @spotify_user = current_spotify_user.to_spotify_user
-      @playlists = fetch_user_playlists
+      # Always filter for playlists starting with "K:"
+      @playlists = fetch_user_playlists("K:")
     end
   end
 
@@ -198,10 +199,16 @@ class SpotifyPlayerController < ApplicationController
 
   private
 
-  def fetch_user_playlists
+  def fetch_user_playlists(filter = nil)
     begin
       spotify_user = current_spotify_user.to_spotify_user
       playlists = spotify_user.playlists(limit: 50)
+      
+      # Apply filter if provided
+      if filter.present?
+        playlists = playlists.select { |playlist| playlist.name.start_with?(filter) }
+      end
+      
       playlists
     rescue => e
       Rails.logger.error "Error fetching playlists: #{e.message}"

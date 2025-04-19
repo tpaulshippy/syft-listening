@@ -13,7 +13,7 @@
       <div data-controller="spotify-player" data-spotify-player-token-value="<%= current_spotify_user&.access_token %>">
         <!-- Playlists Section -->
         <div class="mb-8">
-          <h2 class="text-xl font-semibold mb-4">Your Playlists</h2>
+          <h2 class="text-xl font-semibold mb-4">Playlists</h2>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <% if @playlists&.any? %>
               <% @playlists.each do |playlist| %>
@@ -29,7 +29,7 @@
                     </div>
                   <% end %>
                   <div class="flex-grow">
-                    <h3 class="font-medium"><%= playlist.name %></h3>
+                    <h3 class="font-medium"><%= playlist.name.start_with?("K:") ? playlist.name[2..-1] : playlist.name %></h3>
                     <p class="text-sm text-gray-600">
                       <% if playlist.respond_to?(:tracks) && playlist.tracks.respond_to?(:total) %>
                         <%= playlist.tracks.total %> tracks

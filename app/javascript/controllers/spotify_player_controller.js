@@ -8,11 +8,25 @@ export default class extends Controller {
     token: String,
   }
   
-  static targets = ["playButton", "status", "trackName", "trackArtist", "albumImage"]
+  static targets = [
+    "playButton", 
+    "status", 
+    "trackName", 
+    "trackArtist", 
+    "albumImage", 
+    "playlistTracks",
+    "playlistTitle",
+    "trackTemplate",
+    "trackNumber",
+    "trackImage",
+    "trackTitle",
+    "trackDuration"
+  ]
 
   player = null
   deviceId = null
   currentTrackInfo = null
+  currentPlaylistId = null
   
   connect() {
     console.log("Spotify Player Controller connected")
@@ -433,9 +447,9 @@ export default class extends Controller {
   playTrack(event) {
     event.preventDefault()
     
-    const trackUri = event.currentTarget.dataset.trackUri
-    const trackName = event.currentTarget.dataset.trackName
-    const artistName = event.currentTarget.dataset.artistName
+    const trackUri = event.currentTarget.dataset.spotifyPlayerTrackUri
+    const trackName = event.currentTarget.dataset.spotifyPlayerTrackName
+    const artistName = event.currentTarget.dataset.spotifyPlayerArtistName
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
     
     // Store track info to update status display
@@ -460,6 +474,14 @@ export default class extends Controller {
     }
     
     this._playPlaylistWithUri(playlistUri, csrfToken)
+  }
+  
+  // Helper to format milliseconds as mm:ss
+  _formatDuration(ms) {
+    const totalSeconds = Math.floor(ms / 1000)
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`
   }
   
   // Internal method to play a playlist with the specified URI
@@ -702,6 +724,9 @@ export default class extends Controller {
             paused: state.paused
           };
           
+          // Update the tracks display using the playlist-tracks controller
+          this._updatePlaylistTracks(state.track_window);
+          
           // Trigger an event for other components that might need this info
           this._triggerEvent('trackChanged', this.currentTrackInfo);
         } else if (this.currentTrackInfo) {
@@ -712,6 +737,135 @@ export default class extends Controller {
         }
       }
     }
+  }
+  
+  // Update the playlist tracks via the playlist-tracks controller
+  _updatePlaylistTracks(trackWindow) {
+    if (!trackWindow) return;
+    
+    // Find the playlist-tracks controller
+    const playlistTracksController = this.application.getControllerForElementAndIdentifier(
+      document.getElementById('playlist-tracks-container'),
+      'playlist-tracks'
+    );
+    
+    if (!playlistTracksController) {
+      console.log("Playlist tracks controller not found");
+      return;
+    }
+    
+    // Get all tracks from the player state
+    const currentTrack = trackWindow.current_track;
+    const previousTracks = trackWindow.previous_tracks || [];
+    const nextTracks = trackWindow.next_tracks || [];
+    
+    // Combine all tracks in order
+    const allTracks = [...previousTracks, currentTrack, ...nextTracks];
+    
+    // Get playlist name
+    const playlistName = currentTrack?.album?.name || "Current Playlist";
+    
+    // Update the tracks using the dedicated controller
+    playlistTracksController.updateTracks(allTracks, currentTrack.id, playlistName);
+  }
+
+  // Display tracks from the player state data using Stimulus targets
+  _displayTracksFromPlayerState(trackWindow) {
+    if (!this.hasPlaylistTracksTarget || !trackWindow) {
+      console.log("Missing required targets for displaying tracks", {
+        hasPlaylistTracksTarget: this.hasPlaylistTracksTarget,
+        hasTrackWindow: Boolean(trackWindow)
+      });
+      return;
+    }
+    
+    console.log("Displaying tracks from player state", { trackWindow });
+    
+    // Get all tracks from the player state
+    const currentTrack = trackWindow.current_track;
+    const previousTracks = trackWindow.previous_tracks || [];
+    const nextTracks = trackWindow.next_tracks || [];
+    
+    // Combine all tracks in order
+    const allTracks = [...previousTracks, currentTrack, ...nextTracks];
+    console.log(`Processing ${allTracks.length} tracks from player state`);
+    
+    // Clear existing tracks list
+    this.playlistTracksTarget.innerHTML = '';
+    
+    // If we have a current track, we can show the playlist name
+    const playlistName = currentTrack?.album?.name || "Current Playlist";
+    
+    // Update and show the playlist title
+    if (this.hasPlaylistTitleTarget) {
+      this.playlistTitleTarget.textContent = `${playlistName} - ${allTracks.length} tracks`;
+      this.playlistTitleTarget.classList.remove('hidden');
+    }
+    
+    // Create track elements directly
+    allTracks.forEach((track, index) => {
+      const isCurrentTrack = track.id === currentTrack.id;
+      
+      // Create the track element from scratch
+      const trackEl = document.createElement('div');
+      trackEl.className = `track-item flex items-center p-2 hover:bg-emerald-50 border-b border-gray-100 cursor-pointer ${isCurrentTrack ? 'bg-emerald-100' : ''}`;
+      trackEl.dataset.action = 'click->spotify-player#playTrack';
+      trackEl.dataset.spotifyPlayerTrackUri = track.uri;
+      trackEl.dataset.spotifyPlayerTrackName = track.name;
+      trackEl.dataset.spotifyPlayerArtistName = track.artists[0].name;
+      
+      // Track number
+      const numberContainer = document.createElement('div');
+      numberContainer.className = 'mr-3 w-10 text-center';
+      const number = document.createElement('span');
+      number.className = isCurrentTrack ? 'text-emerald-600 font-bold' : 'text-gray-500';
+      number.textContent = (index + 1).toString().padStart(2, '0');
+      numberContainer.appendChild(number);
+      trackEl.appendChild(numberContainer);
+      
+      // Track image
+      if (track.album?.images?.[2]?.url) {
+        const imgContainer = document.createElement('div');
+        imgContainer.className = 'w-10 h-10 mr-3 flex-shrink-0';
+        const img = document.createElement('img');
+        img.className = 'w-full h-full object-cover rounded';
+        img.src = track.album.images[2].url; 
+        img.alt = `${track.name} album art`;
+        imgContainer.appendChild(img);
+        trackEl.appendChild(imgContainer);
+      } else {
+        const placeholderContainer = document.createElement('div');
+        placeholderContainer.className = 'w-10 h-10 mr-3 flex-shrink-0 bg-gray-100 rounded';
+        trackEl.appendChild(placeholderContainer);
+      }
+      
+      // Track info
+      const infoContainer = document.createElement('div');
+      infoContainer.className = 'flex-grow overflow-hidden';
+      
+      const titleEl = document.createElement('div');
+      titleEl.className = isCurrentTrack ? 'font-medium text-emerald-600 truncate' : 'font-medium text-gray-900 truncate';
+      titleEl.textContent = track.name;
+      
+      const artistEl = document.createElement('div');
+      artistEl.className = 'text-sm text-gray-600 truncate';
+      artistEl.textContent = track.artists[0].name;
+      
+      infoContainer.appendChild(titleEl);
+      infoContainer.appendChild(artistEl);
+      trackEl.appendChild(infoContainer);
+      
+      // Duration
+      const durationEl = document.createElement('div');
+      durationEl.className = 'ml-2 text-sm text-gray-500';
+      durationEl.textContent = this._formatDuration(track.duration_ms);
+      trackEl.appendChild(durationEl);
+      
+      // Add track to playlist container
+      this.playlistTracksTarget.appendChild(trackEl);
+    });
+    
+    console.log("Finished rendering playlist tracks");
   }
 
   // Handle global Spotify API errors

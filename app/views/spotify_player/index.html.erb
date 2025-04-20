@@ -91,6 +91,37 @@
           <p data-spotify-player-target="status" class="text-gray-700 hidden">No track currently playing</p>
           <p id="device-status" class="text-sm text-gray-500">Connecting to Spotify...</p>
         </div>
+        
+        <!-- Playlist Tracks Section with dedicated controller -->
+        <div id="playlist-tracks-container" class="mt-4" data-controller="playlist-tracks">
+          <h3 data-playlist-tracks-target="title" class="text-lg font-semibold mb-2 text-center hidden"></h3>
+          <div data-playlist-tracks-target="container" class="max-h-96 overflow-y-auto bg-white rounded-lg shadow"></div>
+          
+          <!-- Track template -->
+          <template data-playlist-tracks-target="trackTemplate">
+            <div class="track-item flex items-center p-2 hover:bg-emerald-50 border-b border-gray-100 cursor-pointer"
+                 data-action="click->spotify-player#playTrack" 
+                 data-spotify-player-track-uri="" 
+                 data-spotify-player-track-name="" 
+                 data-spotify-player-artist-name="">
+              <!-- Track number -->
+              <div class="mr-3 w-10 text-center">
+                <span data-playlist-tracks-target="trackNumber" class="text-gray-500"></span>
+              </div>
+              <!-- Track image -->
+              <div data-playlist-tracks-target="imageContainer" class="w-10 h-10 mr-3 flex-shrink-0">
+                <img data-playlist-tracks-target="trackImage" class="w-full h-full object-cover rounded" src="" alt="">
+              </div>
+              <!-- Track info -->
+              <div class="flex-grow overflow-hidden">
+                <div data-playlist-tracks-target="trackTitle" class="font-medium text-gray-900 truncate"></div>
+                <div data-playlist-tracks-target="trackArtist" class="text-sm text-gray-600 truncate"></div>
+              </div>
+              <!-- Duration -->
+              <div data-playlist-tracks-target="trackDuration" class="ml-2 text-sm text-gray-500"></div>
+            </div>
+          </template>
+        </div>
       </div>
       
       <div class="text-center mt-3">

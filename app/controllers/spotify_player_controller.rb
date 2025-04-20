@@ -203,6 +203,8 @@ class SpotifyPlayerController < ApplicationController
     begin
       spotify_user = current_spotify_user.to_spotify_user
       playlists = spotify_user.playlists(limit: 50)
+      playlists_page_two = spotify_user.playlists(limit: 50, offset: 50)
+      playlists += playlists_page_two
       
       # Apply filter if provided
       if filter.present?

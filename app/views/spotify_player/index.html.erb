@@ -1,6 +1,6 @@
-<div class="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
-  <div class="w-full max-w-3xl bg-white rounded-lg shadow-lg p-6">
-    <h1 class="text-3xl font-bold mb-6 text-center text-emerald-600">Spotify Player</h1>
+<div class="flex flex-col items-center bg-gray-100 p-3 pt-1">
+  <div class="w-full max-w-3xl bg-white rounded-lg shadow-lg p-4 pt-2">
+    <h1 class="text-2xl font-bold mb-3 text-center text-emerald-600">Spotify Player</h1>
     
     <% if !session[:spotify_user_id] %>
       <div class="text-center p-8">
@@ -12,8 +12,8 @@
     <% else %>
       <div data-controller="spotify-player" data-spotify-player-token-value="<%= current_spotify_user&.access_token %>">
         <!-- Playlists Section -->
-        <div class="mb-8">
-          <h2 class="text-xl font-semibold mb-4">Playlists</h2>
+        <div class="mb-4">
+          <h2 class="text-lg font-semibold mb-2">Playlists</h2>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <% if @playlists&.any? %>
               <% @playlists.each do |playlist| %>
@@ -55,10 +55,21 @@
           </div>
         </div>
 
-        <div id="player-container" class="mb-8">
-          <div id="spotify-player" class="w-full h-20 bg-gray-200 rounded mb-4"></div>
+        <!-- Player Container -->
+        <div id="player-container" class="mb-4">
+          <div id="spotify-player" class="w-full h-16 bg-gray-200 rounded mb-3 flex items-center p-2">
+            <!-- Album Image -->
+            <div class="h-full aspect-square mr-3">
+              <img data-spotify-player-target="albumImage" class="h-full w-full object-cover rounded" src="" alt="Album Cover" style="display: none;">
+            </div>
+            <!-- Track Info -->
+            <div class="flex-grow">
+              <div data-spotify-player-target="trackName" class="font-medium text-gray-900 truncate"></div>
+              <div data-spotify-player-target="trackArtist" class="text-sm text-gray-600 truncate"></div>
+            </div>
+          </div>
           
-          <div class="flex flex-wrap justify-center gap-4 mt-4">
+          <div class="flex flex-wrap justify-center gap-3 mt-2">
             <button data-action="click->spotify-player#previousTrack" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded">
               Previous
             </button>
@@ -74,14 +85,15 @@
           </div>
         </div>
         
-        <div id="now-playing" class="text-center mb-8">
-          <h2 class="text-xl font-semibold mb-2">Now Playing</h2>
-          <p data-spotify-player-target="status" class="text-gray-700">No track currently playing</p>
-          <p id="device-status" class="text-sm text-gray-500 mt-2">Connecting to Spotify...</p>
+        <div id="now-playing" class="text-center mb-3">
+          <!-- Removed heading since we already show this info in the player box -->
+          <!-- Status text hidden as it's displayed in the spotify-player element -->
+          <p data-spotify-player-target="status" class="text-gray-700 hidden">No track currently playing</p>
+          <p id="device-status" class="text-sm text-gray-500">Connecting to Spotify...</p>
         </div>
       </div>
       
-      <div class="text-center mt-8">
+      <div class="text-center mt-3">
         <%= button_to logout_path, method: :get, class: "text-sm text-emerald-600 hover:text-emerald-800" do %>
           Sign out
         <% end %>

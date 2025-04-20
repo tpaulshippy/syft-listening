@@ -8,7 +8,7 @@ export default class extends Controller {
     token: String,
   }
   
-  static targets = ["playButton", "status"]
+  static targets = ["playButton", "status", "trackName", "trackArtist", "albumImage"]
 
   player = null
   deviceId = null
@@ -20,6 +20,10 @@ export default class extends Controller {
     // Add a global listener for Spotify API errors
     this._errorListener = this._handleGlobalSpotifyError.bind(this)
     document.addEventListener('spotify:api:error', this._errorListener)
+    
+    // Add a listener for track changes to update the player UI
+    this._trackChangeListener = this._updatePlayerUI.bind(this)
+    document.addEventListener('spotify:trackChanged', this._trackChangeListener)
     
     // Wait for proper initialization before configuring the player
     if (window.spotifySDKLoaded && window.Spotify) {
@@ -42,8 +46,9 @@ export default class extends Controller {
   }
   
   disconnect() {
-    // Remove the error listener when disconnecting
+    // Remove all event listeners when disconnecting
     document.removeEventListener('spotify:api:error', this._errorListener)
+    document.removeEventListener('spotify:trackChanged', this._trackChangeListener)
     this._disconnectPlayer()
   }
   
@@ -754,5 +759,29 @@ export default class extends Controller {
   // Check if player is ready
   isReady() {
     return Boolean(this.deviceId && this.player)
+  }
+
+  // Update the player UI with current track information
+  _updatePlayerUI(event) {
+    const trackInfo = event.detail;
+    
+    if (trackInfo) {
+      if (this.hasTrackNameTarget && this.hasTrackArtistTarget) {
+        // Update track name and artist
+        this.trackNameTarget.textContent = trackInfo.name || 'Unknown Track';
+        this.trackArtistTarget.textContent = trackInfo.artist || 'Unknown Artist';
+      }
+      
+      if (this.hasAlbumImageTarget) {
+        // Update album image if available
+        if (trackInfo.albumImage) {
+          this.albumImageTarget.src = trackInfo.albumImage;
+          this.albumImageTarget.alt = `${trackInfo.name} album cover`;
+          this.albumImageTarget.style.display = 'block';
+        } else {
+          this.albumImageTarget.style.display = 'none';
+        }
+      }
+    }
   }
 }

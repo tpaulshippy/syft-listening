@@ -95,6 +95,9 @@ export default class extends Controller {
     this.player.getCurrentState().then(state => {
       if (!state) {
         console.error('User is not playing music through the Web Playback SDK');
+        // If we don't have a state but we're attempting to play music,
+        // let's try to fetch what's currently loaded in the player
+        this._fetchCurrentPlayback();
         return;
       }
       
@@ -114,7 +117,12 @@ export default class extends Controller {
         if (this.hasPlayButtonTarget) {
           this._updatePlayButtonIcon(true);
         }
+        // We don't need to fetch playback info here since resume() now does it
       }
+    }).catch(error => {
+      console.error('Error getting player state:', error);
+      // Try to fetch current playback as a fallback
+      this._fetchCurrentPlayback();
     });
   }
   
@@ -159,6 +167,10 @@ export default class extends Controller {
     if (this.player) {
       this.player.resume().then(() => {
         console.log('Playback resumed');
+        // Fetch and update current playback after resuming playback
+        setTimeout(() => {
+          this._fetchCurrentPlayback();
+        }, 500);
       }).catch(error => {
         console.error('Error resuming playback:', error);
       });
@@ -183,6 +195,10 @@ export default class extends Controller {
     if (this.player) {
       this.player.previousTrack().then(() => {
         console.log('Skipped to previous track');
+        // Fetch and update current playback after track change
+        setTimeout(() => {
+          this._fetchCurrentPlayback();
+        }, 500);
       }).catch(error => {
         console.error('Error skipping to previous track:', error);
       });
@@ -195,6 +211,10 @@ export default class extends Controller {
     if (this.player) {
       this.player.nextTrack().then(() => {
         console.log('Skipped to next track');
+        // Fetch and update current playback after track change
+        setTimeout(() => {
+          this._fetchCurrentPlayback();
+        }, 500);
       }).catch(error => {
         console.error('Error skipping to next track:', error);
       });

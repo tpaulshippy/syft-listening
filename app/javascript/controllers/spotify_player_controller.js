@@ -167,12 +167,12 @@ export default class extends Controller {
     if (this.player) {
       this.player.resume().then(() => {
         console.log('Playback resumed');
-        // Fetch and update current playback after resuming playback
-        setTimeout(() => {
-          this._fetchCurrentPlayback();
-        }, 500);
+        // We'll rely on the player_state_changed event to update the UI
+        // instead of using a setTimeout
       }).catch(error => {
         console.error('Error resuming playback:', error);
+        // If there's an error, still try to fetch current playback as a fallback
+        this._fetchCurrentPlayback();
       });
     } else {
       console.warn('Player not initialized');
@@ -183,6 +183,7 @@ export default class extends Controller {
     if (this.player) {
       this.player.pause().then(() => {
         console.log('Playback paused');
+        // We rely on the player_state_changed event to update the UI
       }).catch(error => {
         console.error('Error pausing playback:', error);
       });
@@ -195,12 +196,11 @@ export default class extends Controller {
     if (this.player) {
       this.player.previousTrack().then(() => {
         console.log('Skipped to previous track');
-        // Fetch and update current playback after track change
-        setTimeout(() => {
-          this._fetchCurrentPlayback();
-        }, 500);
+        // We'll rely on the player_state_changed event to update the UI
       }).catch(error => {
         console.error('Error skipping to previous track:', error);
+        // If there's an error, still try to fetch current playback as a fallback
+        this._fetchCurrentPlayback();
       });
     } else {
       console.warn('Player not initialized');
@@ -211,12 +211,11 @@ export default class extends Controller {
     if (this.player) {
       this.player.nextTrack().then(() => {
         console.log('Skipped to next track');
-        // Fetch and update current playback after track change
-        setTimeout(() => {
-          this._fetchCurrentPlayback();
-        }, 500);
+        // We'll rely on the player_state_changed event to update the UI
       }).catch(error => {
         console.error('Error skipping to next track:', error);
+        // If there's an error, still try to fetch current playback as a fallback
+        this._fetchCurrentPlayback();
       });
     } else {
       console.warn('Player not initialized');
@@ -673,7 +672,9 @@ export default class extends Controller {
   _updateStatusTarget(state) {
     // Update status from WebSDK player state
     if (state) {
-      const { current_track, paused } = state
+      // Extract current track from track_window as per the Spotify Web Playback SDK structure
+      const current_track = state.track_window?.current_track;
+      const paused = state.paused;
       
       // Update the play/pause button to reflect current state if available
       if (this.hasPlayButtonTarget) {
@@ -682,14 +683,27 @@ export default class extends Controller {
       
       if (this.hasStatusTarget) {
         if (current_track) {
-          this.statusTarget.textContent = `${paused ? 'Paused:' : 'Playing:'} ${current_track.name} by ${current_track.artists[0].name}`
+          const artistName = current_track.artists[0].name;
+          this.statusTarget.textContent = `${paused ? 'Paused:' : 'Playing:'} ${current_track.name} by ${artistName}`;
+          
           // Store track info in case we need it later
-          this.currentTrackInfo = { name: current_track.name, artist: current_track.artists[0].name }
+          this.currentTrackInfo = { 
+            name: current_track.name, 
+            artist: artistName,
+            albumName: current_track.album?.name,
+            albumImage: current_track.album?.images?.[0]?.url,
+            duration: current_track.duration_ms,
+            position: state.position,
+            paused: state.paused
+          };
+          
+          // Trigger an event for other components that might need this info
+          this._triggerEvent('trackChanged', this.currentTrackInfo);
         } else if (this.currentTrackInfo) {
           // If no current track but we have stored track info, keep showing that
-          this.statusTarget.textContent = `${paused ? 'Paused:' : 'Playing:'} ${this.currentTrackInfo.name} by ${this.currentTrackInfo.artist}`
+          this.statusTarget.textContent = `${paused ? 'Paused:' : 'Playing:'} ${this.currentTrackInfo.name} by ${this.currentTrackInfo.artist}`;
         } else {
-          this.statusTarget.textContent = 'No track playing'
+          this.statusTarget.textContent = 'No track playing';
         }
       }
     }

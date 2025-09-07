@@ -302,8 +302,17 @@ class SpotifyPlayerController < ApplicationController
       })
       shows_data = JSON.parse(response.body)
       shows_data["items"] || []
+    rescue RestClient::NotFound => e
+      Rails.logger.info "No shows found for user (404) - user may not have any saved shows"
+      []
+    rescue RestClient::Forbidden => e
+      Rails.logger.warn "Access forbidden when fetching shows (403) - may need additional OAuth scopes"
+      []
+    rescue RestClient::Unauthorized => e
+      Rails.logger.warn "Unauthorized when fetching shows (401) - access token may be expired"
+      []
     rescue => e
-      Rails.logger.error "Error fetching shows: #{e.message}"
+      Rails.logger.error "Error fetching shows: #{e.class} - #{e.message}"
       []
     end
   end

@@ -1,0 +1,289 @@
+{
+    "timestamp": 1745107741190,
+    "context": {
+        "uri": "spotify:playlist:2rUBhz72jof88nfxY2cEe8",
+        "metadata": {}
+    },
+    "duration": 235860,
+    "paused": true,
+    "shuffle": false,
+    "position": 3421,
+    "loading": false,
+    "repeat_mode": 0,
+    "track_window": {
+        "current_track": {
+            "id": "3ebss1iollW2ZvR9skIhi2",
+            "uri": "spotify:track:3ebss1iollW2ZvR9skIhi2",
+            "type": "track",
+            "uid": "a42039cf80404e60",
+            "linked_from": {
+                "uri": null,
+                "id": null
+            },
+            "media_type": "audio",
+            "track_type": "audio",
+            "name": "The Song Of The Cebu",
+            "duration_ms": 235860,
+            "artists": [
+                {
+                    "name": "VeggieTales",
+                    "uri": "spotify:artist:4QKx7KohkWZAOkO4sI3GRx",
+                    "url": "https://api.spotify.com/v1/artists/4QKx7KohkWZAOkO4sI3GRx"
+                }
+            ],
+            "album": {
+                "name": "25 Favorite Silly Songs!",
+                "uri": "spotify:album:03UyFym65sRpuALjTGOdr3",
+                "images": [
+                    {
+                        "url": "https://i.scdn.co/image/ab67616d0000b273e3fb91ab406cc5e989e96a16",
+                        "height": 640,
+                        "width": 640,
+                        "size": "UNKNOWN"
+                    },
+                    {
+                        "url": "https://i.scdn.co/image/ab67616d00004851e3fb91ab406cc5e989e96a16",
+                        "height": 64,
+                        "width": 64,
+                        "size": "UNKNOWN"
+                    },
+                    {
+                        "url": "https://i.scdn.co/image/ab67616d00001e02e3fb91ab406cc5e989e96a16",
+                        "height": 300,
+                        "width": 300,
+                        "size": "UNKNOWN"
+                    }
+                ]
+            },
+            "is_playable": true
+        },
+        "next_tracks": [
+            {
+                "id": "0v7NubNZq44wW0IHhFWGY1",
+                "uri": "spotify:track:0v7NubNZq44wW0IHhFWGY1",
+                "type": "track",
+                "uid": "f469339b40298595",
+                "linked_from": {
+                    "uri": null,
+                    "id": null
+                },
+                "media_type": "video",
+                "track_type": "video",
+                "name": "His Cheeseburger",
+                "duration_ms": 188266,
+                "artists": [
+                    {
+                        "name": "VeggieTales",
+                        "uri": "spotify:artist:4QKx7KohkWZAOkO4sI3GRx",
+                        "url": "https://api.spotify.com/v1/artists/4QKx7KohkWZAOkO4sI3GRx"
+                    }
+                ],
+                "album": {
+                    "name": "25 Favorite Silly Songs!",
+                    "uri": "spotify:album:03UyFym65sRpuALjTGOdr3",
+                    "images": [
+                        {
+                            "url": "https://i.scdn.co/image/ab67616d0000b273e3fb91ab406cc5e989e96a16",
+                            "height": 640,
+                            "width": 640,
+                            "size": "UNKNOWN"
+                        },
+                        {
+                            "url": "https://i.scdn.co/image/ab67616d00004851e3fb91ab406cc5e989e96a16",
+                            "height": 64,
+                            "width": 64,
+                            "size": "UNKNOWN"
+                        },
+                        {
+                            "url": "https://i.scdn.co/image/ab67616d00001e02e3fb91ab406cc5e989e96a16",
+                            "height": 300,
+                            "width": 300,
+                            "size": "UNKNOWN"
+                        }
+                    ]
+                },
+                "is_playable": true
+            },
+            {
+                "id": "0q1TI0OYRp8W9XNNMAA8h7",
+                "uri": "spotify:track:0q1TI0OYRp8W9XNNMAA8h7",
+                "type": "track",
+                "uid": "82fc69535600ab6f",
+                "linked_from": {
+                    "uri": null,
+                    "id": null
+                },
+                "media_type": "video",
+                "track_type": "video",
+                "name": "The Yodeling Veterinarian Of The Alps",
+                "duration_ms": 237866,
+                "artists": [
+                    {
+                        "name": "VeggieTales",
+                        "uri": "spotify:artist:4QKx7KohkWZAOkO4sI3GRx",
+                        "url": "https://api.spotify.com/v1/artists/4QKx7KohkWZAOkO4sI3GRx"
+                    }
+                ],
+                "album": {
+                    "name": "25 Favorite Silly Songs!",
+                    "uri": "spotify:album:03UyFym65sRpuALjTGOdr3",
+                    "images": [
+                        {
+                            "url": "https://i.scdn.co/image/ab67616d0000b273e3fb91ab406cc5e989e96a16",
+                            "height": 640,
+                            "width": 640,
+                            "size": "UNKNOWN"
+                        },
+                        {
+                            "url": "https://i.scdn.co/image/ab67616d00004851e3fb91ab406cc5e989e96a16",
+                            "height": 64,
+                            "width": 64,
+                            "size": "UNKNOWN"
+                        },
+                        {
+                            "url": "https://i.scdn.co/image/ab67616d00001e02e3fb91ab406cc5e989e96a16",
+                            "height": 300,
+                            "width": 300,
+                            "size": "UNKNOWN"
+                        }
+                    ]
+                },
+                "is_playable": true
+            }
+        ],
+        "previous_tracks": [
+            {
+                "id": "1vWTGrJE8WyrWydDQygVMW",
+                "uri": "spotify:track:1vWTGrJE8WyrWydDQygVMW",
+                "type": "track",
+                "uid": "386ebabe975a615b",
+                "linked_from": {
+                    "uri": null,
+                    "id": null
+                },
+                "media_type": "video",
+                "track_type": "video",
+                "name": "The Pirates Who Don't Do Anything",
+                "duration_ms": 196880,
+                "artists": [
+                    {
+                        "name": "VeggieTales",
+                        "uri": "spotify:artist:4QKx7KohkWZAOkO4sI3GRx",
+                        "url": "https://api.spotify.com/v1/artists/4QKx7KohkWZAOkO4sI3GRx"
+                    }
+                ],
+                "album": {
+                    "name": "25 Favorite Silly Songs!",
+                    "uri": "spotify:album:03UyFym65sRpuALjTGOdr3",
+                    "images": [
+                        {
+                            "url": "https://i.scdn.co/image/ab67616d0000b273e3fb91ab406cc5e989e96a16",
+                            "height": 640,
+                            "width": 640,
+                            "size": "UNKNOWN"
+                        },
+                        {
+                            "url": "https://i.scdn.co/image/ab67616d00004851e3fb91ab406cc5e989e96a16",
+                            "height": 64,
+                            "width": 64,
+                            "size": "UNKNOWN"
+                        },
+                        {
+                            "url": "https://i.scdn.co/image/ab67616d00001e02e3fb91ab406cc5e989e96a16",
+                            "height": 300,
+                            "width": 300,
+                            "size": "UNKNOWN"
+                        }
+                    ]
+                },
+                "is_playable": true
+            },
+            {
+                "id": "1r6dFU8AwVunh1pxdTgnCj",
+                "uri": "spotify:track:1r6dFU8AwVunh1pxdTgnCj",
+                "type": "track",
+                "uid": "a2b466abefc98495",
+                "linked_from": {
+                    "uri": null,
+                    "id": null
+                },
+                "media_type": "video",
+                "track_type": "video",
+                "name": "Love My Lips",
+                "duration_ms": 201933,
+                "artists": [
+                    {
+                        "name": "VeggieTales",
+                        "uri": "spotify:artist:4QKx7KohkWZAOkO4sI3GRx",
+                        "url": "https://api.spotify.com/v1/artists/4QKx7KohkWZAOkO4sI3GRx"
+                    }
+                ],
+                "album": {
+                    "name": "25 Favorite Silly Songs!",
+                    "uri": "spotify:album:03UyFym65sRpuALjTGOdr3",
+                    "images": [
+                        {
+                            "url": "https://i.scdn.co/image/ab67616d0000b273e3fb91ab406cc5e989e96a16",
+                            "height": 640,
+                            "width": 640,
+                            "size": "UNKNOWN"
+                        },
+                        {
+                            "url": "https://i.scdn.co/image/ab67616d00004851e3fb91ab406cc5e989e96a16",
+                            "height": 64,
+                            "width": 64,
+                            "size": "UNKNOWN"
+                        },
+                        {
+                            "url": "https://i.scdn.co/image/ab67616d00001e02e3fb91ab406cc5e989e96a16",
+                            "height": 300,
+                            "width": 300,
+                            "size": "UNKNOWN"
+                        }
+                    ]
+                },
+                "is_playable": true
+            }
+        ]
+    },
+    "restrictions": {
+        "disallow_seeking_reasons": [],
+        "disallow_skipping_next_reasons": [],
+        "disallow_skipping_prev_reasons": [],
+        "disallow_toggling_repeat_context_reasons": [],
+        "disallow_toggling_repeat_track_reasons": [],
+        "disallow_toggling_shuffle_reasons": [],
+        "disallow_peeking_next_reasons": [],
+        "disallow_peeking_prev_reasons": [],
+        "undefined": [
+            "not_supported_by_content_type",
+            "not_supported_by_device"
+        ],
+        "disallow_pausing_reasons": [
+            "already_paused"
+        ]
+    },
+    "disallows": {
+        "seeking": false,
+        "skipping_next": false,
+        "skipping_prev": false,
+        "toggling_repeat_context": false,
+        "toggling_repeat_track": false,
+        "toggling_shuffle": false,
+        "peeking_next": false,
+        "peeking_prev": false,
+        "undefined": true,
+        "pausing": true
+    },
+    "playback_id": "18d7206d1d9f4e76b0a2f92a50019a7d",
+    "playback_quality": "VERY_HIGH",
+    "playback_features": {
+        "hifi_status": "NONE",
+        "playback_speed": {
+            "current": 0,
+            "selected": 1,
+            "restricted": true
+        }
+    },
+    "playback_speed": 0
+}

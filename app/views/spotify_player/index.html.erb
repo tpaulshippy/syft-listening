@@ -55,6 +55,48 @@
           </div>
         </div>
 
+        <!-- Shows Section -->
+        <div class="mb-4">
+          <h2 class="text-lg font-semibold mb-2">Podcasts</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <% if @shows&.any? %>
+              <% @shows.each do |show_item| %>
+                <% show = show_item['show'] %>
+                <div class="border border-gray-200 rounded-lg p-3 flex items-center hover:bg-gray-50 transition cursor-pointer"
+                     data-action="click->spotify-player#playShow"
+                     data-show-uri="<%= show['uri'] %>"
+                     data-show-name="<%= show['name'] %>">
+                  <% if show['images']&.any? %>
+                    <img src="<%= show['images'].first['url'] %>" alt="<%= show['name'] %>" class="w-16 h-16 object-cover rounded mr-3">
+                  <% else %>
+                    <div class="w-16 h-16 bg-gray-200 rounded mr-3 flex items-center justify-center">
+                      <span class="text-gray-500 text-xs">No Image</span>
+                    </div>
+                  <% end %>
+                  <div class="flex-grow">
+                    <h3 class="font-medium"><%= show['name'] %></h3>
+                    <p class="text-sm text-gray-600">
+                      <%= show['publisher'] %>
+                    </p>
+                    <p class="text-xs text-gray-500 mt-1">
+                      <%= show['total_episodes'] %> episodes
+                    </p>
+                  </div>
+                  <button class="bg-blue-500 hover:bg-blue-600 text-white rounded-full p-2">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                      <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path>
+                    </svg>
+                  </button>
+                </div>
+              <% end %>
+            <% else %>
+              <div class="col-span-2 p-4 text-center bg-gray-50 rounded-lg">
+                <p>No podcasts found. Follow some podcasts in your Spotify account first.</p>
+              </div>
+            <% end %>
+          </div>
+        </div>
+
         <!-- Player Container -->
         <div id="player-container" class="mb-4">
           <div id="spotify-player" class="w-full h-16 bg-gray-200 rounded mb-3 flex items-center p-2">

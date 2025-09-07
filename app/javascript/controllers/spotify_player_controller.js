@@ -457,7 +457,12 @@ export default class extends Controller {
       this.currentTrackInfo = { name: trackName, artist: artistName }
     }
     
-    this._playTrackWithUri(trackUri, csrfToken)
+    // Check if this is an episode URI and use appropriate method
+    if (trackUri && trackUri.startsWith('spotify:episode:')) {
+      this._playEpisodeWithUri(trackUri, csrfToken)
+    } else {
+      this._playTrackWithUri(trackUri, csrfToken)
+    }
   }
   
   // Play a playlist (action method that can be called from HTML)
@@ -474,6 +479,21 @@ export default class extends Controller {
     }
     
     this._playPlaylistWithUri(playlistUri, csrfToken)
+  }
+
+  // Play a show (action method that can be called from HTML)
+  playShow(event) {
+    event.preventDefault()
+    
+    const showUri = event.currentTarget.dataset.showUri
+    const showName = event.currentTarget.dataset.showName
+    
+    // Update status display
+    if (showName && this.hasStatusTarget) {
+      this.statusTarget.textContent = `Loading episodes for: ${showName}...`
+    }
+    
+    this._fetchShowEpisodes(showUri, showName)
   }
   
   // Helper to format milliseconds as mm:ss
@@ -551,6 +571,160 @@ export default class extends Controller {
     })
   }
   
+  // Internal method to play a show with the specified URI (plays latest episode)
+  _playShowWithUri(showUri, csrfToken) {
+    if (!this.deviceId) {
+      console.error('No Spotify device ID available')
+      this._triggerEvent('error', { 
+        type: 'device', 
+        message: 'No Spotify device ID available' 
+      })
+      return Promise.reject(new Error('No Spotify device ID available'))
+    }
+
+    console.log('Attempting to play show:', showUri, 'on device:', this.deviceId)
+
+    // First, get the show's episodes to find the latest one
+    const showId = showUri.split(':').pop()
+    return fetch(`https://api.spotify.com/v1/shows/${showId}/episodes?limit=1`, {
+      headers: {
+        'Authorization': `Bearer ${this.tokenValue}`
+      }
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.items && data.items.length > 0) {
+        const latestEpisode = data.items[0]
+        const episodeUri = latestEpisode.uri
+        
+        // Now play the latest episode
+        return fetch('/play_episode', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken
+          },
+          body: JSON.stringify({
+            uri: episodeUri,
+            device_id: this.deviceId
+          })
+        })
+      } else {
+        throw new Error('No episodes found for this show')
+      }
+    })
+    .then(response => {
+      console.log('Play episode response status:', response.status)
+      if (!response.ok) {
+        return response.json().then(data => {
+          // Handle 404 errors specifically
+          if (response.status === 404) {
+            console.error('Episode not found or device not available (404)')
+            // Try to refresh the device connection
+            this.player.disconnect().then(() => {
+              setTimeout(() => {
+                this.player.connect()
+              }, 1000)
+            })
+            throw new Error('The episode could not be played. The device may need reconnecting or the episode is unavailable.')
+          }
+          // Handle 401 errors (token expired)
+          else if (response.status === 401) {
+            console.error('Authentication error (401)')
+            // Trigger a token refresh
+            this._triggerEvent('tokenExpired', {})
+            throw new Error('Your Spotify session has expired. Please refresh the page.')
+          }
+          throw new Error(data.error || `Error playing episode (${response.status})`)
+        })
+      }
+      
+      // Fetch current playback to get complete episode details after a short delay
+      // to allow Spotify to start playing the episode
+      setTimeout(() => {
+        this._fetchCurrentPlayback()
+      }, 1000)
+      
+      return response.json()
+    })
+    .catch(error => {
+      console.error('Error playing show:', error)
+      if (this.hasStatusTarget) {
+        this.statusTarget.textContent = `Error: ${error.message}`
+      }
+      return Promise.reject(error)
+    })
+  }
+
+  // Fetch and display episodes for a show
+  _fetchShowEpisodes(showUri, showName) {
+    const showId = showUri.split(':').pop()
+    
+    fetch(`https://api.spotify.com/v1/shows/${showId}/episodes?limit=20`, {
+      headers: {
+        'Authorization': `Bearer ${this.tokenValue}`
+      }
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.items && data.items.length > 0) {
+        this._updateEpisodesList(data.items, showName)
+      } else {
+        console.log("No episodes found for this show")
+        if (this.hasStatusTarget) {
+          this.statusTarget.textContent = 'No episodes found for this show'
+        }
+      }
+    })
+    .catch(error => {
+      console.error('Error fetching episodes:', error)
+      if (this.hasStatusTarget) {
+        this.statusTarget.textContent = `Error loading episodes: ${error.message}`
+      }
+    })
+  }
+
+  // Update the episodes list using the playlist-tracks controller
+  _updateEpisodesList(episodes, showName) {
+    // Find the playlist-tracks controller
+    const playlistTracksController = this.application.getControllerForElementAndIdentifier(
+      document.getElementById('playlist-tracks-container'),
+      'playlist-tracks'
+    )
+
+    if (!playlistTracksController) {
+      console.log("Playlist tracks controller not found")
+      return
+    }
+
+    // Convert episodes to track-like format for the playlist-tracks controller
+    const episodeData = episodes.map((episode, index) => ({
+      id: episode.id,
+      uri: episode.uri,
+      name: episode.name,
+      description: episode.description,
+      duration_ms: episode.duration_ms,
+      release_date: episode.release_date,
+      images: episode.images,
+      // Add track-like properties for compatibility
+      album: {
+        name: showName,
+        images: episode.images
+      },
+      artists: [{
+        name: episode.show?.publisher || 'Unknown Publisher'
+      }]
+    }))
+
+    // Update the episodes display using the playlist-tracks controller
+    playlistTracksController.updateTracks(episodeData, null, showName)
+    
+    // Clear status
+    if (this.hasStatusTarget) {
+      this.statusTarget.textContent = ''
+    }
+  }
+  
   // Internal method to play a track with the specified URI
   _playTrackWithUri(trackUri, csrfToken) {
     if (!this.deviceId) {
@@ -610,6 +784,75 @@ export default class extends Controller {
       this._fetchCurrentPlayback()
       
       return response.json()
+    })
+  }
+
+  // Internal method to play an episode with the specified URI
+  _playEpisodeWithUri(episodeUri, csrfToken) {
+    if (!this.deviceId) {
+      console.error('No Spotify device ID available')
+      this._triggerEvent('error', { 
+        type: 'device', 
+        message: 'No Spotify device ID available' 
+      })
+      return Promise.reject(new Error('No Spotify device ID available'))
+    }
+
+    console.log('Attempting to play episode:', episodeUri, 'on device:', this.deviceId)
+
+    return fetch('/play_episode', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken
+      },
+      body: JSON.stringify({
+        uri: episodeUri,
+        device_id: this.deviceId
+      })
+    })
+    .then(response => {
+      console.log('Play episode response status:', response.status)
+      if (!response.ok) {
+        return response.json().then(data => {
+          // Handle 404 errors specifically
+          if (response.status === 404) {
+            console.error('Episode not found or device not available (404)')
+            // Try to refresh the device connection
+            this.player.disconnect().then(() => {
+              setTimeout(() => {
+                this.player.connect()
+              }, 1000)
+            })
+            throw new Error('The episode could not be played. The device may need reconnecting or the episode is unavailable.')
+          }
+          // Handle 401 errors (token expired)
+          else if (response.status === 401) {
+            console.error('Authentication error (401)')
+            // Trigger a token refresh
+            this._triggerEvent('tokenExpired', {})
+            throw new Error('Your Spotify session has expired. Please refresh the page.')
+          }
+          throw new Error(data.error || `Error playing episode (${response.status})`)
+        })
+      }
+      
+      // Update the status with episode info after successful playback
+      if (this.currentTrackInfo && this.hasStatusTarget) {
+        this.statusTarget.textContent = `Playing: ${this.currentTrackInfo.name} by ${this.currentTrackInfo.artist}`
+      }
+      
+      // Fetch current playback to get complete episode details
+      this._fetchCurrentPlayback()
+      
+      return response.json()
+    })
+    .catch(error => {
+      console.error('Error playing episode:', error)
+      if (this.hasStatusTarget) {
+        this.statusTarget.textContent = `Error: ${error.message}`
+      }
+      return Promise.reject(error)
     })
   }
 

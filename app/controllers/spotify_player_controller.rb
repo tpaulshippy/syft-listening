@@ -6,6 +6,7 @@ class SpotifyPlayerController < ApplicationController
       @spotify_user = current_spotify_user.to_spotify_user
       # Always filter for playlists starting with "K:"
       @playlists = fetch_user_playlists("K:")
+      @shows = fetch_user_shows
     end
   end
 
@@ -197,6 +198,81 @@ class SpotifyPlayerController < ApplicationController
     end
   end
 
+  def play_episode
+    if spotify_user_logged_in?
+      episode_uri = params[:uri]
+      device_id = params[:device_id]
+
+      if episode_uri.present? && device_id.present?
+        # Log the attempt with more details
+        Rails.logger.info "Attempting to play episode #{episode_uri} on device #{device_id} for user #{current_spotify_user.id}"
+
+        url = "https://api.spotify.com/v1/me/player/play"
+        url += "?device_id=#{device_id}" if device_id.present?
+
+        # Build the payload for the API call - episodes use uris array like tracks
+        payload = { uris: [ episode_uri ] }.to_json
+
+        # Make the API call to play the episode
+        begin
+          # First check if the device is actually available
+          devices_response = RestClient.get(
+            "https://api.spotify.com/v1/me/player/devices",
+            { Authorization: "Bearer #{current_spotify_user.access_token}" }
+          )
+
+          devices = JSON.parse(devices_response.body)
+          device_exists = devices["devices"].any? { |d| d["id"] == device_id }
+
+          unless device_exists
+            Rails.logger.warn "Device #{device_id} not found in user's available devices"
+            render json: {
+              error: "Device not found",
+              message: "The specified device was not found among your available devices.",
+              devices: devices["devices"].map { |d| { id: d["id"], name: d["name"] } }
+            }, status: 404
+            return
+          end
+
+          # Now play the episode
+          response = RestClient.put(
+            url,
+            payload,
+            {
+              Authorization: "Bearer #{current_spotify_user.access_token}",
+              'Content-Type': "application/json"
+            }
+          )
+
+          Rails.logger.info "Successfully sent play episode request to Spotify API"
+          render json: { success: true }
+        rescue RestClient::NotFound => e
+          Rails.logger.error "Spotify API 404 error: #{e.message}"
+          render json: { error: "Not found", message: "The requested episode could not be found." }, status: 404
+        rescue RestClient::Unauthorized => e
+          Rails.logger.error "Spotify API auth error: #{e.message}"
+          render json: { error: "Authorization failed", message: "Your Spotify session may have expired." }, status: 401
+        rescue RestClient::Exception => e
+          Rails.logger.error "Spotify API error: #{e.message}"
+          Rails.logger.error "Response body: #{e.response.body}" if e.respond_to?(:response) && e.response
+          status_code = e.respond_to?(:response) ? e.response.code : 500
+          error_message = begin
+            JSON.parse(e.response.body)["error"]["message"] rescue e.message
+          end
+          render json: { error: error_message }, status: status_code
+        rescue => e
+          Rails.logger.error "Error playing episode: #{e.message}"
+          render json: { error: e.message }, status: 500
+        end
+      else
+        Rails.logger.warn "Missing episode URI or device ID: uri=#{episode_uri}, device_id=#{device_id}"
+        render json: { error: "Missing episode URI or device ID" }, status: 400
+      end
+    else
+      render json: { error: "Not authenticated with Spotify" }, status: 401
+    end
+  end
+
   private
 
   def fetch_user_playlists(filter = nil)
@@ -214,6 +290,20 @@ class SpotifyPlayerController < ApplicationController
       playlists
     rescue => e
       Rails.logger.error "Error fetching playlists: #{e.message}"
+      []
+    end
+  end
+
+  def fetch_user_shows
+    begin
+      url = "https://api.spotify.com/v1/me/shows"
+      response = RestClient.get(url, {
+        Authorization: "Bearer #{current_spotify_user.access_token}"
+      })
+      shows_data = JSON.parse(response.body)
+      shows_data["items"] || []
+    rescue => e
+      Rails.logger.error "Error fetching shows: #{e.message}"
       []
     end
   end

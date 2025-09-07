@@ -657,10 +657,11 @@ export default class extends Controller {
   }
 
   // Fetch and display episodes for a show
-  _fetchShowEpisodes(showUri, showName) {
+  _fetchShowEpisodes(showUri, showName, offset = 0, existingEpisodes = []) {
     const showId = showUri.split(':').pop()
+    const limit = 50 // Spotify's max limit per request
     
-    fetch(`https://api.spotify.com/v1/shows/${showId}/episodes?limit=20`, {
+    fetch(`https://api.spotify.com/v1/shows/${showId}/episodes?limit=${limit}&offset=${offset}`, {
       headers: {
         'Authorization': `Bearer ${this.tokenValue}`
       }
@@ -668,7 +669,18 @@ export default class extends Controller {
     .then(response => response.json())
     .then(data => {
       if (data.items && data.items.length > 0) {
-        this._updateEpisodesList(data.items, showName)
+        const allEpisodes = [...existingEpisodes, ...data.items]
+        
+        // If we have less than 100 episodes and there are more available, fetch more
+        if (allEpisodes.length < 100 && data.items.length === limit && data.total > allEpisodes.length) {
+          this._fetchShowEpisodes(showUri, showName, offset + limit, allEpisodes)
+        } else {
+          // We have enough episodes or no more available, display them
+          this._updateEpisodesList(allEpisodes, showName, data.total)
+        }
+      } else if (existingEpisodes.length > 0) {
+        // No more episodes to fetch, but we have some from previous calls
+        this._updateEpisodesList(existingEpisodes, showName, existingEpisodes.length)
       } else {
         console.log("No episodes found for this show")
         if (this.hasStatusTarget) {
@@ -685,7 +697,7 @@ export default class extends Controller {
   }
 
   // Update the episodes list using the playlist-tracks controller
-  _updateEpisodesList(episodes, showName) {
+  _updateEpisodesList(episodes, showName, totalEpisodes = episodes.length) {
     // Find the playlist-tracks controller
     const playlistTracksController = this.application.getControllerForElementAndIdentifier(
       document.getElementById('playlist-tracks-container'),
@@ -716,8 +728,16 @@ export default class extends Controller {
       }]
     }))
 
+    // Create a more informative title
+    let displayTitle = showName
+    if (episodes.length < totalEpisodes) {
+      displayTitle += ` - Showing ${episodes.length} of ${totalEpisodes} episodes`
+    } else {
+      displayTitle += ` - ${episodes.length} episodes`
+    }
+
     // Update the episodes display using the playlist-tracks controller
-    playlistTracksController.updateTracks(episodeData, null, showName)
+    playlistTracksController.updateTracks(episodeData, null, displayTitle)
     
     // Clear status
     if (this.hasStatusTarget) {

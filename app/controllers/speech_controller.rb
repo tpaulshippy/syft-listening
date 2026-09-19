@@ -8,12 +8,14 @@ class SpeechController < ApplicationController
   end
 
   # POST /jev_analyze
-  # Body: { text: "...", metrics: ["factual","complexity","grammar","emotion"], api_key: "ts_..." }
+  # Body: { text: "...", metrics: ["factual_claim","specificity","complexity","grammar","emotion","habits"], api_key: "ts_..." }
   # Proxies to https://api.typesafe.ai/v1/systemone so the browser avoids CORS
   # issues. The API key is forwarded, never stored or logged.
+  # State is sent as a map ({ transcript: ... }) so questions reference the
+  # material as `transcript`, per TypeSafe's state-vs-questions guidance.
   def analyze
     text = params[:text].to_s.strip
-    metrics = Array(params[:metrics]).map(&:to_s) & %w[factual complexity grammar emotion]
+    metrics = Array(params[:metrics]).map(&:to_s) & %w[factual_claim specificity complexity grammar emotion habits]
     api_key = params[:api_key].to_s.strip.presence || ENV["TYPESAFE_API_KEY"].to_s.strip.presence
 
     if text.blank?
@@ -29,21 +31,30 @@ class SpeechController < ApplicationController
     end
 
     questions = {}
-    questions["factual"] = {
+    questions["factual_claim"] = {
+      type: "noul",
+      instructions: "Does `transcript` make at least one specific, verifiable factual claim about the world?",
+      criteria: {
+        true: "Names a checkable fact: a number, date, name, place, or event",
+        false: "Pure opinion, feelings, or vague remarks with nothing checkable"
+      }
+    } if metrics.include?("factual_claim")
+
+    questions["specificity"] = {
       type: "score",
-      instructions: "How factual is this spoken statement?",
+      instructions: "How concrete and specific is `transcript`?",
       criteria: [
-        "Pure opinion, feelings, or made-up claims with no verifiable facts",
-        "Mostly opinion with some vague factual references",
-        "Mix of opinions and plausible factual claims",
-        "Mostly specific, verifiable factual claims",
-        "Highly factual, precise, verifiable statements"
+        "Entirely vague, no details at all",
+        "Vague references with no specifics",
+        "Some concrete details mixed with vagueness",
+        "Mostly concrete: names, numbers, or specifics",
+        "Highly specific and precise throughout"
       ]
-    } if metrics.include?("factual")
+    } if metrics.include?("specificity")
 
     questions["complexity"] = {
       type: "score",
-      instructions: "How linguistically complex are the sentences?",
+      instructions: "How linguistically complex are the sentences in `transcript`?",
       criteria: [
         "Very simple: short, basic words, short sentences",
         "Simple everyday language",
@@ -55,7 +66,7 @@ class SpeechController < ApplicationController
 
     questions["grammar"] = {
       type: "score",
-      instructions: "How grammatically correct is this speech transcript?",
+      instructions: "How grammatically correct is the speaker's language in `transcript`? Ignore likely speech-recognition mistakes (wrong homophones, missing punctuation) and judge the speaker.",
       criteria: [
         "Many grammar errors, hard to understand",
         "Several noticeable errors",
@@ -66,7 +77,7 @@ class SpeechController < ApplicationController
 
     questions["emotion"] = {
       type: "choice",
-      instructions: "What emotion does the speaker most likely feel?",
+      instructions: "What emotion does the speaker of `transcript` most likely feel?",
       criteria: {
         neutral: "Calm, matter-of-fact, no strong emotion",
         happy: "Content, pleased, positive",
@@ -74,11 +85,31 @@ class SpeechController < ApplicationController
         anxious: "Worried, nervous, tense",
         frustrated: "Irritated, annoyed, impatient",
         sad: "Down, disappointed, gloomy",
-        angry: "Hostile, furious, confrontational"
+        angry: "Hostile, furious, confrontational",
+        other: "No clear emotion from these options"
       }
     } if metrics.include?("emotion")
 
-    payload = { model: "jev-latest", state: text, questions: questions }
+    if metrics.include?("habits")
+      questions["filler"] = {
+        type: "noul",
+        instructions: "Does `transcript` contain filler words or sounds (um, uh, er, like, you know, I mean)?"
+      }
+      questions["hedging"] = {
+        type: "noul",
+        instructions: "Does the speaker hedge in `transcript` (maybe, probably, sort of, kind of, I guess, I think)?"
+      }
+      questions["repetition"] = {
+        type: "noul",
+        instructions: "Does the speaker repeat a word, phrase, or idea in `transcript`?"
+      }
+      questions["question_asked"] = {
+        type: "noul",
+        instructions: "Does the speaker ask a question in `transcript`?"
+      }
+    end
+
+    payload = { model: "jev-latest", state: { transcript: text }, questions: questions }
 
     uri = URI("https://api.typesafe.ai/v1/systemone")
     http = Net::HTTP.new(uri.host, uri.port)

@@ -3,17 +3,20 @@ import { Controller } from "@hotwired/stimulus"
 // Speech Insights: free in-browser transcription (Web Speech API) +
 // near-real-time Jev analysis via POST /jev_analyze (Rails proxy).
 //
-// - API key stored in localStorage ("syft_jev_key"), never in the DB.
-// - Each metric toggle maps to one Jev question; disabled metrics are not sent.
+// - API key stored in localStorage ("syft_jev_key"); verified keys in "syft_jev_key_ok".
+// - Each metric toggle maps to Jev questions ("habits" fans out to 4 nouls); disabled metrics are not sent.
 // - Auto-analyzes every time a sentence is finalized (last ~1400 chars only, keeps it fast/cheap).
+// - Confidence < 0.5 renders as "uncertain" (nouls use distance from 0.5).
 export default class extends Controller {
   static targets = [
     "apiKey", "apiKeyCard", "keyStatus", "testButton",
     "metric", "status", "supportWarning",
     "transcriptFinal", "transcriptInterim", "wordCount", "manualText",
-    "cardFactual", "cardComplexity", "cardGrammar", "cardEmotion",
+    "cardFactualClaim", "cardSpecificity", "cardComplexity", "cardGrammar",
+    "cardEmotion", "cardHabits",
     "timer", "waveform", "recordButton", "iconMic", "iconStop",
-    "caption", "recorderCard", "footerNote",
+    "caption", "recorderCard", "metricsGrid", "transcriptCard",
+    "footerNote", "keyInfo",
   ]
 
   // Deterministic bar heights for the equalizer (fraction of full height).
@@ -22,13 +25,19 @@ export default class extends Controller {
     0.7, 0.5, 0.85, 0.4, 0.6, 1.0, 0.5, 0.75, 0.35, 0.65, 0.9, 0.45,
   ]
 
-  FACTUAL_LABELS = [
-    "Pure opinion / no verifiable facts",
-    "Mostly opinion, vague facts",
-    "Mix of opinion and plausible facts",
-    "Mostly specific, verifiable claims",
-    "Highly factual and precise",
+  SPECIFICITY_LABELS = [
+    "Entirely vague",
+    "Vague, no specifics",
+    "Some concrete details",
+    "Mostly concrete",
+    "Highly specific",
   ]
+  HABIT_LABELS = {
+    filler: "Filler words",
+    hedging: "Hedging",
+    repetition: "Repetition",
+    question_asked: "Asked a question",
+  }
   COMPLEXITY_LABELS = [
     "Very simple",
     "Simple everyday language",
@@ -56,9 +65,16 @@ export default class extends Controller {
     this.restoreToggles()
     this.apiKeyTarget.addEventListener("input", () => {
       localStorage.setItem("syft_jev_key", this.apiKeyTarget.value.trim())
-      this.placeKeyCard()
+      this.updateGate()
     })
-    this.placeKeyCard()
+    this.apiKeyTarget.addEventListener("paste", () => {
+      // Value lands after the event; verify the pasted key automatically.
+      setTimeout(() => {
+        localStorage.setItem("syft_jev_key", this.apiKeyTarget.value.trim())
+        this.testKey()
+      }, 0)
+    })
+    this.updateGate()
     this.buildWaveform()
     this.updateTimer()
     this.updateWordCount()
@@ -145,21 +161,34 @@ export default class extends Controller {
 
   updateCardsVisibility() {
     const on = new Set(this.enabledMetrics())
-    ;["Factual", "Complexity", "Grammar", "Emotion"].forEach((name) => {
-      const card = this[`card${name}Target`]
-      if (!card) return
-      card.style.opacity = on.has(name.toLowerCase()) ? "1" : "0.35"
+    this.element.querySelectorAll("[data-metric-card]").forEach((card) => {
+      card.style.opacity = on.has(card.dataset.metricCard) ? "1" : "0.35"
     })
   }
 
   // --- key ----------------------------------------------------------------
-  // No key yet: pin the key card to the top so it's the first thing you see.
-  // Once a key is entered, tuck it back down above the footer.
-  placeKeyCard() {
-    const hasKey = this.apiKeyTarget.value.trim().length > 0
-    const anchor = hasKey ? this.footerNoteTarget : this.recorderCardTarget
+  // Rest of the page stays hidden until a verified key exists. Verified =
+  // this exact key passed Test (stored in "syft_jev_key_ok"); editing the
+  // key or a 401 from Jev locks the page again.
+  isKeyVerified() {
+    const key = this.apiKeyTarget.value.trim()
+    return key.length > 0 && localStorage.getItem("syft_jev_key_ok") === key
+  }
+
+  updateGate() {
+    const ok = this.isKeyVerified()
+    ;["recorderCard", "metricsGrid", "transcriptCard", "footerNote", "keyInfo"].forEach((name) => {
+      this[`${name}Target`].classList.toggle("hidden", !ok)
+    })
+    const anchor = ok ? this.footerNoteTarget : this.recorderCardTarget
     this.element.insertBefore(this.apiKeyCardTarget, anchor)
-    if (!hasKey) this.keyStatusTarget.textContent = "Add your key to enable live analysis."
+    if (!ok) {
+      if (this.listening) this.stopRecognition()
+      this.keyStatusTarget.textContent = this.apiKeyTarget.value.trim()
+        ? "Tap Test to verify this key."
+        : "Add your key to enable live analysis."
+      this.keyStatusTarget.className = "text-xs mt-1 text-zinc-500 dark:text-zinc-400"
+    }
   }
 
   toggleKeyVisibility() {
@@ -174,12 +203,16 @@ export default class extends Controller {
     }
     this.keyStatusTarget.textContent = "Testing…"
     try {
-      const res = await this.postAnalyze("The Eiffel Tower is in Paris.", ["factual"], key)
+      const res = await this.postAnalyze("The Eiffel Tower is in Paris.", ["specificity"], key)
+      const data = await res.json().catch(() => ({}))
       if (res.ok) {
+        localStorage.setItem("syft_jev_key_ok", key)
+        this.updateGate()
         this.keyStatusTarget.textContent = "✓ Key works."
         this.keyStatusTarget.className = "text-xs mt-1 text-emerald-600"
       } else {
-        const data = await res.json().catch(() => ({}))
+        localStorage.removeItem("syft_jev_key_ok")
+        this.updateGate()
         this.keyStatusTarget.textContent = `✗ ${data.error || `HTTP ${res.status}`}`
         this.keyStatusTarget.className = "text-xs mt-1 text-red-600"
       }
@@ -271,7 +304,7 @@ export default class extends Controller {
 
   useSample() {
     this.manualTextTarget.value =
-        "The Eiffel Tower is 330 meters tall and was completed in 1889, but honestly I feel like it might be the most overrated place on earth and it makes me kind of anxious."
+      "Um, the Eiffel Tower is 330 meters tall and was completed in 1889, but honestly I feel like it might be the most overrated place on earth and it makes me kind of anxious, you know?"
     this.analyzeNow()
   }
 
@@ -304,6 +337,13 @@ export default class extends Controller {
       const res = await this.postAnalyze(state, metrics, key)
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
+        if (res.status === 401) {
+          // Key revoked or invalid — lock the page until a working key is entered.
+          localStorage.removeItem("syft_jev_key_ok")
+          this.updateGate()
+          this.keyStatusTarget.textContent = "That key was rejected — check it and tap Test."
+          this.keyStatusTarget.className = "text-xs mt-1 text-red-600"
+        }
         this.setStatus(data.error || `Jev error (HTTP ${res.status})`)
         return
       }
@@ -328,28 +368,84 @@ export default class extends Controller {
   }
 
   renderAnswers(answers) {
-    if (answers.factual) this.renderScore(this.cardFactualTarget, answers.factual, 4, this.FACTUAL_LABELS)
+    if (answers.factual_claim) {
+      this.renderNoul(this.cardFactualClaimTarget, answers.factual_claim,
+        "States a checkable fact", "No checkable fact")
+    }
+    if (answers.specificity) this.renderScore(this.cardSpecificityTarget, answers.specificity, 4, this.SPECIFICITY_LABELS)
     if (answers.complexity) this.renderScore(this.cardComplexityTarget, answers.complexity, 4, this.COMPLEXITY_LABELS)
     if (answers.grammar) this.renderScore(this.cardGrammarTarget, answers.grammar, 3, this.GRAMMAR_LABELS)
     if (answers.emotion) this.renderChoice(this.cardEmotionTarget, answers.emotion)
+    if (answers.filler || answers.hedging || answers.repetition || answers.question_asked) {
+      this.renderHabits(this.cardHabitsTarget, answers)
+    }
+  }
+
+  // Below 0.5 the model is guessing — show it muted and say so.
+  setUncertain(card, uncertain, confidence) {
+    card.querySelector('[data-result="meta"]').textContent =
+      `confidence ${this.pct(confidence)}${uncertain ? " · uncertain" : ""}`
+    return uncertain
+  }
+
+  valueClass(code) {
+    return code
+      ? "mt-1 text-3xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-100"
+      : "mt-1 text-3xl font-semibold tabular-nums text-zinc-300 dark:text-zinc-700"
   }
 
   renderScore(card, answer, max, labels) {
     const score = Number(answer.score)
     const idx = Math.max(0, Math.min(max, Math.round(score)))
+    const uncertain = (answer.confidence ?? 1) < 0.5
     card.querySelector('[data-result="value"]').textContent = score.toFixed(2)
-    card.querySelector('[data-result="value"]').className =
-      "mt-1 text-3xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-100"
+    card.querySelector('[data-result="value"]').className = this.valueClass(!uncertain)
     card.querySelector('[data-result="label"]').textContent = labels[idx] || ""
     card.querySelector('[data-result="bar"]').style.width = `${(score / max) * 100}%`
+    this.setUncertain(card, uncertain, answer.confidence)
+  }
+
+  renderNoul(card, answer, yesLabel, noLabel) {
+    const p = Number(answer.noul)
+    const yes = p >= 0.5
+    const confidence = Math.abs(p - 0.5) * 2 // Nouls carry no confidence field
+    const uncertain = confidence < 0.5
+    card.querySelector('[data-result="value"]').textContent = yes ? "Yes" : "No"
+    card.querySelector('[data-result="value"]').className = this.valueClass(!uncertain)
+    card.querySelector('[data-result="label"]').textContent = yes ? yesLabel : noLabel
+    card.querySelector('[data-result="bar"]').style.width = `${p * 100}%`
+    this.setUncertain(card, uncertain, confidence)
+  }
+
+  renderHabits(card, answers) {
+    const keys = Object.keys(this.HABIT_LABELS).filter((k) => answers[k])
+    const flags = card.querySelector('[data-result="flags"]')
+    flags.innerHTML = ""
+    let n = 0
+    keys.forEach((k) => {
+      const p = Number(answers[k].noul)
+      const yes = p >= 0.5
+      if (yes) n += 1
+      const row = document.createElement("div")
+      row.className = "flex items-center gap-2"
+      row.innerHTML =
+        `<span class="flex-grow">${this.HABIT_LABELS[k]}</span>` +
+        `<span class="font-medium ${yes ? "text-zinc-900 dark:text-zinc-100" : ""}">${yes ? "Yes" : "No"}</span>` +
+        `<span class="w-10 text-right tabular-nums">${this.pct(Math.max(p, 1 - p))}</span>`
+      flags.appendChild(row)
+    })
+    card.querySelector('[data-result="value"]').textContent = n ? `${n} flagged` : "None"
+    card.querySelector('[data-result="value"]').className = this.valueClass(true)
     card.querySelector('[data-result="meta"]').textContent =
-      `confidence ${this.pct(answer.confidence)}`
+      keys.length ? `${n} of ${keys.length} habits flagged` : ""
   }
 
   renderChoice(card, answer) {
+    const uncertain = (answer.confidence ?? 1) < 0.5
     card.querySelector('[data-result="value"]').textContent = answer.choice || "—"
     card.querySelector('[data-result="value"]').className =
-      "mt-1 text-3xl font-semibold capitalize text-zinc-900 dark:text-zinc-100"
+      "mt-1 text-3xl font-semibold capitalize " +
+      (uncertain ? "text-zinc-300 dark:text-zinc-700" : "text-zinc-900 dark:text-zinc-100")
     const dist = card.querySelector('[data-result="dist"]')
     dist.innerHTML = ""
     const probs = answer.probabilities || {}
@@ -365,8 +461,7 @@ export default class extends Controller {
           `<span class="w-10 text-right tabular-nums">${this.pct(p)}</span>`
         dist.appendChild(row)
       })
-    card.querySelector('[data-result="meta"]').textContent =
-      `confidence ${this.pct(answer.confidence)}`
+    this.setUncertain(card, uncertain, answer.confidence)
   }
 
   // --- helpers ---------------------------------------------------------------

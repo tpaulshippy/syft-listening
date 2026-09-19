@@ -1,0 +1,136 @@
+<div class="w-full max-w-3xl mx-auto" data-controller="speech-insights">
+  <h1 class="text-2xl font-bold mb-1 text-center text-emerald-600">Speech Insights</h1>
+  <p class="text-center text-sm text-gray-600 mb-4">
+    Speak and get near-real-time Jev scores. Transcription runs
+    <strong>free in your browser</strong> — no transcription key needed.
+  </p>
+
+  <!-- API key -->
+  <div class="bg-white rounded-lg shadow p-4 mb-4">
+    <label for="jev-key" class="block text-sm font-semibold mb-1">Jev (TypeSafe) API key</label>
+    <div class="flex gap-2">
+      <input id="jev-key" data-speech-insights-target="apiKey" type="password"
+             placeholder="ts_..." autocomplete="off" spellcheck="false"
+             class="flex-grow border border-gray-300 rounded px-3 py-2 text-sm font-mono" />
+      <button data-action="click->speech-insights#toggleKeyVisibility"
+              class="text-sm px-3 py-2 border border-gray-300 rounded hover:bg-gray-50">Show</button>
+      <button data-action="click->speech-insights#testKey"
+              data-speech-insights-target="testButton"
+              class="text-sm px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded">Test</button>
+    </div>
+    <p class="text-xs text-gray-500 mt-2">
+      Stored only in <code>localStorage</code> on this device. Get a key at
+      <a href="https://console.typesafe.ai/keys" target="_blank" rel="noopener" class="text-emerald-600 underline">console.typesafe.ai/keys</a>
+      (early access). Each analysis is proxied through this server to Jev — your key is forwarded, never stored. See the note at the bottom of this page.
+    </p>
+    <p data-speech-insights-target="keyStatus" class="text-xs mt-1 text-gray-600"></p>
+  </div>
+
+  <!-- Toggles -->
+  <div class="bg-white rounded-lg shadow p-4 mb-4">
+    <h2 class="text-sm font-semibold mb-2">Metrics (each is one Jev question per analysis)</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+      <label class="flex items-start gap-2 border border-gray-200 rounded p-2 cursor-pointer">
+        <input type="checkbox" value="factual" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="mt-1" />
+        <span><strong>Factualness</strong><br /><span class="text-gray-500 text-xs">Score 0–4: opinion vs. verifiable factual claims</span></span>
+      </label>
+      <label class="flex items-start gap-2 border border-gray-200 rounded p-2 cursor-pointer">
+        <input type="checkbox" value="complexity" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="mt-1" />
+        <span><strong>Complexity</strong><br /><span class="text-gray-500 text-xs">Score 0–4: simple words → academic structure</span></span>
+      </label>
+      <label class="flex items-start gap-2 border border-gray-200 rounded p-2 cursor-pointer">
+        <input type="checkbox" value="grammar" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="mt-1" />
+        <span><strong>Grammar</strong><br /><span class="text-gray-500 text-xs">Score 0–3: errors → fully correct</span></span>
+      </label>
+      <label class="flex items-start gap-2 border border-gray-200 rounded p-2 cursor-pointer">
+        <input type="checkbox" value="emotion" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="mt-1" />
+        <span><strong>Emotion</strong><br /><span class="text-gray-500 text-xs">Choice: neutral, happy, excited, anxious, frustrated, sad, angry</span></span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="bg-white rounded-lg shadow p-4 mb-4">
+    <div class="flex flex-wrap items-center gap-2">
+      <button data-speech-insights-target="startButton" data-action="click->speech-insights#toggleListening"
+              class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-5 rounded-full">
+        🎙 Start speaking
+      </button>
+      <button data-action="click->speech-insights#analyzeNow"
+              class="py-2 px-4 border border-emerald-500 text-emerald-600 rounded-full hover:bg-emerald-50 text-sm font-semibold">
+        Analyze now
+      </button>
+      <button data-action="click->speech-insights#useSample"
+              class="py-2 px-4 border border-gray-300 text-gray-600 rounded-full hover:bg-gray-50 text-sm">
+        Use sample text
+      </button>
+      <button data-action="click->speech-insights#clearTranscript"
+              class="py-2 px-4 border border-gray-300 text-gray-600 rounded-full hover:bg-gray-50 text-sm">
+        Clear
+      </button>
+      <span data-speech-insights-target="status" class="text-sm text-gray-600 ml-auto">Idle</span>
+    </div>
+    <p data-speech-insights-target="supportWarning" class="hidden text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mt-3">
+      Your browser doesn't support the free built-in transcription (Web Speech API). Use Chrome or Edge on desktop/Android, or type in the box below and hit “Analyze now”.
+    </p>
+  </div>
+
+  <!-- Transcript -->
+  <div class="bg-white rounded-lg shadow p-4 mb-4">
+    <h2 class="text-sm font-semibold mb-2">Transcript <span data-speech-insights-target="wordCount" class="text-gray-400 font-normal"></span></h2>
+    <div class="border border-gray-200 rounded p-3 min-h-24 text-sm leading-relaxed">
+      <span data-speech-insights-target="transcriptFinal"></span><span data-speech-insights-target="transcriptInterim" class="text-gray-400"></span>
+    </div>
+    <label class="block text-xs text-gray-500 mt-3 mb-1" for="manual-text">Or type / paste text to analyze (used instead of transcript when non-empty):</label>
+    <textarea id="manual-text" data-speech-insights-target="manualText" rows="3"
+              placeholder="Type something here, e.g. The Eiffel Tower is 330 meters tall and was completed in 1889."
+              class="w-full border border-gray-300 rounded px-3 py-2 text-sm"></textarea>
+  </div>
+
+  <!-- Results -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
+    <div data-speech-insights-target="cardFactual" data-metric-card="factual" class="bg-white rounded-lg shadow p-4">
+      <h3 class="font-semibold text-sm">Factualness <span class="text-gray-400 font-normal">· score 0–4</span></h3>
+      <p data-result="value" class="text-2xl font-bold mt-1 text-gray-300">—</p>
+      <p data-result="label" class="text-xs text-gray-600"></p>
+      <div class="h-2 bg-gray-100 rounded mt-2"><div data-result="bar" class="h-2 bg-emerald-500 rounded" style="width:0%"></div></div>
+      <p data-result="meta" class="text-xs text-gray-400 mt-1"></p>
+    </div>
+    <div data-speech-insights-target="cardComplexity" data-metric-card="complexity" class="bg-white rounded-lg shadow p-4">
+      <h3 class="font-semibold text-sm">Complexity <span class="text-gray-400 font-normal">· score 0–4</span></h3>
+      <p data-result="value" class="text-2xl font-bold mt-1 text-gray-300">—</p>
+      <p data-result="label" class="text-xs text-gray-600"></p>
+      <div class="h-2 bg-gray-100 rounded mt-2"><div data-result="bar" class="h-2 bg-blue-500 rounded" style="width:0%"></div></div>
+      <p data-result="meta" class="text-xs text-gray-400 mt-1"></p>
+    </div>
+    <div data-speech-insights-target="cardGrammar" data-metric-card="grammar" class="bg-white rounded-lg shadow p-4">
+      <h3 class="font-semibold text-sm">Grammar <span class="text-gray-400 font-normal">· score 0–3</span></h3>
+      <p data-result="value" class="text-2xl font-bold mt-1 text-gray-300">—</p>
+      <p data-result="label" class="text-xs text-gray-600"></p>
+      <div class="h-2 bg-gray-100 rounded mt-2"><div data-result="bar" class="h-2 bg-violet-500 rounded" style="width:0%"></div></div>
+      <p data-result="meta" class="text-xs text-gray-400 mt-1"></p>
+    </div>
+    <div data-speech-insights-target="cardEmotion" data-metric-card="emotion" class="bg-white rounded-lg shadow p-4">
+      <h3 class="font-semibold text-sm">Emotion <span class="text-gray-400 font-normal">· choice</span></h3>
+      <p data-result="value" class="text-2xl font-bold mt-1 text-gray-300">—</p>
+      <div data-result="dist" class="text-xs text-gray-600 mt-1 space-y-1"></div>
+      <p data-result="meta" class="text-xs text-gray-400 mt-1"></p>
+    </div>
+  </div>
+
+  <p class="text-xs text-gray-400 text-center mb-3">
+    Transcription: free Web Speech API in your browser (no key). Analysis: one Jev <code>POST /v1/systemone</code> call per update
+    (model <code>jev-latest</code>, $0.042/M input tokens, output free). Disabled metrics are not sent, so they cost nothing.
+  </p>
+
+  <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-8 text-xs text-gray-500 text-center">
+    <strong class="text-gray-700">How your key is handled:</strong>
+    your Jev key passes through this server to TypeSafe's API — it is never stored and never logged
+    (filtered from Rails logs), but a server operator could technically see it in transit.
+    Keys are revocable at
+    <a href="https://console.typesafe.ai/keys" target="_blank" rel="noopener" class="text-emerald-600 underline">console.typesafe.ai/keys</a>.
+    This app is
+    <a href="https://github.com/tpaulshippy/syft-listening" target="_blank" rel="noopener" class="text-emerald-600 underline">open source</a>
+    — read the code and run it yourself if you prefer.
+  </div>
+</div>

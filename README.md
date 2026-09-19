@@ -1,62 +1,35 @@
-# Syft Listening
+# Syft Listening — Speech Insights
 
-A Rails web app for kid-safe Spotify listening. Connect a Spotify Premium account and play curated playlists and saved podcasts through an in-browser Web Playback SDK player.
+A Rails web app for near-real-time speech insights. Speak into your microphone and get live Jev (TypeSafe AI) scores for:
 
-Long-term vision (see `product_requirements_document.md`): a Teen Music Access Manager where parents pre-approve artists, albums, songs, and playlists, teens request permission for new content, and parents approve it, with time limits and listening reports.
+- **Factualness** — opinion vs. verifiable factual claims (score 0–4)
+- **Complexity** — simple words → academic structure (score 0–4)
+- **Grammar** — errors → fully correct (score 0–3)
+- **Emotion** — neutral, happy, excited, anxious, frustrated, sad, angry (choice)
 
-Current implementation covers the playback foundation: Spotify OAuth login, filtered playlist browsing, podcast/show browsing, catalog search, and remote playback control.
+Each metric maps to one Jev typed question and can be toggled on/off. Disabled metrics are not sent to Jev, so they cost nothing.
 
-## Features
+Live at https://listen.syftlearning.app (root path `/`; `/listen` redirects there).
 
-- **Spotify OAuth login** via OmniAuth (`omniauth-spotify`) — stores access/refresh tokens in `SpotifyUser`
-- **Token refresh** — `SpotifyUser#fresh_access_token` / `#refresh_access_token!`
-- **Curated playlists** — lists user's playlists filtered to names starting with `K:` (prefix stripped in UI)
-- **Podcasts / shows** — lists saved shows via `GET /v1/me/shows` with graceful handling of 401/403/404
-- **Catalog search** — `RSpotify::Track.search` (10 results, US market), HTML + JSON
-- **In-browser playback** — Stimulus `spotify-player` controller using Spotify Web Playback SDK
-- **Playback API** — `POST /play_track`, `/play_playlist`, `/play_episode` proxy to `PUT /v1/me/player/play` with device validation and track lookup
-- **Tailwind CSS + Hotwire** (Turbo + Stimulus via importmap) UI
+## How it works
+
+- **Transcription (free, no key):** the browser's built-in [Web Speech API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API) (`SpeechRecognition`) transcribes speech continuously with interim results. Works in Chrome/Edge on desktop/Android. No transcription API key needed — this is the cheapest option that works well ($0). A type/paste box is included as a fallback for unsupported browsers.
+- **Analysis (Jev API key required):** ~1.8s after speech settles, the page sends the tail of the transcript (~1200 chars, keeps it fast and cheap) plus the enabled metrics to `POST /jev_analyze`, which proxies to `POST https://api.typesafe.ai/v1/systemone` (model `jev-latest`, $0.042/M input tokens, output tokens free). The proxy exists because TypeSafe's API rejects browser origins (CORS allowlist) and their JS SDK refuses to run in browsers — server-side calls are their endorsed pattern.
+- **Key handling:** the Jev key lives in `localStorage` on the user's device only. It is forwarded through the server per request — never stored in the database, never logged (`api_key` is covered by the `:_key` log filter). Since a server operator could technically see keys in transit, the page says so openly, notes keys are revocable at `console.typesafe.ai/keys`, and points at this open-source repo for anyone who'd rather self-host.
 
 ## Tech stack
 
 - Ruby 3.2.1, Rails ~> 8.0.2
 - SQLite3, Puma, Propshaft
-- `rspotify`, `omniauth`, `omniauth-spotify`, `omniauth-rails_csrf_protection`, `dotenv-rails`, `bcrypt`
 - `solid_cache` / `solid_queue` / `solid_cable`, Thruster, Kamal (Docker deploy)
 - `tailwindcss-rails`, `turbo-rails`, `stimulus-rails`, `importmap-rails`, `jbuilder`
 - RSpec + FactoryBot (`rspec-rails`, `factory_bot_rails`), Brakeman, RuboCop Omakase
-
-## Prerequisites
-
-- Ruby 3.2.1 (see `.ruby-version`)
-- Bundler
-- SQLite3
-- A Spotify Developer app + a Spotify **Premium** account (Web Playback SDK requires Premium)
-
-## Spotify app setup
-
-1. Create an app at https://developer.spotify.com/dashboard
-2. Add redirect URI: `http://localhost:3000/auth/spotify/callback` (plus your production callback URL)
-3. Note the Client ID and Client Secret
-4. Requested scopes (see `config/initializers/rspotify.rb`):
-   `user-read-email user-read-private user-read-playback-state user-modify-playback-state streaming user-library-read user-read-currently-playing playlist-read-private playlist-read-collaborative`
+- No LLM string generation: Jev returns typed probabilities (`noul` / `choice` / `score`), rendered as score bars and emotion distributions by the Stimulus `speech-insights` controller.
 
 ## Getting started
 
 ```bash
 bundle install
-```
-
-Create `.env` in the project root (loaded by `dotenv-rails`):
-
-```bash
-SPOTIFY_CLIENT_ID=your_client_id
-SPOTIFY_CLIENT_SECRET=your_client_secret
-```
-
-Set up the database:
-
-```bash
 bin/rails db:prepare
 ```
 
@@ -64,38 +37,26 @@ Run the app (Tailwind watcher included):
 
 ```bash
 bin/dev
-# or: bin/rails server  +  bin/rails tailwindcss:watch (see Procfile.dev)
 ```
 
-Open http://localhost:3000. Sign in with Spotify, then open a Spotify client once so a playback device exists (or use the in-browser SDK device).
+Open http://localhost:3000. Paste a Jev API key (get one at https://console.typesafe.ai/keys — early access), enable the metrics you want, hit "Start speaking" (or "Use sample text" / type in the box), and watch the scores update.
 
-To use curated playlists, prefix kid-approved playlist names in Spotify with `K:` (e.g. `K:Bedtime`). The `K:` prefix is filtered server-side in `SpotifyPlayerController#fetch_user_playlists` and stripped in the view.
+Optional: set `TYPESAFE_API_KEY` in the environment as a fallback server-side key (used only when the request supplies none).
 
 ## Routes
 
 | Method | Path | Action |
 |---|---|---|
-| GET | `/` | `spotify_player#index` (login or player) |
-| GET | `/player` | `spotify_player#index` |
-| GET | `/search?query=...` | `spotify_player#search` (HTML + JSON) |
-| POST | `/play_track` | play track URI on `device_id` |
-| POST | `/play_playlist` | play playlist `context_uri` on `device_id` |
-| POST | `/play_episode` | play episode URI on `device_id` |
-| GET | `/login` | redirect to `/auth/spotify` |
-| GET | `/auth/spotify/callback` | OAuth callback |
-| GET | `/logout` | clear session |
+| GET | `/` | `speech#show` (the app) |
+| GET | `/listen` | redirect to `/` |
+| POST | `/jev_analyze` | proxy to Jev (`{ text, metrics, api_key }`) |
 | GET | `/up` | health check |
-
-Playback POST params: `{ uri: "spotify:track:...", device_id: "..." }`.
 
 ## Configuration
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `SPOTIFY_CLIENT_ID` | yes | Spotify app client ID (RSpotify + OmniAuth) |
-| `SPOTIFY_CLIENT_SECRET` | yes | Spotify app client secret |
-
-Without these, the app boots but logs: `Spotify credentials not configured...` (`config/initializers/rspotify.rb`).
+| `TYPESAFE_API_KEY` | no | Fallback server-side Jev key when the client sends none |
 
 ## Tests
 
@@ -103,9 +64,7 @@ Without these, the app boots but logs: `Spotify credentials not configured...` (
 bundle exec rspec
 ```
 
-Specs live in `spec/` (models, requests, views, helpers). See `.rspec`.
-
-Lint / security:
+Specs live in `spec/`. Lint / security:
 
 ```bash
 bundle exec rubocop
@@ -116,38 +75,20 @@ bundle exec brakeman
 
 ```
 app/
-  controllers/spotify_auth_controller.rb    # login / OAuth callback / logout
-  controllers/spotify_player_controller.rb  # index, search, play_track/playlist/episode
-  models/spotify_user.rb                    # OmniAuth user + token refresh + RSpotify wrapper
-  views/spotify_player/index.html.erb       # playlists + podcasts + Web Playback SDK player
-  views/spotify_player/search.html.erb
-  javascript/controllers/                   # Stimulus spotify-player controller
-config/
-  routes.rb
-  initializers/rspotify.rb                  # RSpotify.authenticate + OmniAuth Spotify provider
-db/schema.rb                                # spotify_users (uid, access_token, refresh_token, token_expiry)
-example-track-info.json                     # sample Spotify player state payload
-product_requirements_document.md            # full PRD: parental controls roadmap
+  controllers/speech_controller.rb       # show + Jev proxy (analyze)
+  views/speech/show.html.erb             # key input, toggles, transcript, result cards
+  javascript/controllers/speech_insights_controller.js  # Web Speech API + debounced analysis
+config/routes.rb                         # root -> speech#show, POST /jev_analyze
+spec/requests/speech_spec.rb
 ```
 
 ## Deployment
 
-Docker + Kamal/Thruster files are included (`Dockerfile`, `.kamal/`, `.dockerignore`):
+Deploys to `listen.syftlearning.app` via `.github/workflows/deploy.yml`: on CI success for `main`, it pulls on the server, runs `bundle install` + `db:migrate`, and restarts the `listening` systemd service (port 4000).
+
+Docker + Kamal/Thruster files are also included (`Dockerfile`, `.kamal/`, `.dockerignore`):
 
 ```bash
 docker build -t syft_listening .
 docker run -d -p 80:80 -e RAILS_MASTER_KEY=<value from config/master.key> --name syft_listening syft_listening
 ```
-
-Set `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` and the production Spotify redirect URI in your deploy environment.
-
-## Roadmap
-
-From `product_requirements_document.md` — not yet implemented:
-
-- Parent accounts + teen profiles with 4-digit PINs
-- Per-profile allow lists (artists, albums, songs, playlists)
-- Teen permission-request flow + parent approve/reject
-- Time limits / allowed listening hours
-- Request notifications and listening-habit reports
-- Explicit-content filtering

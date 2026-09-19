@@ -19,15 +19,6 @@ gem "tailwindcss-rails"
 # Build JSON APIs with ease [https://github.com/rails/jbuilder]
 gem "jbuilder"
 
-# Spotify Web API integration
-gem "rspotify", "~> 2.12.0"
-# RestClient is already included as a dependency of RSpotify
-
-# OmniAuth for authentication
-gem "omniauth", "~> 2.1.1"
-gem "omniauth-rails_csrf_protection", "~> 1.0"  # Prevents CSRF attacks
-gem "omniauth-spotify", "~> 0.0.13"
-
 # Load environment variables from .env files
 gem "dotenv-rails", groups: [ :development, :test ]
 

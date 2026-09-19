@@ -301,6 +301,28 @@ export default class extends Controller {
     this.transcriptInterimTarget.textContent = ""
     this.manualTextTarget.value = ""
     this.updateWordCount()
+    this.resetMetrics()
+  }
+
+  resetMetrics() {
+    this.element.querySelectorAll("[data-metric-card]").forEach((card) => {
+      card.querySelectorAll('[data-result="value"]').forEach((el) => {
+        el.textContent = "—"
+        el.className = el.className
+          .replace("text-zinc-900", "text-zinc-300")
+          .replace("dark:text-zinc-100", "dark:text-zinc-700")
+      })
+      card.querySelectorAll('[data-result="label"], [data-result="meta"]').forEach((el) => {
+        el.textContent = ""
+      })
+      card.querySelectorAll('[data-result="bar"]').forEach((el) => {
+        el.style.width = "0%"
+      })
+      card.querySelectorAll('[data-result="dist"], [data-result="flags"]').forEach((el) => {
+        el.innerHTML = ""
+      })
+    })
+    this.lastAnalyzedText = ""
   }
 
   useSample() {

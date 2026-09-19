@@ -3,7 +3,7 @@ import { Controller } from "@hotwired/stimulus"
 // Speech Insights: free in-browser transcription (Web Speech API) +
 // near-real-time Jev analysis via POST /jev_analyze (Rails proxy).
 //
-// - API key stored in localStorage ("syft_jev_key"), never in the DB.
+// - API key stored in localStorage ("syft_jev_key"); verified keys in "syft_jev_key_ok".
 // - Each metric toggle maps to Jev questions ("habits" fans out to 4 nouls); disabled metrics are not sent.
 // - Auto-analyzes every time a sentence is finalized (last ~1400 chars only, keeps it fast/cheap).
 // - Confidence < 0.5 renders as "uncertain" (nouls use distance from 0.5).
@@ -15,7 +15,8 @@ export default class extends Controller {
     "cardFactualClaim", "cardSpecificity", "cardComplexity", "cardGrammar",
     "cardEmotion", "cardHabits",
     "timer", "waveform", "recordButton", "iconMic", "iconStop",
-    "caption", "recorderCard", "footerNote",
+    "caption", "recorderCard", "metricsGrid", "transcriptCard",
+    "footerNote",
   ]
 
   // Deterministic bar heights for the equalizer (fraction of full height).
@@ -64,7 +65,7 @@ export default class extends Controller {
     this.restoreToggles()
     this.apiKeyTarget.addEventListener("input", () => {
       localStorage.setItem("syft_jev_key", this.apiKeyTarget.value.trim())
-      this.placeKeyCard()
+      this.updateGate()
     })
     this.apiKeyTarget.addEventListener("paste", () => {
       // Value lands after the event; verify the pasted key automatically.
@@ -73,7 +74,7 @@ export default class extends Controller {
         this.testKey()
       }, 0)
     })
-    this.placeKeyCard()
+    this.updateGate()
     this.buildWaveform()
     this.updateTimer()
     this.updateWordCount()
@@ -166,14 +167,27 @@ export default class extends Controller {
   }
 
   // --- key ----------------------------------------------------------------
-  // No key yet: pin the key card to the top so it's the first thing you see.
-  // Once a key is entered, tuck it back down above the footer.
-  placeKeyCard() {
-    const hasKey = this.apiKeyTarget.value.trim().length > 0
-    const anchor = hasKey ? this.footerNoteTarget : this.recorderCardTarget
+  // Recorder, metrics, and transcript stay hidden until a verified key
+  // exists. Verified = this exact key passed Test (stored in
+  // "syft_jev_key_ok"); editing the key or a 401 from Jev locks them again.
+  // The explanation blocks below the key card are always shown.
+  isKeyVerified() {
+    const key = this.apiKeyTarget.value.trim()
+    return key.length > 0 && localStorage.getItem("syft_jev_key_ok") === key
+  }
+
+  updateGate() {
+    const ok = this.isKeyVerified()
+    ;["recorderCard", "metricsGrid", "transcriptCard"].forEach((name) => {
+      this[`${name}Target`].classList.toggle("hidden", !ok)
+    })
+    const anchor = ok ? this.footerNoteTarget : this.recorderCardTarget
     this.element.insertBefore(this.apiKeyCardTarget, anchor)
-    if (!hasKey) {
-      this.keyStatusTarget.textContent = "Add your key to enable live analysis."
+    if (!ok) {
+      if (this.listening) this.stopRecognition()
+      this.keyStatusTarget.textContent = this.apiKeyTarget.value.trim()
+        ? "Tap Test to verify this key."
+        : "Add your key to enable live analysis."
       this.keyStatusTarget.className = "text-xs mt-1 text-zinc-500 dark:text-zinc-400"
     }
   }
@@ -193,9 +207,13 @@ export default class extends Controller {
       const res = await this.postAnalyze("The Eiffel Tower is in Paris.", ["specificity"], key)
       const data = await res.json().catch(() => ({}))
       if (res.ok) {
+        localStorage.setItem("syft_jev_key_ok", key)
+        this.updateGate()
         this.keyStatusTarget.textContent = "✓ Key works."
         this.keyStatusTarget.className = "text-xs mt-1 text-emerald-600"
       } else {
+        localStorage.removeItem("syft_jev_key_ok")
+        this.updateGate()
         this.keyStatusTarget.textContent = `✗ ${data.error || `HTTP ${res.status}`}`
         this.keyStatusTarget.className = "text-xs mt-1 text-red-600"
       }
@@ -321,6 +339,9 @@ export default class extends Controller {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         if (res.status === 401) {
+          // Key revoked or invalid — lock the interactive sections again.
+          localStorage.removeItem("syft_jev_key_ok")
+          this.updateGate()
           this.keyStatusTarget.textContent = "That key was rejected — check it and tap Test."
           this.keyStatusTarget.className = "text-xs mt-1 text-red-600"
         }

@@ -17,7 +17,7 @@ Live at https://listen.syftlearning.app (root path `/`; `/listen` redirects ther
 
 - **Transcription (free, no key):** the browser's built-in [Web Speech API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API) (`SpeechRecognition`) transcribes speech continuously with interim results. Works in Chrome/Edge on desktop/Android. No transcription API key needed — this is the cheapest option that works well ($0). A type/paste box is included as a fallback for unsupported browsers.
 - **Analysis (verified Jev API key required):** every time a sentence is finalized, the page sends the tail of the transcript (~1400 chars, keeps it fast and cheap) plus the enabled metrics to `POST /jev_analyze`, which proxies to `POST https://api.typesafe.ai/v1/systemone` (model `jev-latest`, $0.042/M input tokens, output tokens free) with state as `{ transcript: ... }`. The proxy exists because TypeSafe's API rejects browser origins (CORS allowlist) and their JS SDK refuses to run in browsers — server-side calls are their endorsed pattern.
-- **Key handling:** the Jev key lives in `localStorage` on the user's device only. It is forwarded through the server per request — never stored in the database, never logged (`api_key` is covered by the `:_key` log filter). With no key entered, the key card pins to the top of the page; pasting a key auto-tests it. Since a server operator could technically see keys in transit, the page says so openly, notes keys are revocable at `console.typesafe.ai/keys`, and points at this open-source repo for anyone who'd rather self-host.
+- **Key handling:** the Jev key lives in `localStorage` on the user's device only. It is forwarded through the server per request — never stored in the database, never logged (`api_key` is covered by the `:_key` log filter). Recorder, metrics, and transcript stay hidden until the key passes Test (pasting auto-tests); a 401 from Jev locks them again, while the explanation text stays visible throughout. Since a server operator could technically see keys in transit, the page says so openly, notes keys are revocable at `console.typesafe.ai/keys`, and points at this open-source repo for anyone who'd rather self-host.
 
 ## Tech stack
 
@@ -40,7 +40,7 @@ Run the app (Tailwind watcher included):
 bin/dev
 ```
 
-Open http://localhost:3000. Paste a Jev API key (get one at https://console.typesafe.ai/keys — early access; pasting auto-tests it), enable the metrics you want, hit the mic button (or "Sample" / type in the box), and watch the scores update.
+Open http://localhost:3000. Paste a Jev API key (get one at https://console.typesafe.ai/keys — early access; pasting auto-verifies and unlocks the recorder), enable the metrics you want, hit the mic button (or "Sample" / type in the box), and watch the scores update.
 
 Optional: set `TYPESAFE_API_KEY` in the environment as a fallback server-side key (used only when the request supplies none).
 

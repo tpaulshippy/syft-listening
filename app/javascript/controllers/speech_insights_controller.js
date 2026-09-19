@@ -5,15 +5,15 @@ import { Controller } from "@hotwired/stimulus"
 //
 // - API key stored in localStorage ("syft_jev_key"), never in the DB.
 // - Each metric toggle maps to one Jev question; disabled metrics are not sent.
-// - Auto-analyzes ~1.8s after speech settles (last ~1200 chars only, keeps it fast/cheap).
+// - Auto-analyzes every time a sentence is finalized (last ~1400 chars only, keeps it fast/cheap).
 export default class extends Controller {
   static targets = [
-    "apiKey", "keyStatus", "testButton",
+    "apiKey", "apiKeyCard", "keyStatus", "testButton",
     "metric", "status", "supportWarning",
     "transcriptFinal", "transcriptInterim", "wordCount", "manualText",
     "cardFactual", "cardComplexity", "cardGrammar", "cardEmotion",
-    "topicInput", "timer", "waveform", "recordButton", "iconMic", "iconStop",
-    "caption", "recorderCard",
+    "timer", "waveform", "recordButton", "iconMic", "iconStop",
+    "caption", "recorderCard", "footerNote",
   ]
 
   // Deterministic bar heights for the equalizer (fraction of full height).
@@ -47,23 +47,18 @@ export default class extends Controller {
     this.listening = false
     this.recognition = null
     this.finalText = ""
-    this.debounceTimer = null
     this.analyzing = false
     this.lastAnalyzedText = ""
     this.elapsedSeconds = 0
     this.timerInterval = null
 
     this.apiKeyTarget.value = localStorage.getItem("syft_jev_key") || ""
-    if (this.hasTopicInputTarget) {
-      this.topicInputTarget.value = localStorage.getItem("syft_topic") || ""
-      this.topicInputTarget.addEventListener("input", () => {
-        localStorage.setItem("syft_topic", this.topicInputTarget.value.trim())
-      })
-    }
     this.restoreToggles()
     this.apiKeyTarget.addEventListener("input", () => {
       localStorage.setItem("syft_jev_key", this.apiKeyTarget.value.trim())
+      this.placeKeyCard()
     })
+    this.placeKeyCard()
     this.buildWaveform()
     this.updateTimer()
     this.updateWordCount()
@@ -136,7 +131,7 @@ export default class extends Controller {
     this.metricTargets.forEach((c) => { prefs[c.value] = c.checked })
     localStorage.setItem("syft_jev_metrics", JSON.stringify(prefs))
     this.updateCardsVisibility()
-    this.scheduleAnalyze(400)
+    this.analyzeNow()
   }
 
   restoreToggles() {
@@ -158,6 +153,15 @@ export default class extends Controller {
   }
 
   // --- key ----------------------------------------------------------------
+  // No key yet: pin the key card to the top so it's the first thing you see.
+  // Once a key is entered, tuck it back down above the footer.
+  placeKeyCard() {
+    const hasKey = this.apiKeyTarget.value.trim().length > 0
+    const anchor = hasKey ? this.footerNoteTarget : this.recorderCardTarget
+    this.element.insertBefore(this.apiKeyCardTarget, anchor)
+    if (!hasKey) this.keyStatusTarget.textContent = "Add your key to enable live analysis."
+  }
+
   toggleKeyVisibility() {
     this.apiKeyTarget.type = this.apiKeyTarget.type === "password" ? "text" : "password"
   }
@@ -207,15 +211,20 @@ export default class extends Controller {
 
     this.recognition.onresult = (event) => {
       let interim = ""
+      let heardSentence = false
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript
-        if (event.results[i].isFinal) this.finalText += transcript + " "
-        else interim += transcript
+        if (event.results[i].isFinal) {
+          this.finalText += transcript + " "
+          heardSentence = true
+        } else {
+          interim += transcript
+        }
       }
       this.transcriptFinalTarget.textContent = this.finalText
       this.transcriptInterimTarget.textContent = interim
       this.updateWordCount()
-      this.scheduleAnalyze(1800)
+      if (heardSentence) this.analyzeNow()
     }
     this.recognition.onerror = (event) => {
       this.setStatus(`Mic error: ${event.error}`)
@@ -262,8 +271,8 @@ export default class extends Controller {
 
   useSample() {
     this.manualTextTarget.value =
-      "The Eiffel Tower is 330 meters tall and was completed in 1889, but honestly I feel like it might be the most overrated place on earth and it makes me kind of anxious."
-    this.scheduleAnalyze(300)
+        "The Eiffel Tower is 330 meters tall and was completed in 1889, but honestly I feel like it might be the most overrated place on earth and it makes me kind of anxious."
+    this.analyzeNow()
   }
 
   // --- analysis -------------------------------------------------------------
@@ -273,17 +282,10 @@ export default class extends Controller {
     return (this.finalText + " " + this.transcriptInterimTarget.textContent).trim()
   }
 
-  scheduleAnalyze(ms = 1800) {
-    clearTimeout(this.debounceTimer)
-    this.debounceTimer = setTimeout(() => this.analyzeNow(), ms)
-  }
-
   async analyzeNow() {
     const metrics = this.enabledMetrics()
     const key = this.apiKeyTarget.value.trim()
-    const spoken = this.currentText()
-    const topic = this.hasTopicInputTarget ? this.topicInputTarget.value.trim() : ""
-    const state = (topic ? `Speaker's stated topic: "${topic}". Speech: ${spoken}` : spoken).slice(-1400)
+    const state = this.currentText().slice(-1400)
 
     if (state.split(/\s+/).filter(Boolean).length < 3) return // too short
     if (!metrics.length) {

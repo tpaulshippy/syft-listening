@@ -20,7 +20,7 @@ Live at https://listen.syftlearning.app (root path `/`; `/listen` redirects ther
 ## Tech stack
 
 - Ruby 3.2.1, Rails ~> 8.0.2
-- SQLite3, Puma, Propshaft
+- Puma, Propshaft — **no database** (no Active Record, no SQLite, no Solid adapters)
 - `solid_cache` / `solid_queue` / `solid_cable`, Thruster, Kamal (Docker deploy)
 - `tailwindcss-rails`, `turbo-rails`, `stimulus-rails`, `importmap-rails`, `jbuilder`
 - RSpec + FactoryBot (`rspec-rails`, `factory_bot_rails`), Brakeman, RuboCop Omakase
@@ -30,7 +30,6 @@ Live at https://listen.syftlearning.app (root path `/`; `/listen` redirects ther
 
 ```bash
 bundle install
-bin/rails db:prepare
 ```
 
 Run the app (Tailwind watcher included):
@@ -84,7 +83,7 @@ spec/requests/speech_spec.rb
 
 ## Deployment
 
-Deploys to `listen.syftlearning.app` via `.github/workflows/deploy.yml`: on CI success for `main`, it pulls on the server, runs `bundle install` + `db:migrate`, and restarts the `listening` systemd service (port 4000).
+Deploys to `listen.syftlearning.app` via `.github/workflows/deploy.yml`: on CI success for `main`, it pulls on the server, runs `bundle install`, and restarts the `listening` systemd service (port 4000).
 
 Docker + Kamal/Thruster files are also included (`Dockerfile`, `.kamal/`, `.dockerignore`):
 

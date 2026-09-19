@@ -17,7 +17,7 @@ RSpec.describe "Speech", type: :request do
 
   describe "POST /jev_analyze" do
     it "rejects empty text" do
-      post "/jev_analyze", params: { text: "", metrics: ["factual"], api_key: "ts_test" }
+      post "/jev_analyze", params: { text: "", metrics: [ "factual" ], api_key: "ts_test" }
       expect(response).to have_http_status(:bad_request)
     end
 
@@ -27,7 +27,7 @@ RSpec.describe "Speech", type: :request do
     end
 
     it "rejects missing api key" do
-      post "/jev_analyze", params: { text: "hello world here", metrics: ["factual"], api_key: "" }
+      post "/jev_analyze", params: { text: "hello world here", metrics: [ "factual" ], api_key: "" }
       expect(response).to have_http_status(:unauthorized)
     end
   end

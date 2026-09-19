@@ -9,9 +9,17 @@ import { Controller } from "@hotwired/stimulus"
 export default class extends Controller {
   static targets = [
     "apiKey", "keyStatus", "testButton",
-    "metric", "status", "supportWarning", "startButton",
+    "metric", "status", "supportWarning",
     "transcriptFinal", "transcriptInterim", "wordCount", "manualText",
     "cardFactual", "cardComplexity", "cardGrammar", "cardEmotion",
+    "topicInput", "timer", "waveform", "recordButton", "iconMic", "iconStop",
+    "caption", "recorderCard",
+  ]
+
+  // Deterministic bar heights for the equalizer (fraction of full height).
+  WAVE_LEVELS = [
+    0.35, 0.6, 0.9, 0.5, 0.75, 0.4, 1.0, 0.55, 0.8, 0.35, 0.65, 0.95, 0.45,
+    0.7, 0.5, 0.85, 0.4, 0.6, 1.0, 0.5, 0.75, 0.35, 0.65, 0.9, 0.45,
   ]
 
   FACTUAL_LABELS = [
@@ -42,12 +50,22 @@ export default class extends Controller {
     this.debounceTimer = null
     this.analyzing = false
     this.lastAnalyzedText = ""
+    this.elapsedSeconds = 0
+    this.timerInterval = null
 
     this.apiKeyTarget.value = localStorage.getItem("syft_jev_key") || ""
+    if (this.hasTopicInputTarget) {
+      this.topicInputTarget.value = localStorage.getItem("syft_topic") || ""
+      this.topicInputTarget.addEventListener("input", () => {
+        localStorage.setItem("syft_topic", this.topicInputTarget.value.trim())
+      })
+    }
     this.restoreToggles()
     this.apiKeyTarget.addEventListener("input", () => {
       localStorage.setItem("syft_jev_key", this.apiKeyTarget.value.trim())
     })
+    this.buildWaveform()
+    this.updateTimer()
     this.updateWordCount()
     this.updateCardsVisibility()
 
@@ -57,6 +75,55 @@ export default class extends Controller {
 
   disconnect() {
     this.stopRecognition()
+  }
+
+  // --- equalizer + timer ------------------------------------------------------
+  buildWaveform() {
+    if (!this.hasWaveformTarget) return
+    this.waveformTarget.innerHTML = ""
+    this.WAVE_LEVELS.forEach((level, i) => {
+      const bar = document.createElement("span")
+      bar.className = "wave-bar w-[3px] rounded-full bg-current"
+      bar.style.height = `${Math.round(level * 100)}%`
+      bar.style.animationDelay = `${(-i * 0.07).toFixed(2)}s`
+      this.waveformTarget.appendChild(bar)
+    })
+  }
+
+  startTimer() {
+    this.stopTimer()
+    this.timerInterval = setInterval(() => {
+      this.elapsedSeconds += 1
+      this.updateTimer()
+    }, 1000)
+  }
+
+  stopTimer() {
+    if (this.timerInterval) clearInterval(this.timerInterval)
+    this.timerInterval = null
+  }
+
+  updateTimer() {
+    if (!this.hasTimerTarget) return
+    const m = String(Math.floor(this.elapsedSeconds / 60)).padStart(2, "0")
+    const s = String(this.elapsedSeconds % 60).padStart(2, "0")
+    this.timerTarget.textContent = `${m}:${s}`
+  }
+
+  setRecordingUI(recording) {
+    if (this.hasRecorderCardTarget) {
+      this.recorderCardTarget.classList.toggle("recording", recording)
+    }
+    if (this.hasIconMicTarget) this.iconMicTarget.classList.toggle("hidden", recording)
+    if (this.hasIconStopTarget) this.iconStopTarget.classList.toggle("hidden", !recording)
+    if (this.hasCaptionTarget) {
+      this.captionTarget.textContent = recording ? "Tap to stop" : "Tap to speak"
+    }
+    if (this.hasRecordButtonTarget) {
+      this.recordButtonTarget.setAttribute(
+        "aria-label", recording ? "Stop speaking" : "Start speaking"
+      )
+    }
   }
 
   // --- toggles ------------------------------------------------------------
@@ -163,7 +230,8 @@ export default class extends Controller {
     try {
       this.recognition.start()
       this.listening = true
-      this.startButtonTarget.textContent = "⏹ Stop"
+      this.startTimer()
+      this.setRecordingUI(true)
       this.setStatus("Listening… speak now.")
     } catch (e) {
       this.setStatus(`Could not start mic: ${e.message}`)
@@ -172,17 +240,20 @@ export default class extends Controller {
 
   stopRecognition() {
     this.listening = false
+    this.stopTimer()
+    this.setRecordingUI(false)
     if (this.recognition) {
       try { this.recognition.stop() } catch { /* ignore */ }
       this.recognition = null
     }
-    if (this.hasStartButtonTarget) this.startButtonTarget.textContent = "🎙 Start speaking"
     this.setStatus("Idle")
     this.transcriptInterimTarget.textContent = ""
   }
 
   clearTranscript() {
     this.finalText = ""
+    this.elapsedSeconds = 0
+    this.updateTimer()
     this.transcriptFinalTarget.textContent = ""
     this.transcriptInterimTarget.textContent = ""
     this.manualTextTarget.value = ""
@@ -210,9 +281,11 @@ export default class extends Controller {
   async analyzeNow() {
     const metrics = this.enabledMetrics()
     const key = this.apiKeyTarget.value.trim()
-    let text = this.currentText().slice(-1200) // tail only: fast + cheap
+    const spoken = this.currentText()
+    const topic = this.hasTopicInputTarget ? this.topicInputTarget.value.trim() : ""
+    const state = (topic ? `Speaker's stated topic: "${topic}". Speech: ${spoken}` : spoken).slice(-1400)
 
-    if (text.split(/\s+/).filter(Boolean).length < 3) return // too short
+    if (state.split(/\s+/).filter(Boolean).length < 3) return // too short
     if (!metrics.length) {
       this.setStatus("Enable at least one metric.")
       return
@@ -221,18 +294,18 @@ export default class extends Controller {
       this.setStatus("Paste your Jev API key first.")
       return
     }
-    if (this.analyzing || text === this.lastAnalyzedText) return
+    if (this.analyzing || state === this.lastAnalyzedText) return
     this.analyzing = true
     this.setStatus("Analyzing…")
 
     try {
-      const res = await this.postAnalyze(text, metrics, key)
+      const res = await this.postAnalyze(state, metrics, key)
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         this.setStatus(data.error || `Jev error (HTTP ${res.status})`)
         return
       }
-      this.lastAnalyzedText = text
+      this.lastAnalyzedText = state
       this.renderAnswers(data.answers || {})
       const tokens = data.usage ? ` · ${data.usage.input_tokens} in-tokens` : ""
       this.setStatus(`Updated just now${tokens}`)
@@ -263,7 +336,8 @@ export default class extends Controller {
     const score = Number(answer.score)
     const idx = Math.max(0, Math.min(max, Math.round(score)))
     card.querySelector('[data-result="value"]').textContent = score.toFixed(2)
-    card.querySelector('[data-result="value"]').className = "text-2xl font-bold mt-1 text-gray-900"
+    card.querySelector('[data-result="value"]').className =
+      "mt-1 text-3xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-100"
     card.querySelector('[data-result="label"]').textContent = labels[idx] || ""
     card.querySelector('[data-result="bar"]').style.width = `${(score / max) * 100}%`
     card.querySelector('[data-result="meta"]').textContent =
@@ -273,7 +347,7 @@ export default class extends Controller {
   renderChoice(card, answer) {
     card.querySelector('[data-result="value"]').textContent = answer.choice || "—"
     card.querySelector('[data-result="value"]').className =
-      "text-2xl font-bold mt-1 text-gray-900 capitalize"
+      "mt-1 text-3xl font-semibold capitalize text-zinc-900 dark:text-zinc-100"
     const dist = card.querySelector('[data-result="dist"]')
     dist.innerHTML = ""
     const probs = answer.probabilities || {}
@@ -285,8 +359,8 @@ export default class extends Controller {
         row.className = "flex items-center gap-2"
         row.innerHTML =
           `<span class="w-20 capitalize">${label}</span>` +
-          `<div class="flex-grow h-1.5 bg-gray-100 rounded"><div class="h-1.5 bg-emerald-500 rounded" style="width:${p * 100}%"></div></div>` +
-          `<span class="w-10 text-right">${this.pct(p)}</span>`
+          `<div class="flex-grow h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800"><div class="h-1.5 rounded-full bg-zinc-900 dark:bg-zinc-100" style="width:${p * 100}%"></div></div>` +
+          `<span class="w-10 text-right tabular-nums">${this.pct(p)}</span>`
         dist.appendChild(row)
       })
     card.querySelector('[data-result="meta"]').textContent =

@@ -4,12 +4,10 @@ require "rails"
 # Pick the frameworks you want:
 require "active_model/railtie"
 require "active_job/railtie"
-require "active_record/railtie"
-require "active_storage/engine"
+# No database in this app: active_record (and the engines that depend on
+# it: active_storage, action_mailbox, action_text) are intentionally not loaded.
 require "action_controller/railtie"
 require "action_mailer/railtie"
-require "action_mailbox/engine"
-require "action_text/engine"
 require "action_view/railtie"
 require "action_cable/engine"
 # require "rails/test_unit/railtie"

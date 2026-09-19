@@ -1,1 +1,38 @@
 @import "tailwindcss";
+
+/* Talkr-style theme. Dark mode follows the device automatically:
+   Tailwind v4's `dark:` variant uses prefers-color-scheme by default. */
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Equalizer bars: idle at low height, dancing while recording. */
+@keyframes eq {
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.wave-bar {
+  transform: scaleY(0.25);
+  transform-origin: center;
+  animation: eq 0.9s ease-in-out infinite;
+  animation-play-state: paused;
+}
+
+.recording .wave-bar {
+  animation-play-state: running;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wave-bar {
+    animation: none;
+    transform: scaleY(0.4);
+  }
+}

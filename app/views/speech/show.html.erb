@@ -1,136 +1,159 @@
-<div class="w-full max-w-3xl mx-auto" data-controller="speech-insights">
-  <h1 class="text-2xl font-bold mb-1 text-center text-emerald-600">Speech Insights</h1>
-  <p class="text-center text-sm text-gray-600 mb-4">
-    Speak and get near-real-time Jev scores. Transcription runs
-    <strong>free in your browser</strong> — no transcription key needed.
-  </p>
-
-  <!-- API key -->
-  <div class="bg-white rounded-lg shadow p-4 mb-4">
-    <label for="jev-key" class="block text-sm font-semibold mb-1">Jev (TypeSafe) API key</label>
-    <div class="flex gap-2">
-      <input id="jev-key" data-speech-insights-target="apiKey" type="password"
-             placeholder="ts_..." autocomplete="off" spellcheck="false"
-             class="flex-grow border border-gray-300 rounded px-3 py-2 text-sm font-mono" />
-      <button data-action="click->speech-insights#toggleKeyVisibility"
-              class="text-sm px-3 py-2 border border-gray-300 rounded hover:bg-gray-50">Show</button>
-      <button data-action="click->speech-insights#testKey"
-              data-speech-insights-target="testButton"
-              class="text-sm px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded">Test</button>
-    </div>
-    <p class="text-xs text-gray-500 mt-2">
-      Stored only in <code>localStorage</code> on this device. Get a key at
-      <a href="https://console.typesafe.ai/keys" target="_blank" rel="noopener" class="text-emerald-600 underline">console.typesafe.ai/keys</a>
-      (early access). Each analysis is proxied through this server to Jev — your key is forwarded, never stored. See the note at the bottom of this page.
-    </p>
-    <p data-speech-insights-target="keyStatus" class="text-xs mt-1 text-gray-600"></p>
+<div class="w-full" data-controller="speech-insights">
+  <!-- Wordmark -->
+  <div class="mb-5 flex flex-col items-center">
+    <svg class="h-6 w-6" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="3" y="9" width="2.5" height="6" rx="1.25" />
+      <rect x="7.5" y="5" width="2.5" height="14" rx="1.25" />
+      <rect x="12" y="8" width="2.5" height="8" rx="1.25" />
+      <rect x="16.5" y="4" width="2.5" height="16" rx="1.25" />
+      <rect x="21" y="10" width="2.5" height="4" rx="1.25" />
+    </svg>
+    <h1 class="mt-1 text-xl font-semibold tracking-tight">Syft Listening</h1>
   </div>
 
-  <!-- Toggles -->
-  <div class="bg-white rounded-lg shadow p-4 mb-4">
-    <h2 class="text-sm font-semibold mb-2">Metrics (each is one Jev question per analysis)</h2>
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-      <label class="flex items-start gap-2 border border-gray-200 rounded p-2 cursor-pointer">
-        <input type="checkbox" value="factual" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="mt-1" />
-        <span><strong>Factualness</strong><br /><span class="text-gray-500 text-xs">Score 0–4: opinion vs. verifiable factual claims</span></span>
-      </label>
-      <label class="flex items-start gap-2 border border-gray-200 rounded p-2 cursor-pointer">
-        <input type="checkbox" value="complexity" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="mt-1" />
-        <span><strong>Complexity</strong><br /><span class="text-gray-500 text-xs">Score 0–4: simple words → academic structure</span></span>
-      </label>
-      <label class="flex items-start gap-2 border border-gray-200 rounded p-2 cursor-pointer">
-        <input type="checkbox" value="grammar" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="mt-1" />
-        <span><strong>Grammar</strong><br /><span class="text-gray-500 text-xs">Score 0–3: errors → fully correct</span></span>
-      </label>
-      <label class="flex items-start gap-2 border border-gray-200 rounded p-2 cursor-pointer">
-        <input type="checkbox" value="emotion" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="mt-1" />
-        <span><strong>Emotion</strong><br /><span class="text-gray-500 text-xs">Choice: neutral, happy, excited, anxious, frustrated, sad, angry</span></span>
-      </label>
-    </div>
+  <!-- Topic -->
+  <div class="mb-3 rounded-2xl border border-black/5 bg-white px-5 py-4 text-center shadow-sm dark:border-white/10 dark:bg-zinc-900">
+    <p class="text-[11px] font-medium tracking-[0.2em] text-zinc-400 dark:text-zinc-500">YOUR TOPIC</p>
+    <input data-speech-insights-target="topicInput" type="text" placeholder="What are you talking about?"
+           autocomplete="off" spellcheck="false"
+           class="mt-1 w-full bg-transparent text-center font-medium text-zinc-900 placeholder:text-zinc-400 focus:outline-none dark:text-zinc-100 dark:placeholder:text-zinc-600" />
   </div>
 
-  <!-- Controls -->
-  <div class="bg-white rounded-lg shadow p-4 mb-4">
-    <div class="flex flex-wrap items-center gap-2">
-      <button data-speech-insights-target="startButton" data-action="click->speech-insights#toggleListening"
-              class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-5 rounded-full">
-        🎙 Start speaking
-      </button>
-      <button data-action="click->speech-insights#analyzeNow"
-              class="py-2 px-4 border border-emerald-500 text-emerald-600 rounded-full hover:bg-emerald-50 text-sm font-semibold">
-        Analyze now
-      </button>
-      <button data-action="click->speech-insights#useSample"
-              class="py-2 px-4 border border-gray-300 text-gray-600 rounded-full hover:bg-gray-50 text-sm">
-        Use sample text
-      </button>
-      <button data-action="click->speech-insights#clearTranscript"
-              class="py-2 px-4 border border-gray-300 text-gray-600 rounded-full hover:bg-gray-50 text-sm">
-        Clear
-      </button>
-      <span data-speech-insights-target="status" class="text-sm text-gray-600 ml-auto">Idle</span>
-    </div>
-    <p data-speech-insights-target="supportWarning" class="hidden text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mt-3">
-      Your browser doesn't support the free built-in transcription (Web Speech API). Use Chrome or Edge on desktop/Android, or type in the box below and hit “Analyze now”.
+  <!-- Recorder -->
+  <div data-speech-insights-target="recorderCard"
+       class="rounded-2xl border border-black/5 bg-white px-5 py-6 text-center shadow-sm dark:border-white/10 dark:bg-zinc-900">
+    <p data-speech-insights-target="timer" class="text-4xl font-semibold tabular-nums tracking-tight">00:00</p>
+    <div data-speech-insights-target="waveform" class="my-3 flex h-6 items-center justify-center gap-[3px]" aria-hidden="true"></div>
+    <button data-speech-insights-target="recordButton" data-action="click->speech-insights#toggleListening"
+            aria-label="Start speaking"
+            class="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-zinc-950 text-white transition-transform hover:scale-105 active:scale-95 dark:bg-zinc-50 dark:text-zinc-950">
+      <svg data-speech-insights-target="iconMic" class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="9" y="2" width="6" height="12" rx="3" />
+        <path d="M5 10a7 7 0 0 0 14 0" />
+        <line x1="12" y1="17" x2="12" y2="22" />
+      </svg>
+      <svg data-speech-insights-target="iconStop" class="hidden h-6 w-6" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <rect x="6" y="6" width="12" height="12" rx="2" />
+      </svg>
+    </button>
+    <p data-speech-insights-target="caption" class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Tap to speak</p>
+    <p data-speech-insights-target="status" class="mt-1 min-h-4 text-xs text-zinc-400 dark:text-zinc-500">Idle</p>
+    <p data-speech-insights-target="supportWarning" class="hidden rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+      Your browser doesn't support the free built-in transcription (Web Speech API). Use Chrome or Edge on desktop/Android, or type in the box below.
     </p>
   </div>
 
   <!-- Transcript -->
-  <div class="bg-white rounded-lg shadow p-4 mb-4">
-    <h2 class="text-sm font-semibold mb-2">Transcript <span data-speech-insights-target="wordCount" class="text-gray-400 font-normal"></span></h2>
-    <div class="border border-gray-200 rounded p-3 min-h-24 text-sm leading-relaxed">
-      <span data-speech-insights-target="transcriptFinal"></span><span data-speech-insights-target="transcriptInterim" class="text-gray-400"></span>
+  <div class="mt-3 rounded-2xl border border-black/5 bg-white px-5 py-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
+    <div class="flex items-baseline justify-between">
+      <h2 class="text-[11px] font-medium tracking-[0.2em] text-zinc-400 dark:text-zinc-500">TRANSCRIPT</h2>
+      <span data-speech-insights-target="wordCount" class="text-xs text-zinc-400 dark:text-zinc-500"></span>
     </div>
-    <label class="block text-xs text-gray-500 mt-3 mb-1" for="manual-text">Or type / paste text to analyze (used instead of transcript when non-empty):</label>
-    <textarea id="manual-text" data-speech-insights-target="manualText" rows="3"
-              placeholder="Type something here, e.g. The Eiffel Tower is 330 meters tall and was completed in 1889."
-              class="w-full border border-gray-300 rounded px-3 py-2 text-sm"></textarea>
-  </div>
-
-  <!-- Results -->
-  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
-    <div data-speech-insights-target="cardFactual" data-metric-card="factual" class="bg-white rounded-lg shadow p-4">
-      <h3 class="font-semibold text-sm">Factualness <span class="text-gray-400 font-normal">· score 0–4</span></h3>
-      <p data-result="value" class="text-2xl font-bold mt-1 text-gray-300">—</p>
-      <p data-result="label" class="text-xs text-gray-600"></p>
-      <div class="h-2 bg-gray-100 rounded mt-2"><div data-result="bar" class="h-2 bg-emerald-500 rounded" style="width:0%"></div></div>
-      <p data-result="meta" class="text-xs text-gray-400 mt-1"></p>
+    <div class="mt-2 min-h-12 text-sm leading-relaxed">
+      <span data-speech-insights-target="transcriptFinal"></span><span data-speech-insights-target="transcriptInterim" class="text-zinc-400 dark:text-zinc-500"></span>
     </div>
-    <div data-speech-insights-target="cardComplexity" data-metric-card="complexity" class="bg-white rounded-lg shadow p-4">
-      <h3 class="font-semibold text-sm">Complexity <span class="text-gray-400 font-normal">· score 0–4</span></h3>
-      <p data-result="value" class="text-2xl font-bold mt-1 text-gray-300">—</p>
-      <p data-result="label" class="text-xs text-gray-600"></p>
-      <div class="h-2 bg-gray-100 rounded mt-2"><div data-result="bar" class="h-2 bg-blue-500 rounded" style="width:0%"></div></div>
-      <p data-result="meta" class="text-xs text-gray-400 mt-1"></p>
-    </div>
-    <div data-speech-insights-target="cardGrammar" data-metric-card="grammar" class="bg-white rounded-lg shadow p-4">
-      <h3 class="font-semibold text-sm">Grammar <span class="text-gray-400 font-normal">· score 0–3</span></h3>
-      <p data-result="value" class="text-2xl font-bold mt-1 text-gray-300">—</p>
-      <p data-result="label" class="text-xs text-gray-600"></p>
-      <div class="h-2 bg-gray-100 rounded mt-2"><div data-result="bar" class="h-2 bg-violet-500 rounded" style="width:0%"></div></div>
-      <p data-result="meta" class="text-xs text-gray-400 mt-1"></p>
-    </div>
-    <div data-speech-insights-target="cardEmotion" data-metric-card="emotion" class="bg-white rounded-lg shadow p-4">
-      <h3 class="font-semibold text-sm">Emotion <span class="text-gray-400 font-normal">· choice</span></h3>
-      <p data-result="value" class="text-2xl font-bold mt-1 text-gray-300">—</p>
-      <div data-result="dist" class="text-xs text-gray-600 mt-1 space-y-1"></div>
-      <p data-result="meta" class="text-xs text-gray-400 mt-1"></p>
+    <textarea data-speech-insights-target="manualText" rows="2" placeholder="Or type / paste text to analyze instead…"
+              class="mt-2 w-full resize-none rounded-xl border border-zinc-200 bg-transparent px-3 py-2 text-sm placeholder:text-zinc-400 focus:outline-none dark:border-zinc-800 dark:placeholder:text-zinc-600"></textarea>
+    <div class="mt-2 flex gap-2">
+      <button data-action="click->speech-insights#analyzeNow"
+              class="rounded-full bg-zinc-950 px-4 py-1.5 text-xs font-semibold text-white dark:bg-zinc-50 dark:text-zinc-950">Analyze now</button>
+      <button data-action="click->speech-insights#useSample"
+              class="rounded-full border border-zinc-300 px-4 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">Sample</button>
+      <button data-action="click->speech-insights#clearTranscript"
+              class="rounded-full border border-zinc-300 px-4 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">Clear</button>
     </div>
   </div>
 
-  <p class="text-xs text-gray-400 text-center mb-3">
-    Transcription: free Web Speech API in your browser (no key). Analysis: one Jev <code>POST /v1/systemone</code> call per update
-    (model <code>jev-latest</code>, $0.042/M input tokens, output free). Disabled metrics are not sent, so they cost nothing.
+  <!-- Metrics -->
+  <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+    <div data-speech-insights-target="cardFactual" data-metric-card="factual" class="rounded-2xl border border-black/5 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-medium">Factualness</h3>
+        <label class="inline-flex cursor-pointer items-center">
+          <input type="checkbox" value="factual" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="peer sr-only" />
+          <span class="relative h-5 w-9 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-zinc-900 peer-checked:after:translate-x-4 dark:bg-zinc-700 dark:peer-checked:bg-zinc-100 dark:after:bg-zinc-950"></span>
+        </label>
+      </div>
+      <p data-result="value" class="mt-1 text-3xl font-semibold tabular-nums text-zinc-300 dark:text-zinc-700">—</p>
+      <p data-result="label" class="text-xs text-zinc-500 dark:text-zinc-400"></p>
+      <div class="mt-2 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800"><div data-result="bar" class="h-1.5 rounded-full bg-zinc-900 dark:bg-zinc-100" style="width:0%"></div></div>
+      <p data-result="meta" class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500"></p>
+      <p class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-600">Score 0–4 · opinion vs. verifiable fact</p>
+    </div>
+    <div data-speech-insights-target="cardComplexity" data-metric-card="complexity" class="rounded-2xl border border-black/5 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-medium">Complexity</h3>
+        <label class="inline-flex cursor-pointer items-center">
+          <input type="checkbox" value="complexity" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="peer sr-only" />
+          <span class="relative h-5 w-9 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-zinc-900 peer-checked:after:translate-x-4 dark:bg-zinc-700 dark:peer-checked:bg-zinc-100 dark:after:bg-zinc-950"></span>
+        </label>
+      </div>
+      <p data-result="value" class="mt-1 text-3xl font-semibold tabular-nums text-zinc-300 dark:text-zinc-700">—</p>
+      <p data-result="label" class="text-xs text-zinc-500 dark:text-zinc-400"></p>
+      <div class="mt-2 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800"><div data-result="bar" class="h-1.5 rounded-full bg-zinc-900 dark:bg-zinc-100" style="width:0%"></div></div>
+      <p data-result="meta" class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500"></p>
+      <p class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-600">Score 0–4 · simple → academic</p>
+    </div>
+    <div data-speech-insights-target="cardGrammar" data-metric-card="grammar" class="rounded-2xl border border-black/5 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-medium">Grammar</h3>
+        <label class="inline-flex cursor-pointer items-center">
+          <input type="checkbox" value="grammar" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="peer sr-only" />
+          <span class="relative h-5 w-9 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-zinc-900 peer-checked:after:translate-x-4 dark:bg-zinc-700 dark:peer-checked:bg-zinc-100 dark:after:bg-zinc-950"></span>
+        </label>
+      </div>
+      <p data-result="value" class="mt-1 text-3xl font-semibold tabular-nums text-zinc-300 dark:text-zinc-700">—</p>
+      <p data-result="label" class="text-xs text-zinc-500 dark:text-zinc-400"></p>
+      <div class="mt-2 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800"><div data-result="bar" class="h-1.5 rounded-full bg-zinc-900 dark:bg-zinc-100" style="width:0%"></div></div>
+      <p data-result="meta" class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500"></p>
+      <p class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-600">Score 0–3 · errors → fully correct</p>
+    </div>
+    <div data-speech-insights-target="cardEmotion" data-metric-card="emotion" class="rounded-2xl border border-black/5 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-medium">Emotion</h3>
+        <label class="inline-flex cursor-pointer items-center">
+          <input type="checkbox" value="emotion" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="peer sr-only" />
+          <span class="relative h-5 w-9 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-zinc-900 peer-checked:after:translate-x-4 dark:bg-zinc-700 dark:peer-checked:bg-zinc-100 dark:after:bg-zinc-950"></span>
+        </label>
+      </div>
+      <p data-result="value" class="mt-1 text-3xl font-semibold capitalize text-zinc-300 dark:text-zinc-700">—</p>
+      <div data-result="dist" class="mt-1 space-y-1 text-xs text-zinc-500 dark:text-zinc-400"></div>
+      <p data-result="meta" class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500"></p>
+    </div>
+  </div>
+
+  <!-- API key -->
+  <div class="mt-3 rounded-2xl border border-black/5 bg-white px-5 py-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
+    <h2 class="text-[11px] font-medium tracking-[0.2em] text-zinc-400 dark:text-zinc-500">JEV API KEY</h2>
+    <div class="mt-2 flex gap-2">
+      <input data-speech-insights-target="apiKey" type="password" placeholder="ts_..." autocomplete="off" spellcheck="false"
+             class="flex-grow rounded-xl border border-zinc-200 bg-transparent px-3 py-2 font-mono text-sm placeholder:text-zinc-400 focus:outline-none dark:border-zinc-800 dark:placeholder:text-zinc-600" />
+      <button data-action="click->speech-insights#toggleKeyVisibility"
+              class="rounded-full border border-zinc-300 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">Show</button>
+      <button data-action="click->speech-insights#testKey" data-speech-insights-target="testButton"
+              class="rounded-full bg-zinc-950 px-4 py-2 text-xs font-semibold text-white dark:bg-zinc-50 dark:text-zinc-950">Test</button>
+    </div>
+    <p class="mt-2 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+      Stored only in <code>localStorage</code> on this device. Get a key at
+      <a href="https://console.typesafe.ai/keys" target="_blank" rel="noopener" class="underline">console.typesafe.ai/keys</a>.
+      Each analysis is proxied through this server to Jev — your key is forwarded, never stored. See below.
+    </p>
+    <p data-speech-insights-target="keyStatus" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400"></p>
+  </div>
+
+  <p class="mb-3 mt-4 text-center text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-500">
+    Transcription runs free in your browser (no key). Analysis is one Jev call per update
+    (<code>jev-latest</code>); disabled metrics are not sent, so they cost nothing.
   </p>
 
-  <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-8 text-xs text-gray-500 text-center">
-    <strong class="text-gray-700">How your key is handled:</strong>
-    your Jev key passes through this server to TypeSafe's API — it is never stored and never logged
-    (filtered from Rails logs), but a server operator could technically see it in transit.
+  <div class="mb-8 rounded-2xl border border-black/5 bg-white/60 p-3 text-center text-[11px] leading-relaxed text-zinc-500 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400">
+    <strong>How your key is handled:</strong>
+    your Jev key passes through this server to TypeSafe's API — it is never stored and never logged,
+    but a server operator could technically see it in transit.
     Keys are revocable at
-    <a href="https://console.typesafe.ai/keys" target="_blank" rel="noopener" class="text-emerald-600 underline">console.typesafe.ai/keys</a>.
+    <a href="https://console.typesafe.ai/keys" target="_blank" rel="noopener" class="underline">console.typesafe.ai/keys</a>.
     This app is
-    <a href="https://github.com/tpaulshippy/syft-listening" target="_blank" rel="noopener" class="text-emerald-600 underline">open source</a>
+    <a href="https://github.com/tpaulshippy/syft-listening" target="_blank" rel="noopener" class="underline">open source</a>
     — read the code and run it yourself if you prefer.
   </div>
 </div>

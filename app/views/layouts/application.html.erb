@@ -3,6 +3,7 @@
   <head>
     <title><%= content_for(:title) || "Syft Listening" %></title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <%= csrf_meta_tags %>
@@ -22,14 +23,14 @@
     <%= javascript_importmap_tags %>
   </head>
 
-  <body>
+  <body class="bg-[#e7e3d9] text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
     <% flash.each do |type, message| %>
       <div class="<%= type == 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700' %> p-3 mb-4 rounded">
         <%= message %>
       </div>
     <% end %>
     
-    <main class="container mx-auto mt-28 px-5 flex">
+    <main class="mx-auto flex w-full max-w-md flex-col px-4 pb-16 pt-10">
       <%= yield %>
     </main>
   </body>

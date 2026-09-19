@@ -131,6 +131,11 @@ class SpeechController < ApplicationController
       rescue JSON::ParserError
         { "raw" => body }
       end
+      # Log upstream rejections (body holds Jev's error detail, never the key)
+      # so validation errors like HTTP 422 can be diagnosed from the message.
+      unless upstream.code.to_i == 200
+        Rails.logger.warn "Jev API error #{upstream.code}: #{body.truncate(500)}"
+      end
       render json: parsed, status: upstream.code.to_i
     rescue Net::OpenTimeout, Net::ReadTimeout => e
       Rails.logger.warn "Jev API timeout: #{e.class}"

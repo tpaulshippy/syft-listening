@@ -214,7 +214,7 @@ export default class extends Controller {
       } else {
         localStorage.removeItem("syft_jev_key_ok")
         this.updateGate()
-        this.keyStatusTarget.textContent = `✗ ${data.error || `HTTP ${res.status}`}`
+        this.keyStatusTarget.textContent = `✗ ${this.upstreamError(data, res.status)}`
         this.keyStatusTarget.className = "text-xs mt-1 text-red-600"
       }
     } catch {
@@ -367,7 +367,7 @@ export default class extends Controller {
           this.keyStatusTarget.textContent = "That key was rejected — check it and tap Test."
           this.keyStatusTarget.className = "text-xs mt-1 text-red-600"
         }
-        this.setStatus(data.error || `Jev error (HTTP ${res.status})`)
+        this.setStatus(this.upstreamError(data, res.status))
         return
       }
       this.lastAnalyzedText = state
@@ -488,6 +488,19 @@ export default class extends Controller {
   }
 
   // --- helpers ---------------------------------------------------------------
+  // Jev error bodies carry the reason in `error` or `detail` (a 422's
+  // validation messages live in `detail`) — surface it, don't swallow it.
+  upstreamError(data, status) {
+    if (data.error) return data.error
+    if (data.detail !== undefined) {
+      try {
+        const text = JSON.stringify(data.detail)
+        return text.length > 300 ? `${text.slice(0, 300)}…` : text
+      } catch { /* fall through to generic message */ }
+    }
+    return `Jev error (HTTP ${status})`
+  }
+
   setStatus(msg) {
     if (this.hasStatusTarget) this.statusTarget.textContent = msg
   }

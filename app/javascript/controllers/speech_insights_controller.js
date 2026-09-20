@@ -5,7 +5,9 @@ import { Controller } from "@hotwired/stimulus"
 //
 // - API key stored in localStorage ("syft_jev_key"); verified keys in "syft_jev_key_ok".
 // - Each metric toggle maps to Jev questions ("habits" fans out to 4 nouls); disabled metrics are not sent.
-// - Auto-analyzes every time a sentence is finalized (last ~1400 chars only, keeps it fast/cheap).
+// - Auto-analyze cadence is user-configurable: every N words (slider,
+//   default 5) plus optionally every finalized sentence (checkbox).
+//   Only the last ~1400 chars are sent (keeps it fast/cheap).
 // - Confidence < 0.5 renders as "uncertain" (nouls use distance from 0.5);
 //   accents (border, bar, badge, value) fade to gray; vivid hues follow the
 //   result value (emotion choice, score level, yes/no, habits flagged).
@@ -14,6 +16,7 @@ export default class extends Controller {
     "apiKey", "apiKeyCard", "keyStatus", "testButton",
     "metric", "status", "supportWarning",
     "transcriptFinal", "transcriptInterim", "wordCount", "manualText",
+    "wordInterval", "wordIntervalLabel", "sentenceTrigger",
     "cardFactualClaim", "cardSpecificity", "cardComplexity", "cardGrammar",
     "cardEmotion", "cardHabits",
     "timer", "waveform", "recordButton", "iconMic", "iconStop",
@@ -83,11 +86,13 @@ export default class extends Controller {
     this.finalText = ""
     this.analyzing = false
     this.lastAnalyzedText = ""
+    this.lastTriggerWords = 0
     this.elapsedSeconds = 0
     this.timerInterval = null
 
     this.apiKeyTarget.value = localStorage.getItem("syft_jev_key") || ""
     this.restoreToggles()
+    this.restoreCadence()
     this.apiKeyTarget.addEventListener("input", () => {
       localStorage.setItem("syft_jev_key", this.apiKeyTarget.value.trim())
       this.updateGate()
@@ -182,6 +187,38 @@ export default class extends Controller {
         if (prefs[c.value] !== undefined) c.checked = !!prefs[c.value]
       })
     } catch { /* keep defaults */ }
+  }
+
+  // --- cadence ------------------------------------------------------------
+  wordInterval() {
+    const n = parseInt(this.wordIntervalTarget.value, 10)
+    return Number.isFinite(n) && n > 0 ? n : 5
+  }
+
+  sentenceTriggerOn() {
+    return this.sentenceTriggerTarget.checked
+  }
+
+  cadenceChanged() {
+    const n = this.wordInterval()
+    if (this.hasWordIntervalLabelTarget) {
+      this.wordIntervalLabelTarget.textContent = `${n} word${n === 1 ? "" : "s"}`
+    }
+    try {
+      localStorage.setItem("syft_jev_cadence",
+        JSON.stringify({ words: n, sentence: this.sentenceTriggerTarget.checked }))
+    } catch { /* private mode etc. — cadence just won't persist */ }
+  }
+
+  restoreCadence() {
+    try {
+      const prefs = JSON.parse(localStorage.getItem("syft_jev_cadence") || "{}")
+      if (prefs.words !== undefined) {
+        this.wordIntervalTarget.value = Math.min(30, Math.max(1, parseInt(prefs.words, 10) || 5))
+      }
+      if (prefs.sentence !== undefined) this.sentenceTriggerTarget.checked = !!prefs.sentence
+    } catch { /* keep defaults */ }
+    this.cadenceChanged()
   }
 
   updateCardsVisibility() {
@@ -283,7 +320,13 @@ export default class extends Controller {
       this.transcriptFinalTarget.textContent = this.finalText
       this.transcriptInterimTarget.textContent = interim
       this.updateWordCount()
-      if (heardSentence) this.analyzeNow()
+      const words = this.currentText().split(/\s+/).filter(Boolean).length
+      const interval = this.wordInterval()
+      const crossed = Math.floor(words / interval) !== Math.floor(this.lastTriggerWords / interval)
+      if ((heardSentence && this.sentenceTriggerOn()) || crossed) {
+        this.analyzeNow()
+      }
+      this.lastTriggerWords = words
     }
     this.recognition.onerror = (event) => {
       this.setStatus(`Mic error: ${event.error}`)
@@ -321,6 +364,7 @@ export default class extends Controller {
   clearTranscript() {
     this.finalText = ""
     this.elapsedSeconds = 0
+    this.lastTriggerWords = 0
     this.updateTimer()
     this.transcriptFinalTarget.textContent = ""
     this.transcriptInterimTarget.textContent = ""

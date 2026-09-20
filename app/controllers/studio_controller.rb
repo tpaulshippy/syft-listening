@@ -14,7 +14,8 @@ require "csv"
 # include_<slug> noul per column (the fan-out that scales with data width)
 # + Jev-native row filter: `filter_column` / `filter_op` choices plus one
 # `filter_value_<slug>` choice per low-cardinality column (Jev can't emit
-# free text, so values are enumerated).
+# free text, so values are enumerated) plus a `filter_negate` noul for
+# exclusions ("not", "except").
 # The frontend (`studio_controller.js`) is a generic interpreter: it maps the
 # winning spec onto Chart.js (bar/line/pie/scatter/bubbles) or hand-rendered
 # table/cards/kpi DOM. Jev selects parameters; it never invents components.
@@ -274,7 +275,8 @@ class StudioController < ApplicationController
           starts_with: "Keep rows whose value starts with the text",
           ends_with: "Keep rows whose value ends with the text"
         }
-      }
+      },
+      "filter_negate" => noul("Does `request` exclude the matching rows instead of keeping them (e.g. \"not\", \"except\", \"excluding\", \"other than\")?")
     }
     (2..MAX_PANELS).each { |i| questions.merge!(panel_questions(i, columns, numeric, option_map)) }
     questions.merge!(filter_value_questions(columns, rows))

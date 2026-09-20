@@ -132,6 +132,7 @@ RSpec.describe "Studio", type: :request do
         # …plus the Jev-native row filter: column + op + value enums
         expect(questions["filter_column"]["criteria"]).to include("genre", "revenue", "none")
         expect(questions["filter_op"]["criteria"]).to include("equals", "contains", "starts_with", "ends_with")
+        expect(questions["filter_negate"]["type"]).to eq("noul")
         expect(questions["filter_value_genre"]["criteria"]).to include("scifi", "nonfiction")
         expect(questions["filter_value_revenue"]["criteria"]).to include("665.0", "522.0")
         upstream
@@ -140,9 +141,10 @@ RSpec.describe "Studio", type: :request do
       post "/jev_studio", params: { prompt: "Bar chart of revenue by genre", dataset: bookstore, api_key: "ts_test" }
       expect(response).to have_http_status(:success)
       parsed = JSON.parse(response.body)
-      # 2 dashboard + 10 panel-1 + 12 panels 2-3 + filter_column/filter_op +
-      # one value enum per low-cardinality column (5 here) + one flag per column
-      expect(parsed["question_count"]).to eq(26 + 2 * parsed["schema"]["columns"].size)
+      # 2 dashboard + 10 panel-1 + 12 panels 2-3 + filter_column/filter_op/
+      # filter_negate + one value enum per low-cardinality column (5 here) +
+      # one flag per column
+      expect(parsed["question_count"]).to eq(27 + 2 * parsed["schema"]["columns"].size)
       expect(parsed["upstream_ms"]).to be_a(Integer)
     end
 

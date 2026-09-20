@@ -192,20 +192,25 @@ export function applyFilter(rows, schema, filter) {
   const name = findColumn(schema, filter.column)?.name ?? filter.column
   const want = String(filter.value).trim().toLowerCase()
   const test = filterTest(filter.op || "equals", want)
+  const negate = !!filter.negate
   return (rows || []).filter((r) => {
     const v = cellOf(r, name)
-    return v !== null && v !== undefined && test(String(v).trim().toLowerCase())
+    if (v === null || v === undefined) return negate
+    const hit = test(String(v).trim().toLowerCase())
+    return negate ? !hit : hit
   })
 }
 
 export function filterLabel(filter, schema) {
   if (!filter) return ""
   const name = findColumn(schema, filter.column)?.name ?? filter.column
+  const value = filter.value
+  const negate = !!filter.negate
   const op = filter.op || "equals"
-  if (op === "contains") return `${name} contains “${filter.value}”`
-  if (op === "starts_with") return `${name} starts with “${filter.value}”`
-  if (op === "ends_with") return `${name} ends with “${filter.value}”`
-  return `${name} = ${filter.value}`
+  if (op === "contains") return negate ? `${name} doesn't contain “${value}”` : `${name} contains “${value}”`
+  if (op === "starts_with") return negate ? `${name} doesn't start with “${value}”` : `${name} starts with “${value}”`
+  if (op === "ends_with") return negate ? `${name} doesn't end with “${value}”` : `${name} ends with “${value}”`
+  return negate ? `${name} ≠ ${value}` : `${name} = ${value}`
 }
 
 // Shared (whole-dashboard) filter from Jev answers. Column and op use the
@@ -215,6 +220,7 @@ function sharedFilter(m, fb, answers, usedFallback) {
   const column = m.fieldChoice("filter_column", "none")
   if (column === "none" || column === "count_rows") return null
   const op = m.choice("filter_op", "equals", FILTER_OPS)
+  const negate = m.noul("filter_negate", false)
   const key = `filter_value_${column}`
   const a = answers?.[key]
   const conf = Number(a?.confidence ?? NaN)
@@ -227,7 +233,7 @@ function sharedFilter(m, fb, answers, usedFallback) {
     return v !== null && v !== undefined && test(String(v).trim().toLowerCase())
   })
   if (!ok) { usedFallback.push(key); return null }
-  return { column, op, value }
+  return { column, op, value, negate }
 }
 
 // Offline keyword parse over an arbitrary schema — fallback without a key.

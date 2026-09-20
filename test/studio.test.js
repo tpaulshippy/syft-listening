@@ -363,6 +363,21 @@ describe("row filter (Jev-native)", () => {
     expect(ids({ column: "id", op: "ends_with", value: "05" })).toEqual(["INC-105"])
   })
 
+  it("inverts matches when negated", () => {
+    const ids = (f) => applyFilter(SAMPLES.incidents, schema, f).map((r) => r.id).sort()
+    expect(ids({ column: "status", op: "equals", value: "open", negate: true }))
+      .toEqual(["INC-101", "INC-104", "INC-105"])
+    expect(ids({ column: "owner", op: "contains", value: "a", negate: true }))
+      .toEqual(["INC-104", "INC-105"])
+  })
+
+  it("labels a negated filter", () => {
+    expect(filterLabel({ column: "status", op: "equals", value: "open", negate: true }, schema))
+      .toBe("status ≠ open")
+    expect(filterLabel({ column: "owner", op: "contains", value: "am", negate: true }, schema))
+      .toBe("owner doesn't contain “am”")
+  })
+
   it("returns all rows without a filter and none on mismatch", () => {
     expect(applyFilter(SAMPLES.incidents, schema, null)).toHaveLength(5)
     expect(applyFilter(SAMPLES.incidents, schema, { column: "status", op: "equals", value: "nobody" })).toHaveLength(0)
@@ -383,11 +398,23 @@ describe("row filter (Jev-native)", () => {
       view: { choice: "table", confidence: 0.9 },
       filter_column: { choice: "status", confidence: 0.9 },
       filter_op: { choice: "equals", confidence: 0.85 },
+      filter_negate: { noul: 0.05 },
       filter_value_status: { choice: "open", confidence: 0.9 },
     }, schema, "Table of open incidents", SAMPLES.incidents)
-    expect(spec.filter).toEqual({ column: "status", op: "equals", value: "open" })
+    expect(spec.filter).toEqual({ column: "status", op: "equals", value: "open", negate: false })
     expect(usedFallback).not.toContain("filter_column")
     expect(usedFallback).not.toContain("filter_value_status")
+    expect(usedFallback).not.toContain("filter_negate")
+  })
+
+  it("merges a negated Jev filter", () => {
+    const { spec } = specFromAnswers({
+      filter_column: { choice: "status", confidence: 0.9 },
+      filter_op: { choice: "equals", confidence: 0.9 },
+      filter_negate: { noul: 0.95 },
+      filter_value_status: { choice: "open", confidence: 0.9 },
+    }, schema, "Books that are not open", SAMPLES.incidents)
+    expect(spec.filter).toEqual({ column: "status", op: "equals", value: "open", negate: true })
   })
 
   it("drops the filter when Jev says none or is unsure", () => {
@@ -422,7 +449,7 @@ describe("row filter (Jev-native)", () => {
     const { dashboard } = dashboardFromAnswers(answers, schema, "Bars and a table for checkout", SAMPLES.incidents)
     expect(dashboard.panels).toHaveLength(2)
     for (const p of dashboard.panels) {
-      expect(p.filter).toEqual({ column: "service", op: "equals", value: "checkout" })
+      expect(p.filter).toEqual({ column: "service", op: "equals", value: "checkout", negate: false })
     }
   })
 

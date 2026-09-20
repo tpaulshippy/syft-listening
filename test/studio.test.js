@@ -20,6 +20,8 @@ import {
   panelTitle,
   dashboardContainerStyle,
   panelSectionHtml,
+  parseDatasetText,
+  parseCsv,
 } from "../app/javascript/controllers/studio_controller.js"
 
 describe("inferSchema (arbitrary data)", () => {
@@ -292,5 +294,50 @@ describe("dashboard (option 2: multi-panel)", () => {
     expect(html).toContain("6,688") // total revenue KPI across all 8 rows
     expect(dashboardContainerStyle("side-by-side")).toContain("grid")
     expect(dashboardContainerStyle("stack")).toContain("column")
+  })
+})
+
+describe("CSV dataset input", () => {
+  it("parses a simple table", () => {
+    const { rows, error } = parseDatasetText("genre,units,revenue\nscifi,35,665\nfiction,42,756\n")
+    expect(error).toBeUndefined()
+    expect(rows).toEqual([
+      { genre: "scifi", units: "35", revenue: "665" },
+      { genre: "fiction", units: "42", revenue: "756" },
+    ])
+    const schema = inferSchema(rows)
+    const byName = Object.fromEntries(schema.columns.map((c) => [c.name, c.type]))
+    expect(byName).toMatchObject({ genre: "categorical", units: "numeric", revenue: "numeric" })
+  })
+
+  it("handles quoted commas, escaped quotes, and CRLF", () => {
+    const { rows, error } = parseDatasetText('title,units\r\n"The Midnight, Library",42\r\n"Say ""hi""",7\r\n')
+    expect(error).toBeUndefined()
+    expect(rows).toEqual([
+      { title: "The Midnight, Library", units: "42" },
+      { title: 'Say "hi"', units: "7" },
+    ])
+  })
+
+  it("aggregates numeric strings end to end", () => {
+    const { rows } = parseDatasetText("genre,units\nscifi,35\nscifi,44\nfiction,42\n")
+    const schema = inferSchema(rows)
+    const agg = aggregateCategory(rows,
+      { xField: "genre", yField: "units", aggregation: "sum", sortBy: "label_asc" }, schema)
+    expect(agg.labels).toEqual(["fiction", "scifi"])
+    expect(agg.values).toEqual([42, 79])
+  })
+
+  it("rejects header-only, blank-header, and duplicate-header CSV", () => {
+    expect(parseDatasetText("a,b,c\n").error).toMatch(/no data rows/)
+    expect(parseDatasetText("a,,c\n1,2,3\n").error).toMatch(/blank/)
+    expect(parseDatasetText("a,b,a\n1,2,3\n").error).toMatch(/duplicate/)
+    expect(parseDatasetText("   ").error).toMatch(/Paste/)
+  })
+
+  it("still parses JSON arrays", () => {
+    const { rows, error } = parseDatasetText('[{"a":1}]')
+    expect(error).toBeUndefined()
+    expect(rows).toEqual([{ a: 1 }])
   })
 })

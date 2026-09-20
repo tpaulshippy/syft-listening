@@ -43,6 +43,36 @@ RSpec.describe "Studio", type: :request do
       expect(response).to have_http_status(:bad_request)
     end
 
+    it "accepts a CSV string and infers numeric strings" do
+      http = instance_double(Net::HTTP)
+      upstream = instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:use_ssl=)
+      allow(http).to receive(:open_timeout=)
+      allow(http).to receive(:read_timeout=)
+      allow(http).to receive(:request) do |req|
+        body = JSON.parse(req.body)
+        schema = body["state"]["schema"]
+        revenue = schema["columns"].find { |c| c["slug"] == "revenue" }
+        expect(revenue["type"]).to eq("numeric")
+        expect(body["state"]["rows"].first).to include("genre" => "scifi")
+        upstream
+      end
+
+      post "/jev_studio", params: {
+        prompt: "Bar chart of revenue by genre",
+        dataset: "genre,units,revenue\nscifi,35,665.0\nfiction,42,756.0\n",
+        api_key: "ts_test"
+      }
+      expect(response).to have_http_status(:success)
+    end
+
+    it "rejects a header-only CSV" do
+      post "/jev_studio", params: { prompt: "Bar chart", dataset: "a,b,c\n", api_key: "ts_test" }
+      expect(response).to have_http_status(:bad_request)
+      expect(JSON.parse(response.body)["error"]).to match(/no data rows/)
+    end
+
     it "accepts a sample name instead of pasted JSON" do
       http = instance_double(Net::HTTP)
       upstream = instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)

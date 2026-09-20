@@ -1,10 +1,7 @@
 require "net/http"
 require "uri"
 require "json"
-
-require "net/http"
-require "uri"
-require "json"
+require "csv"
 
 # Generalized voice UI studio — the same parallel fan-out pattern as Builder,
 # but data-agnostic: the question set is generated from the dataset's own
@@ -105,6 +102,7 @@ class StudioController < ApplicationController
     # already; the String branch covers form-encoded posts and specs.
     parsed = raw.is_a?(Array) ? raw : parse_dataset_json(raw.to_s.strip)
     return parsed if parsed.is_a?(Hash) && parsed[:error]
+    parsed = parsed[:csv_rows] if parsed.is_a?(Hash) && parsed[:csv_rows]
     return { error: "Dataset must be an array of objects" } unless parsed.is_a?(Array) && parsed.all? { |r| hash_like?(r) }
     return { error: "Dataset is empty" } if parsed.empty?
     return { error: "Dataset too large (max 500 rows)" } if parsed.size > 500
@@ -117,13 +115,31 @@ class StudioController < ApplicationController
   end
 
   def parse_dataset_json(raw)
-    return { error: "No dataset provided (paste JSON or pick a sample)" } if raw.blank?
+    return { error: "No dataset provided (paste JSON or CSV, or pick a sample)" } if raw.blank?
+    return parse_dataset_csv(raw) unless raw.lstrip.start_with?("[")
 
     begin
       JSON.parse(raw)
     rescue JSON::ParserError
       { error: "Dataset is not valid JSON (expected an array of objects)" }
     end
+  end
+
+  # CSV alternative to the JSON array: first row is the header. Values stay
+  # strings — column_type already recognizes numeric/temporal strings.
+  def parse_dataset_csv(raw)
+    begin
+      table = CSV.parse(raw.strip, headers: true, skip_blanks: true)
+    rescue CSV::MalformedCSVError
+      return { error: "Dataset is not valid CSV (check quoting)." }
+    end
+    headers = table.headers.map { |h| h.to_s.strip }
+    return { error: "CSV is empty." } if headers.empty?
+    return { error: "CSV header row has a blank column name." } if headers.any?(&:empty?)
+    return { error: "CSV header row has duplicate column names." } if headers.uniq.size != headers.size
+    return { error: "CSV has a header but no data rows." } if table.empty?
+
+    { csv_rows: table.map { |row| row.to_h.transform_keys { |k| k.to_s.strip }.transform_values { |v| v.to_s.strip } } }
   end
 
   # Column inference shared by question-building and the response meta.

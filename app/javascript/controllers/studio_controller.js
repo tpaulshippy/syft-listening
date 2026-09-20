@@ -43,6 +43,65 @@ export const SAMPLES = {
 
 export const PALETTE = ["#38bdf8", "#f472b6", "#34d399", "#fbbf24", "#a78bfa", "#fb7185", "#22d3ee", "#f97316"]
 
+// Dataset input: a JSON array of objects, or CSV with a header row.
+// Detects by first non-whitespace character ("[" -> JSON, else CSV).
+export function parseDatasetText(raw) {
+  const text = String(raw ?? "").trim()
+  if (!text) return { error: "Paste a JSON array or CSV table, or pick a sample." }
+  if (text.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(text)
+      if (!Array.isArray(parsed) || !parsed.length || !parsed.every((r) => r && typeof r === "object")) {
+        return { error: "Dataset must be a non-empty array of objects." }
+      }
+      return { rows: parsed }
+    } catch {
+      return { error: "Dataset is not valid JSON." }
+    }
+  }
+  return parseCsv(text)
+}
+
+// Minimal RFC-4180 reader: quoted fields, "" escapes, CRLF/newlines in quotes.
+export function parseCsv(text) {
+  const rows = []
+  let row = []
+  let field = ""
+  let quoted = false
+  let i = 0
+  const pushField = () => { row.push(field); field = "" }
+  const pushRow = () => { rows.push(row); row = [] }
+  while (i < text.length) {
+    const c = text[i]
+    if (quoted) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i += 2 }
+        else { quoted = false; i += 1 }
+      } else { field += c; i += 1 }
+    } else if (c === '"') {
+      quoted = true; i += 1
+    } else if (c === ",") {
+      pushField(); i += 1
+    } else if (c === "\n" || c === "\r") {
+      pushField(); pushRow()
+      i += (c === "\r" && text[i + 1] === "\n") ? 2 : 1
+    } else {
+      field += c; i += 1
+    }
+  }
+  pushField(); pushRow()
+  const nonEmpty = rows.filter((r) => r.some((v) => String(v).trim() !== ""))
+  if (!nonEmpty.length) return { error: "CSV is empty." }
+  const headers = nonEmpty[0].map((h) => String(h).trim())
+  if (headers.some((h) => h === "")) return { error: "CSV header row has a blank column name." }
+  if (new Set(headers).size !== headers.length) return { error: "CSV header row has duplicate column names." }
+  const data = nonEmpty.slice(1)
+  if (!data.length) return { error: "CSV has a header but no data rows." }
+  return {
+    rows: data.map((r) => Object.fromEntries(headers.map((h, j) => [h, (r[j] ?? "").trim()]))),
+  }
+}
+
 export function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
 }
@@ -508,17 +567,7 @@ export default class extends Controller {
 
   // --- dataset -----------------------------------------------------------------
   parseDataset() {
-    const raw = this.datasetTarget.value.trim()
-    if (!raw) return { error: "Paste a JSON array or pick a sample." }
-    try {
-      const parsed = JSON.parse(raw)
-      if (!Array.isArray(parsed) || !parsed.length || !parsed.every((r) => r && typeof r === "object")) {
-        return { error: "Dataset must be a non-empty array of objects." }
-      }
-      return { rows: parsed }
-    } catch {
-      return { error: "Dataset is not valid JSON." }
-    }
+    return parseDatasetText(this.datasetTarget.value)
   }
 
   datasetInput() {

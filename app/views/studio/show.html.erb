@@ -15,14 +15,14 @@
   <!-- Dataset -->
   <div class="mt-3 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900">
     <div class="flex flex-wrap items-center gap-2 text-xs">
-      <span class="font-medium">Dataset (JSON array of objects)</span>
+      <span class="font-medium">Dataset (JSON array, or CSV with a header row)</span>
       <button data-action="click->studio#useSample" data-sample="bookstore" class="rounded-full border border-zinc-300 px-3 py-1 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">📚 Bookstore sales</button>
       <button data-action="click->studio#useSample" data-sample="workouts" class="rounded-full border border-zinc-300 px-3 py-1 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">🏃 Workouts</button>
       <button data-action="click->studio#useSample" data-sample="incidents" class="rounded-full border border-zinc-300 px-3 py-1 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">🚨 Incidents</button>
     </div>
     <textarea data-studio-target="dataset" rows="6" spellcheck="false"
               data-action="input->studio#datasetInput"
-              placeholder='[{"month":"2026-06","genre":"fiction","units":42}, …] — or pick a sample above'
+              placeholder='[{"genre":"fiction","units":42}, …] or CSV: genre,units&#10;fiction,42 — or pick a sample above'
               class="mt-2 max-h-64 w-full resize-y overflow-y-auto rounded-xl border border-zinc-200 bg-transparent px-3 py-2 font-mono text-base focus:outline-none dark:border-zinc-800"></textarea>
     <p class="mt-1 font-mono text-[11px] text-zinc-500 dark:text-zinc-400" data-studio-target="schemaLine">No dataset yet.</p>
   </div>

@@ -1,4 +1,8 @@
 <% content_for :container_class, "max-w-4xl" %>
+<% content_for :head do %>
+  <%# Self-contained UMD build: single file, no module graph to 404 %>
+  <script src="<%= asset_path("chart.umd.js") %>" defer></script>
+<% end %>
 <div class="w-full" data-controller="studio">
   <div class="flex items-baseline justify-between">
     <h1 class="text-xl font-bold tracking-tight">Data studio</h1>

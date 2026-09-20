@@ -385,7 +385,7 @@ export default class extends Controller {
     this.recognition = null
     this.listening = false
     this.chart = null
-    this.chartLibPromise = null
+    this.ChartClass = null
     this.apiKeyTarget.value = localStorage.getItem("syft_jev_key") || ""
     this.apiKeyTarget.addEventListener("input", () => {
       localStorage.setItem("syft_jev_key", this.apiKeyTarget.value.trim())
@@ -622,23 +622,26 @@ export default class extends Controller {
       (meta.usedFallback?.length ? ` ${meta.usedFallback.length} answer(s) fell back.` : " All answers from Jev.")
   }
 
-  // Lazily loads Chart.js once (memoized) so a failed first paint doesn't
-  // retry the import on every Ask. Registration is idempotent.
+  // Chart.js ships as a classic UMD script (see the <script> tag in the
+  // studio view): single self-contained file, no ESM graph that can 404 on
+  // a missing chunk. The UMD namespace carries the Chart class plus
+  // registerables; memoized after first registration (idempotent).
   loadChartLib() {
-    if (!this.chartLibPromise) {
-      this.chartLibPromise = import("chart.js").then((mod) => {
-        mod.Chart.register(...mod.registerables)
-        return mod.Chart
-      })
+    if (this.ChartClass) return this.ChartClass
+    const ns = window.Chart
+    if (!ns || !ns.Chart || !ns.registerables) {
+      throw new Error("Chart.js script (chart.umd.js) failed to load")
     }
-    return this.chartLibPromise
+    ns.Chart.register(...ns.registerables)
+    this.ChartClass = ns.Chart
+    return this.ChartClass
   }
 
-  async mountChart(spec, rows, schema) {
+  mountChart(spec, rows, schema) {
     const config = buildChartConfig(spec, rows, schema)
     this.canvasTarget.innerHTML = `<div style="position:relative;height:320px;"><canvas></canvas></div>` + totalsLine(rows, spec, schema)
     try {
-      const Chart = await this.loadChartLib()
+      const Chart = this.loadChartLib()
       const canvas = this.canvasTarget.querySelector("canvas")
       this.chart = new Chart(canvas, config)
     } catch (e) {

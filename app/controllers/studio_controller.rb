@@ -304,8 +304,8 @@ class StudioController < ApplicationController
       next if distinct.any? { |v| v.length > 60 }
       questions["filter_value_#{col[:slug]}"] = {
         type: "choice",
-        instructions: "If `request` keeps only some `#{col[:name]}` rows, which value? (used only when the filter targets `#{col[:name]}`)",
-        criteria: distinct.each_with_object({}) { |v, h| h[v] = "Keep only rows where `#{col[:name]}` is #{v}" }
+        instructions: "Which `#{col[:name]}` value does `request` name — either to keep or to exclude? (used only when the filter targets `#{col[:name]}`)",
+        criteria: distinct.each_with_object({}) { |v, h| h[v] = "`request` names #{v} (to keep or to exclude)" }
       }
     end
     questions

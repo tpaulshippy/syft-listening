@@ -462,7 +462,7 @@ export default class extends Controller {
       }
       this.lastAnalyzedText = state
       this.renderAnswers(data.answers || {})
-      this.setStatus(`Analyzed: “${this.snippet(state)}”`)
+      this.setStatus(`Analyzed: “${state.replace(/\s+/g, " ").trim()}”`)
     } catch {
       this.setStatus("Analysis failed — check connection and try again.")
     } finally {
@@ -639,14 +639,6 @@ export default class extends Controller {
 
   setStatus(msg) {
     if (this.hasStatusTarget) this.statusTarget.textContent = msg
-  }
-
-  // Short tail of the analyzed text for the status line ("…" when cut,
-  // split on a word boundary so it never starts mid-word).
-  snippet(text, max = 100) {
-    const t = (text || "").replace(/\s+/g, " ").trim()
-    if (t.length <= max) return t
-    return "…" + t.slice(-max).replace(/^\S+\s/, "")
   }
 
   pct(x) {

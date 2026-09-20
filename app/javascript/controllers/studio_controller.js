@@ -369,6 +369,10 @@ function totalsLine(rows, spec, schema) {
   return `<p style="font-size:11px;color:#71717a;margin-top:8px;">${agg.labels.length} groups · total ${fmt(round2(total))}</p>`
 }
 
+export function chartUnavailableHtml(reason) {
+  return `<p style="font-size:12px;color:#a1a1aa;margin-bottom:6px;">Chart unavailable here (${escapeHtml(reason)}). Tabulated instead.</p>`
+}
+
 // --- Stimulus controller (dataset + voice + Jev call + Chart.js mount) --------
 export default class extends Controller {
   static targets = [
@@ -381,6 +385,7 @@ export default class extends Controller {
     this.recognition = null
     this.listening = false
     this.chart = null
+    this.chartLibPromise = null
     this.apiKeyTarget.value = localStorage.getItem("syft_jev_key") || ""
     this.apiKeyTarget.addEventListener("input", () => {
       localStorage.setItem("syft_jev_key", this.apiKeyTarget.value.trim())
@@ -617,17 +622,31 @@ export default class extends Controller {
       (meta.usedFallback?.length ? ` ${meta.usedFallback.length} answer(s) fell back.` : " All answers from Jev.")
   }
 
+  // Lazily loads Chart.js once (memoized) so a failed first paint doesn't
+  // retry the import on every Ask. Registration is idempotent.
+  loadChartLib() {
+    if (!this.chartLibPromise) {
+      this.chartLibPromise = import("chart.js").then((mod) => {
+        mod.Chart.register(...mod.registerables)
+        return mod.Chart
+      })
+    }
+    return this.chartLibPromise
+  }
+
   async mountChart(spec, rows, schema) {
     const config = buildChartConfig(spec, rows, schema)
     this.canvasTarget.innerHTML = `<div style="position:relative;height:320px;"><canvas></canvas></div>` + totalsLine(rows, spec, schema)
     try {
-      const { Chart, registerables } = await import("chart.js")
-      Chart.register(...registerables)
+      const Chart = await this.loadChartLib()
       const canvas = this.canvasTarget.querySelector("canvas")
       this.chart = new Chart(canvas, config)
-    } catch {
+    } catch (e) {
       // No canvas/Chart available — the deterministic fallback is a table.
-      this.canvasTarget.innerHTML = `<p style="font-size:12px;color:#a1a1aa;margin-bottom:6px;">Chart unavailable here — tabulated instead.</p>` +
+      // Surface the reason (previously swallowed) so it can be diagnosed.
+      const reason = (e && e.message) || String(e)
+      console.error("Chart.js failed to mount:", e)
+      this.canvasTarget.innerHTML = chartUnavailableHtml(reason) +
         renderTableHtml(rows, { ...spec, view: "table" }, schema)
     }
   }

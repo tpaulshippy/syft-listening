@@ -19,7 +19,7 @@
     <textarea data-studio-target="dataset" rows="6" spellcheck="false"
               data-action="input->studio#datasetInput"
               placeholder='[{"month":"2026-06","genre":"fiction","units":42}, …] — or pick a sample above'
-              class="mt-2 max-h-64 w-full resize-y overflow-y-auto rounded-xl border border-zinc-200 bg-transparent px-3 py-2 font-mono text-xs focus:outline-none dark:border-zinc-800"></textarea>
+              class="mt-2 max-h-64 w-full resize-y overflow-y-auto rounded-xl border border-zinc-200 bg-transparent px-3 py-2 font-mono text-base focus:outline-none dark:border-zinc-800"></textarea>
     <p class="mt-1 font-mono text-[11px] text-zinc-500 dark:text-zinc-400" data-studio-target="schemaLine">No dataset yet.</p>
   </div>
 
@@ -29,7 +29,7 @@
       <input data-studio-target="prompt" type="text" autocomplete="off" spellcheck="true"
              placeholder='"Bar chart of revenue by genre" — or tap 🎙 and say it'
              data-action="keydown->studio#promptKeydown input->studio#promptInput"
-             class="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-transparent px-3 py-2 text-sm focus:outline-none dark:border-zinc-800" />
+             class="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-transparent px-3 py-2 text-base focus:outline-none dark:border-zinc-800" />
       <button data-studio-target="micButton" data-action="click->studio#toggleVoice" aria-label="Dictate your request"
               class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-white transition-transform hover:scale-105 active:scale-95 dark:bg-zinc-50 dark:text-zinc-950">
         <span aria-hidden="true">🎙</span>

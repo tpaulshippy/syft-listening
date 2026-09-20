@@ -12,6 +12,7 @@ import {
   renderTableHtml,
   renderCardsHtml,
   renderKpiHtml,
+  chartUnavailableHtml,
 } from "../app/javascript/controllers/studio_controller.js"
 
 describe("inferSchema (arbitrary data)", () => {
@@ -156,6 +157,13 @@ describe("aggregation + Chart.js config", () => {
 
 describe("DOM renderers", () => {
   const schema = inferSchema(SAMPLES.incidents)
+
+  it("explains chart failures with the underlying reason", () => {
+    const html = chartUnavailableHtml("Failed to fetch chart.js.js <script>")
+    expect(html).toContain("Tabulated instead")
+    expect(html).toContain("Failed to fetch")
+    expect(html).not.toContain("<script>")
+  })
 
   it("renders a table with schema headers, biggest first", () => {
     const spec = defaultSpec(schema, "Table of all incidents, biggest minutes_open first")

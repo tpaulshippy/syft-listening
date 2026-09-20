@@ -136,6 +136,13 @@
                class="h-4 w-4 accent-zinc-900 dark:accent-zinc-100" />
         Every sentence
       </label>
+      <label class="flex items-center gap-2">
+        Window
+        <input data-speech-insights-target="charsWindow" type="range" min="100" max="1400" step="50" value="350"
+               data-action="input->speech-insights#cadenceChanged"
+               class="h-1 w-28 cursor-pointer accent-zinc-900 dark:accent-zinc-100" />
+        <span data-speech-insights-target="charsWindowLabel">350 chars (~58 words)</span>
+      </label>
     </div>
     <div class="mt-2 flex gap-2">
       <button data-action="click->speech-insights#analyzeNow"

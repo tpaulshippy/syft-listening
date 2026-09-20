@@ -7,7 +7,8 @@ import { Controller } from "@hotwired/stimulus"
 // - Each metric toggle maps to Jev questions ("habits" fans out to 4 nouls); disabled metrics are not sent.
 // - Auto-analyze cadence is user-configurable: every N words (slider,
 //   default 5) plus optionally every finalized sentence (checkbox).
-//   Only the last ~1400 chars are sent (keeps it fast/cheap).
+//   Only the tail of the text is sent (window slider, default 350 chars)
+//   to keep it fast/cheap.
 // - Confidence < 0.5 renders as "uncertain" (nouls use distance from 0.5);
 //   accents (border, bar, badge, value) fade to gray; vivid hues follow the
 //   result value (emotion choice, score level, yes/no, habits flagged).
@@ -17,6 +18,7 @@ export default class extends Controller {
     "metric", "status", "supportWarning",
     "transcriptFinal", "transcriptInterim", "wordCount", "manualText",
     "wordInterval", "wordIntervalLabel", "sentenceTrigger",
+    "charsWindow", "charsWindowLabel",
     "cardFactualClaim", "cardSpecificity", "cardComplexity", "cardGrammar",
     "cardEmotion", "cardHabits",
     "timer", "waveform", "recordButton", "iconMic", "iconStop",
@@ -199,14 +201,23 @@ export default class extends Controller {
     return this.sentenceTriggerTarget.checked
   }
 
+  windowChars() {
+    const n = parseInt(this.charsWindowTarget.value, 10)
+    return Number.isFinite(n) && n > 0 ? n : 350
+  }
+
   cadenceChanged() {
     const n = this.wordInterval()
     if (this.hasWordIntervalLabelTarget) {
       this.wordIntervalLabelTarget.textContent = `${n} word${n === 1 ? "" : "s"}`
     }
+    const c = this.windowChars()
+    if (this.hasCharsWindowLabelTarget) {
+      this.charsWindowLabelTarget.textContent = `${c} chars (~${Math.round(c / 6)} words)`
+    }
     try {
       localStorage.setItem("syft_jev_cadence",
-        JSON.stringify({ words: n, sentence: this.sentenceTriggerTarget.checked }))
+        JSON.stringify({ words: n, sentence: this.sentenceTriggerTarget.checked, chars: c }))
     } catch { /* private mode etc. — cadence just won't persist */ }
   }
 
@@ -217,6 +228,9 @@ export default class extends Controller {
         this.wordIntervalTarget.value = Math.min(30, Math.max(1, parseInt(prefs.words, 10) || 5))
       }
       if (prefs.sentence !== undefined) this.sentenceTriggerTarget.checked = !!prefs.sentence
+      if (prefs.chars !== undefined) {
+        this.charsWindowTarget.value = Math.min(1400, Math.max(100, parseInt(prefs.chars, 10) || 350))
+      }
     } catch { /* keep defaults */ }
     this.cadenceChanged()
   }
@@ -417,7 +431,7 @@ export default class extends Controller {
   async analyzeNow() {
     const metrics = this.enabledMetrics()
     const key = this.apiKeyTarget.value.trim()
-    const state = this.currentText().slice(-1400)
+    const state = this.currentText().slice(-this.windowChars())
 
     if (state.split(/\s+/).filter(Boolean).length < 3) return // too short
     if (!metrics.length) {

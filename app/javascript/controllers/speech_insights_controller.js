@@ -661,6 +661,9 @@ export default class extends Controller {
   // Mini transcript under the record button mirrors the full transcript
   // live (final + muted interim, left-aligned via markup) but shows only
   // the analysis window tail — the start is trimmed once text exceeds it.
+  // The box is h-24/leading-6 (exactly 4 lines) so scrolling to the
+  // bottom never shaves the top line; keep height a multiple of the
+  // line-height if either ever changes.
   // Analysis state is a trailing emoji (⏳ analyzing, ✅ analyzed,
   // ⚠️ error) with the full message as its tooltip; anything else
   // (Idle, Listening…, mic errors) shows as muted placeholder text

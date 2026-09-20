@@ -383,6 +383,7 @@ export default class extends Controller {
     this.transcriptFinalTarget.textContent = ""
     this.transcriptInterimTarget.textContent = ""
     this.manualTextTarget.value = ""
+    this.fitManualText()
     this.updateWordCount()
     this.resetMetrics()
   }
@@ -415,9 +416,17 @@ export default class extends Controller {
     this.lastAnalyzedText = ""
   }
 
+  // Grow the manual textbox to fit its content (CSS max-height caps it).
+  fitManualText() {
+    const el = this.manualTextTarget
+    el.style.height = "auto"
+    el.style.height = `${el.scrollHeight + (el.offsetHeight - el.clientHeight)}px`
+  }
+
   useSample() {
     this.manualTextTarget.value =
       "Um, the Eiffel Tower is 330 meters tall and was completed in 1889, but honestly I feel like it might be the most overrated place on earth and it makes me kind of anxious, you know?"
+    this.fitManualText()
     this.analyzeNow()
   }
 

@@ -27,24 +27,24 @@
 
   <!-- Metrics -->
   <div data-speech-insights-target="metricsGrid" class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-    <div data-speech-insights-target="cardEmotion" data-metric-card="emotion" class="rounded-2xl border border-black/5 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
+    <div data-speech-insights-target="cardEmotion" data-metric-card="emotion" class="rounded-2xl border border-black/5 border-t-4 border-t-rose-400 bg-white p-4 shadow-sm dark:border-white/10 dark:border-t-rose-500 dark:bg-zinc-900">
       <div class="flex items-center justify-between">
-        <h3 class="text-sm font-medium">Emotion</h3>
+        <h3 class="flex items-center gap-2 text-sm font-medium"><span data-result="emoji" class="flex h-6 w-6 items-center justify-center rounded-full bg-rose-100 text-sm dark:bg-rose-950">😐</span>Emotion</h3>
         <label class="inline-flex cursor-pointer items-center">
           <input type="checkbox" value="emotion" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="peer sr-only" />
-          <span class="relative h-5 w-9 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-zinc-900 peer-checked:after:translate-x-4 dark:bg-zinc-700 dark:peer-checked:bg-zinc-100 dark:after:bg-zinc-950"></span>
+          <span class="relative h-5 w-9 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-rose-500 peer-checked:after:translate-x-4 dark:bg-zinc-700 dark:peer-checked:bg-rose-500 dark:after:bg-zinc-950"></span>
         </label>
       </div>
       <p data-result="value" class="mt-1 text-3xl font-semibold capitalize text-zinc-300 dark:text-zinc-700">—</p>
       <div data-result="dist" class="mt-1 space-y-1 text-xs text-zinc-500 dark:text-zinc-400"></div>
       <p data-result="meta" class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500"></p>
     </div>
-    <div data-speech-insights-target="cardHabits" data-metric-card="habits" class="rounded-2xl border border-black/5 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
+    <div data-speech-insights-target="cardHabits" data-metric-card="habits" class="rounded-2xl border border-black/5 border-t-4 border-t-amber-400 bg-white p-4 shadow-sm dark:border-white/10 dark:border-t-amber-500 dark:bg-zinc-900">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-medium">Speech habits</h3>
         <label class="inline-flex cursor-pointer items-center">
           <input type="checkbox" value="habits" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="peer sr-only" />
-          <span class="relative h-5 w-9 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-zinc-900 peer-checked:after:translate-x-4 dark:bg-zinc-700 dark:peer-checked:bg-zinc-100 dark:after:bg-zinc-950"></span>
+          <span class="relative h-5 w-9 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-amber-500 peer-checked:after:translate-x-4 dark:bg-zinc-700 dark:peer-checked:bg-amber-500 dark:after:bg-zinc-950"></span>
         </label>
       </div>
       <p data-result="value" class="mt-1 text-3xl font-semibold tabular-nums text-zinc-300 dark:text-zinc-700">—</p>
@@ -52,59 +52,59 @@
       <p data-result="meta" class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500"></p>
       <p class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-600">Yes / no · filler · hedging · repetition · questions</p>
     </div>
-    <div data-speech-insights-target="cardGrammar" data-metric-card="grammar" class="rounded-2xl border border-black/5 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
+    <div data-speech-insights-target="cardGrammar" data-metric-card="grammar" class="rounded-2xl border border-black/5 border-t-4 border-t-emerald-400 bg-white p-4 shadow-sm dark:border-white/10 dark:border-t-emerald-500 dark:bg-zinc-900">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-medium">Grammar</h3>
         <label class="inline-flex cursor-pointer items-center">
           <input type="checkbox" value="grammar" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="peer sr-only" />
-          <span class="relative h-5 w-9 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-zinc-900 peer-checked:after:translate-x-4 dark:bg-zinc-700 dark:peer-checked:bg-zinc-100 dark:after:bg-zinc-950"></span>
+          <span class="relative h-5 w-9 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-emerald-500 peer-checked:after:translate-x-4 dark:bg-zinc-700 dark:peer-checked:bg-emerald-500 dark:after:bg-zinc-950"></span>
         </label>
       </div>
       <p data-result="value" class="mt-1 text-3xl font-semibold tabular-nums text-zinc-300 dark:text-zinc-700">—</p>
       <p data-result="label" class="text-xs text-zinc-500 dark:text-zinc-400"></p>
-      <div class="mt-2 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800"><div data-result="bar" class="h-1.5 rounded-full bg-zinc-900 dark:bg-zinc-100" style="width:0%"></div></div>
+      <div class="mt-2 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800"><div data-result="bar" class="h-1.5 rounded-full bg-emerald-500" style="width:0%"></div></div>
       <p data-result="meta" class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500"></p>
       <p class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-600">Score 0–3 · errors → fully correct · ignores likely mic-transcription slips</p>
     </div>
-    <div data-speech-insights-target="cardComplexity" data-metric-card="complexity" class="rounded-2xl border border-black/5 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
+    <div data-speech-insights-target="cardComplexity" data-metric-card="complexity" class="rounded-2xl border border-black/5 border-t-4 border-t-violet-400 bg-white p-4 shadow-sm dark:border-white/10 dark:border-t-violet-500 dark:bg-zinc-900">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-medium">Complexity</h3>
         <label class="inline-flex cursor-pointer items-center">
           <input type="checkbox" value="complexity" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="peer sr-only" />
-          <span class="relative h-5 w-9 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-zinc-900 peer-checked:after:translate-x-4 dark:bg-zinc-700 dark:peer-checked:bg-zinc-100 dark:after:bg-zinc-950"></span>
+          <span class="relative h-5 w-9 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-violet-500 peer-checked:after:translate-x-4 dark:bg-zinc-700 dark:peer-checked:bg-violet-500 dark:after:bg-zinc-950"></span>
         </label>
       </div>
       <p data-result="value" class="mt-1 text-3xl font-semibold tabular-nums text-zinc-300 dark:text-zinc-700">—</p>
       <p data-result="label" class="text-xs text-zinc-500 dark:text-zinc-400"></p>
-      <div class="mt-2 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800"><div data-result="bar" class="h-1.5 rounded-full bg-zinc-900 dark:bg-zinc-100" style="width:0%"></div></div>
+      <div class="mt-2 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800"><div data-result="bar" class="h-1.5 rounded-full bg-violet-500" style="width:0%"></div></div>
       <p data-result="meta" class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500"></p>
       <p class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-600">Score 0–4 · simple → academic</p>
     </div>
-    <div data-speech-insights-target="cardSpecificity" data-metric-card="specificity" class="rounded-2xl border border-black/5 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
+    <div data-speech-insights-target="cardSpecificity" data-metric-card="specificity" class="rounded-2xl border border-black/5 border-t-4 border-t-sky-400 bg-white p-4 shadow-sm dark:border-white/10 dark:border-t-sky-500 dark:bg-zinc-900">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-medium">Specificity</h3>
         <label class="inline-flex cursor-pointer items-center">
           <input type="checkbox" value="specificity" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="peer sr-only" />
-          <span class="relative h-5 w-9 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-zinc-900 peer-checked:after:translate-x-4 dark:bg-zinc-700 dark:peer-checked:bg-zinc-100 dark:after:bg-zinc-950"></span>
+          <span class="relative h-5 w-9 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-sky-500 peer-checked:after:translate-x-4 dark:bg-zinc-700 dark:peer-checked:bg-sky-500 dark:after:bg-zinc-950"></span>
         </label>
       </div>
       <p data-result="value" class="mt-1 text-3xl font-semibold tabular-nums text-zinc-300 dark:text-zinc-700">—</p>
       <p data-result="label" class="text-xs text-zinc-500 dark:text-zinc-400"></p>
-      <div class="mt-2 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800"><div data-result="bar" class="h-1.5 rounded-full bg-zinc-900 dark:bg-zinc-100" style="width:0%"></div></div>
+      <div class="mt-2 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800"><div data-result="bar" class="h-1.5 rounded-full bg-sky-500" style="width:0%"></div></div>
       <p data-result="meta" class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500"></p>
       <p class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-600">Score 0–4 · vague → concrete details</p>
     </div>
-    <div data-speech-insights-target="cardFactualClaim" data-metric-card="factual_claim" class="rounded-2xl border border-black/5 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
+    <div data-speech-insights-target="cardFactualClaim" data-metric-card="factual_claim" class="rounded-2xl border border-black/5 border-t-4 border-t-orange-400 bg-white p-4 shadow-sm dark:border-white/10 dark:border-t-orange-500 dark:bg-zinc-900">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-medium">Factual claim</h3>
         <label class="inline-flex cursor-pointer items-center">
           <input type="checkbox" value="factual_claim" checked data-speech-insights-target="metric" data-action="change->speech-insights#metricsChanged" class="peer sr-only" />
-          <span class="relative h-5 w-9 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-zinc-900 peer-checked:after:translate-x-4 dark:bg-zinc-700 dark:peer-checked:bg-zinc-100 dark:after:bg-zinc-950"></span>
+          <span class="relative h-5 w-9 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-orange-500 peer-checked:after:translate-x-4 dark:bg-zinc-700 dark:peer-checked:bg-orange-500 dark:after:bg-zinc-950"></span>
         </label>
       </div>
       <p data-result="value" class="mt-1 text-3xl font-semibold tabular-nums text-zinc-300 dark:text-zinc-700">—</p>
       <p data-result="label" class="text-xs text-zinc-500 dark:text-zinc-400"></p>
-      <div class="mt-2 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800"><div data-result="bar" class="h-1.5 rounded-full bg-zinc-900 dark:bg-zinc-100" style="width:0%"></div></div>
+      <div class="mt-2 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800"><div data-result="bar" class="h-1.5 rounded-full bg-orange-500" style="width:0%"></div></div>
       <p data-result="meta" class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500"></p>
       <p class="mt-1 text-[11px] text-zinc-400 dark:text-zinc-600">Yes / no · states a checkable fact</p>
     </div>

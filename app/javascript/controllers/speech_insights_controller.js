@@ -6,7 +6,9 @@ import { Controller } from "@hotwired/stimulus"
 // - API key stored in localStorage ("syft_jev_key"); verified keys in "syft_jev_key_ok".
 // - Each metric toggle maps to Jev questions ("habits" fans out to 4 nouls); disabled metrics are not sent.
 // - Auto-analyzes every time a sentence is finalized (last ~1400 chars only, keeps it fast/cheap).
-// - Confidence < 0.5 renders as "uncertain" (nouls use distance from 0.5).
+// - Confidence < 0.5 renders as "uncertain" (nouls use distance from 0.5);
+//   accents (border, bar, badge, value) fade to gray; vivid hues follow the
+//   result value (emotion choice, score level, yes/no, habits flagged).
 export default class extends Controller {
   static targets = [
     "apiKey", "apiKeyCard", "keyStatus", "testButton",
@@ -51,6 +53,29 @@ export default class extends Controller {
     "Mostly correct, minor slips",
     "Fully correct",
   ]
+  EMOTION_EMOJI = {
+    neutral: "😐",
+    happy: "😊",
+    excited: "🤩",
+    anxious: "😟",
+    frustrated: "😤",
+    sad: "😢",
+    angry: "😠",
+    other: "❓",
+  }
+  // Accent hues per result value (inline styles so Tailwind's build-time
+  // purge can't drop them). Certainty fades everything to MUTED gray.
+  EMOTION_COLORS = {
+    neutral: "#a1a1aa",
+    happy: "#10b981",
+    excited: "#ec4899",
+    anxious: "#eab308",
+    frustrated: "#f97316",
+    sad: "#0ea5e9",
+    angry: "#ef4444",
+    other: "#a1a1aa",
+  }
+  MUTED = "#a1a1aa"
 
   connect() {
     this.listening = false
@@ -306,8 +331,10 @@ export default class extends Controller {
 
   resetMetrics() {
     this.element.querySelectorAll("[data-metric-card]").forEach((card) => {
+      card.style.borderTopColor = ""
       card.querySelectorAll('[data-result="value"]').forEach((el) => {
         el.textContent = "—"
+        el.style.color = ""
         el.className = el.className
           .replace("text-zinc-900", "text-zinc-300")
           .replace("dark:text-zinc-100", "dark:text-zinc-700")
@@ -317,9 +344,14 @@ export default class extends Controller {
       })
       card.querySelectorAll('[data-result="bar"]').forEach((el) => {
         el.style.width = "0%"
+        el.style.backgroundColor = ""
       })
       card.querySelectorAll('[data-result="dist"], [data-result="flags"]').forEach((el) => {
         el.innerHTML = ""
+      })
+      card.querySelectorAll('[data-result="emoji"]').forEach((el) => {
+        el.textContent = "😐"
+        el.style.backgroundColor = ""
       })
     })
     this.lastAnalyzedText = ""
@@ -395,9 +427,9 @@ export default class extends Controller {
       this.renderNoul(this.cardFactualClaimTarget, answers.factual_claim,
         "States a checkable fact", "No checkable fact")
     }
-    if (answers.specificity) this.renderScore(this.cardSpecificityTarget, answers.specificity, 4, this.SPECIFICITY_LABELS)
-    if (answers.complexity) this.renderScore(this.cardComplexityTarget, answers.complexity, 4, this.COMPLEXITY_LABELS)
-    if (answers.grammar) this.renderScore(this.cardGrammarTarget, answers.grammar, 3, this.GRAMMAR_LABELS)
+    if (answers.specificity) this.renderScore(this.cardSpecificityTarget, answers.specificity, 4, this.SPECIFICITY_LABELS, "sky")
+    if (answers.complexity) this.renderScore(this.cardComplexityTarget, answers.complexity, 4, this.COMPLEXITY_LABELS, "violet")
+    if (answers.grammar) this.renderScore(this.cardGrammarTarget, answers.grammar, 3, this.GRAMMAR_LABELS, "quality")
     if (answers.emotion) this.renderChoice(this.cardEmotionTarget, answers.emotion)
     if (answers.filler || answers.hedging || answers.repetition || answers.question_asked) {
       this.renderHabits(this.cardHabitsTarget, answers)
@@ -417,14 +449,50 @@ export default class extends Controller {
       : "mt-1 text-3xl font-semibold tabular-nums text-zinc-300 dark:text-zinc-700"
   }
 
-  renderScore(card, answer, max, labels) {
+  hexToRgba(hex, alpha) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || "")
+    if (!m) return hex
+    const n = parseInt(m[1], 16)
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`
+  }
+
+  // Paints a card's accents (top border, bars, emoji badge, value text)
+  // in `hex` when vivid, or fades them to MUTED gray when uncertain.
+  // Toggles are controls, not results, so they keep their fixed hue.
+  paintCard(card, hex, vivid) {
+    const color = vivid ? hex : this.MUTED
+    card.style.borderTopColor = color
+    card.querySelectorAll('[data-result="bar"]').forEach((el) => {
+      el.style.backgroundColor = color
+    })
+    card.querySelectorAll('[data-result="emoji"]').forEach((el) => {
+      el.style.backgroundColor = this.hexToRgba(color, 0.16)
+    })
+    const value = card.querySelector('[data-result="value"]')
+    if (value) value.style.color = vivid ? hex : ""
+  }
+
+  // Quality scale for grammar (a judgmental metric): red → amber → green.
+  qualityColor(fraction) {
+    if (fraction < 0.34) return "#ef4444"
+    if (fraction < 0.67) return "#f59e0b"
+    return "#10b981"
+  }
+
+  renderScore(card, answer, max, labels, scale) {
     const score = Number(answer.score)
     const idx = Math.max(0, Math.min(max, Math.round(score)))
     const uncertain = (answer.confidence ?? 1) < 0.5
+    const fraction = max ? score / max : 0
+    let hex = this.MUTED
+    if (scale === "quality") hex = this.qualityColor(fraction)
+    else if (scale === "sky") hex = fraction < 0.34 ? this.MUTED : fraction < 0.67 ? "#38bdf8" : "#0284c7"
+    else if (scale === "violet") hex = fraction < 0.34 ? this.MUTED : fraction < 0.67 ? "#a78bfa" : "#7c3aed"
     card.querySelector('[data-result="value"]').textContent = score.toFixed(2)
     card.querySelector('[data-result="value"]').className = this.valueClass(!uncertain)
     card.querySelector('[data-result="label"]').textContent = labels[idx] || ""
-    card.querySelector('[data-result="bar"]').style.width = `${(score / max) * 100}%`
+    card.querySelector('[data-result="bar"]').style.width = `${fraction * 100}%`
+    this.paintCard(card, hex, !uncertain)
     this.setUncertain(card, uncertain, answer.confidence)
   }
 
@@ -433,10 +501,12 @@ export default class extends Controller {
     const yes = p >= 0.5
     const confidence = Math.abs(p - 0.5) * 2 // Nouls carry no confidence field
     const uncertain = confidence < 0.5
+    const vivid = !uncertain && yes // confident "No" stays neutral gray
     card.querySelector('[data-result="value"]').textContent = yes ? "Yes" : "No"
     card.querySelector('[data-result="value"]').className = this.valueClass(!uncertain)
     card.querySelector('[data-result="label"]').textContent = yes ? yesLabel : noLabel
     card.querySelector('[data-result="bar"]').style.width = `${p * 100}%`
+    this.paintCard(card, "#f97316", vivid)
     this.setUncertain(card, uncertain, confidence)
   }
 
@@ -459,12 +529,17 @@ export default class extends Controller {
     })
     card.querySelector('[data-result="value"]').textContent = n ? `${n} flagged` : "None"
     card.querySelector('[data-result="value"]').className = this.valueClass(true)
+    this.paintCard(card, n === 0 ? "#10b981" : n === 1 ? "#f59e0b" : "#f43f5e", true)
     card.querySelector('[data-result="meta"]').textContent =
       keys.length ? `${n} of ${keys.length} habits flagged` : ""
   }
 
   renderChoice(card, answer) {
+    const choice = (answer.choice || "").toLowerCase()
     const uncertain = (answer.confidence ?? 1) < 0.5
+    const hex = this.EMOTION_COLORS[choice] || this.MUTED
+    const emojiEl = card.querySelector('[data-result="emoji"]')
+    if (emojiEl) emojiEl.textContent = this.EMOTION_EMOJI[choice] || "❓"
     card.querySelector('[data-result="value"]').textContent = answer.choice || "—"
     card.querySelector('[data-result="value"]').className =
       "mt-1 text-3xl font-semibold capitalize " +
@@ -472,18 +547,22 @@ export default class extends Controller {
     const dist = card.querySelector('[data-result="dist"]')
     dist.innerHTML = ""
     const probs = answer.probabilities || {}
+    const barColor = uncertain ? this.MUTED : hex
     Object.entries(probs)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 4)
       .forEach(([label, p]) => {
         const row = document.createElement("div")
         row.className = "flex items-center gap-2"
+        const emoji = this.EMOTION_EMOJI[String(label).toLowerCase()] || ""
         row.innerHTML =
-          `<span class="w-20 capitalize">${label}</span>` +
-          `<div class="flex-grow h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800"><div class="h-1.5 rounded-full bg-zinc-900 dark:bg-zinc-100" style="width:${p * 100}%"></div></div>` +
+          `<span class="w-28 shrink-0 capitalize">${emoji ? `${emoji} ` : ""}${label}</span>` +
+          `<div class="flex-grow h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800"><div class="h-1.5 rounded-full" style="width:${p * 100}%;background-color:${barColor}"></div></div>` +
           `<span class="w-10 text-right tabular-nums">${this.pct(p)}</span>`
         dist.appendChild(row)
       })
+    this.paintCard(card, hex, !uncertain)
+    // paintCard already colored the value text; the dist rows carry their own bar color above.
     this.setUncertain(card, uncertain, answer.confidence)
   }
 

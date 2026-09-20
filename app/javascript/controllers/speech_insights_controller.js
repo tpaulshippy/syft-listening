@@ -15,7 +15,7 @@ import { Controller } from "@hotwired/stimulus"
 export default class extends Controller {
   static targets = [
     "apiKey", "apiKeyCard", "keyStatus", "testButton",
-    "metric", "miniTranscript", "miniFinal", "miniInterim", "miniState", "supportWarning",
+    "metric", "miniTranscript", "miniFinal", "miniInterim", "miniTail", "miniState", "supportWarning",
     "transcriptFinal", "transcriptInterim", "wordCount", "manualText",
     "wordInterval", "wordIntervalLabel", "sentenceTrigger",
     "charsWindow", "charsWindowLabel",
@@ -90,6 +90,9 @@ export default class extends Controller {
     this.lastStatus = "Idle"
     this.analyzing = false
     this.lastAnalyzedText = ""
+    this.lastAnalyzedEnd = null
+    this.analyzingEnd = null
+    this.lastErrorEnd = null
     this.lastTriggerWords = 0
     this.elapsedSeconds = 0
     this.timerInterval = null
@@ -386,6 +389,9 @@ export default class extends Controller {
   clearTranscript() {
     this.finalText = ""
     this.interimText = ""
+    this.lastAnalyzedEnd = null
+    this.analyzingEnd = null
+    this.lastErrorEnd = null
     this.setStatus("Idle")
     this.elapsedSeconds = 0
     this.lastTriggerWords = 0
@@ -424,6 +430,10 @@ export default class extends Controller {
       })
     })
     this.lastAnalyzedText = ""
+    this.lastAnalyzedEnd = null
+    this.analyzingEnd = null
+    this.lastErrorEnd = null
+    this.updateMiniTranscript()
   }
 
   // Grow the manual textbox to fit its content (CSS max-height caps it).
@@ -452,7 +462,8 @@ export default class extends Controller {
   async analyzeNow() {
     const metrics = this.enabledMetrics()
     const key = this.apiKeyTarget.value.trim()
-    const state = this.currentText().slice(-this.windowChars())
+    const full = this.currentText()
+    const state = full.slice(-this.windowChars())
 
     if (state.split(/\s+/).filter(Boolean).length < 3) return // too short
     if (!metrics.length) {
@@ -465,6 +476,8 @@ export default class extends Controller {
     }
     if (this.analyzing || state === this.lastAnalyzedText) return
     this.analyzing = true
+    this.analyzingEnd = full.length
+    this.lastErrorEnd = null
     this.setStatus("Analyzing…")
 
     try {
@@ -478,16 +491,28 @@ export default class extends Controller {
           this.keyStatusTarget.textContent = "That key was rejected — check it and tap Test."
           this.keyStatusTarget.className = "text-xs mt-1 text-red-600"
         }
+        this.analyzing = false
+        this.lastErrorEnd = this.analyzingEnd
+        this.analyzingEnd = null
         this.setStatus(this.upstreamError(data, res.status))
         return
       }
       this.lastAnalyzedText = state
+      this.analyzing = false
+      this.lastAnalyzedEnd = this.analyzingEnd
+      this.analyzingEnd = null
+      this.lastErrorEnd = null
       this.renderAnswers(data.answers || {})
       this.setStatus(`Analyzed: “${state.replace(/\s+/g, " ").trim()}”`)
     } catch {
+      this.analyzing = false
+      this.lastErrorEnd = this.analyzingEnd
+      this.analyzingEnd = null
       this.setStatus("Analysis failed — check connection and try again.")
     } finally {
       this.analyzing = false
+      this.analyzingEnd = null
+      this.updateMiniTranscript()
     }
   }
 
@@ -664,50 +689,77 @@ export default class extends Controller {
   // The box is h-24/leading-6 (exactly 4 lines) so scrolling to the
   // bottom never shaves the top line; keep height a multiple of the
   // line-height if either ever changes.
-  // Analysis state is a trailing emoji (⏳ analyzing, ✅ analyzed,
-  // ⚠️ error) with the full message as its tooltip; anything else
-  // (Idle, Listening…, mic errors) shows as muted placeholder text
-  // when there is no transcript yet.
+  // Analysis state is an inline emoji sitting right after the last word
+  // of the window being analyzed (⏳ while a request is in flight, ✅ at
+  // the last analyzed word, ⚠️ at the failed window end). Words spoken
+  // after that boundary render after the emoji in miniTail/miniInterim.
+  // Anything else (Idle, Listening…, mic errors) shows as muted
+  // placeholder text when there is no transcript yet.
   updateMiniTranscript() {
     if (!this.hasMiniFinalTarget || !this.hasMiniInterimTarget) return
+    const marker = this.markerForStatus()
+    if (this.hasMiniStateTarget) {
+      this.miniStateTarget.textContent = marker.emoji
+      this.miniStateTarget.title = this.lastStatus || "Idle"
+    }
     const text = this.currentText()
     if (!text) {
       this.miniFinalTarget.textContent = this.lastStatus || "Idle"
       this.miniFinalTarget.style.opacity = "0.6"
+      if (this.hasMiniTailTarget) this.miniTailTarget.textContent = ""
       this.miniInterimTarget.textContent = ""
     } else {
       const window = this.windowChars()
-      const tail = text.slice(-window)
-      const trimmed = text.length > tail.length
-      const interim = this.manualTextTarget.value.trim() ? "" : (this.interimText || "")
-      let interimPart = ""
-      let finalPart = tail
+      const windowStart = Math.max(0, text.length - window)
+      const trimmed = windowStart > 0
+      const manual = this.manualTextTarget.value.trim()
+      let interim = manual ? "" : (this.interimText || "")
+      let interimLen = 0
       if (interim && text.endsWith(interim)) {
-        interimPart = tail.slice(Math.max(0, tail.length - interim.length))
-        finalPart = tail.slice(0, tail.length - interimPart.length)
+        interimLen = interim.length
+      } else {
+        interim = ""
       }
-      this.miniFinalTarget.textContent = (trimmed ? "… " : "") + finalPart
+      const finalEnd = text.length - interimLen
       this.miniFinalTarget.style.opacity = ""
-      this.miniInterimTarget.textContent = interimPart
+      if (!marker.emoji || marker.pos == null) {
+        const finalPart = text.slice(windowStart, finalEnd)
+        this.miniFinalTarget.textContent = (trimmed ? "… " : "") + finalPart
+        if (this.hasMiniTailTarget) this.miniTailTarget.textContent = ""
+        this.miniInterimTarget.textContent = interim
+      } else {
+        // Clamp to the visible final tail so the marker never splits the
+        // live interim string; newer words render after the emoji.
+        const clamped = Math.min(Math.max(marker.pos, windowStart), finalEnd)
+        const before = text.slice(windowStart, clamped)
+        const after = text.slice(clamped, finalEnd)
+        this.miniFinalTarget.textContent = (trimmed ? "… " : "") + before
+        if (this.hasMiniTailTarget) this.miniTailTarget.textContent = after
+        this.miniInterimTarget.textContent = interim
+      }
     }
     if (this.hasMiniTranscriptTarget) {
       this.miniTranscriptTarget.scrollTop = this.miniTranscriptTarget.scrollHeight
     }
   }
 
+  // Emoji + character offset (in currentText()) where it belongs. A null
+  // pos means "no inline boundary" — the emoji still shows in its slot,
+  // which trails the final text when there is no newer remainder.
+  markerForStatus() {
+    const msg = this.lastStatus || "Idle"
+    if (msg === "Analyzing…") {
+      return { emoji: "⏳", pos: this.analyzingEnd }
+    } else if (msg.startsWith("Analyzed")) {
+      return { emoji: "✅", pos: this.lastAnalyzedEnd }
+    } else if (msg === "Idle" || msg === "Listening… speak now.") {
+      return { emoji: "", pos: null }
+    }
+    return { emoji: "⚠️", pos: this.lastErrorEnd }
+  }
+
   setStatus(msg) {
     this.lastStatus = msg
-    if (!this.hasMiniStateTarget) return
-    if (msg === "Analyzing…") {
-      this.miniStateTarget.textContent = "⏳"
-    } else if (msg.startsWith("Analyzed")) {
-      this.miniStateTarget.textContent = "✅"
-    } else if (msg === "Idle" || msg === "Listening… speak now.") {
-      this.miniStateTarget.textContent = ""
-    } else {
-      this.miniStateTarget.textContent = "⚠️"
-    }
-    this.miniStateTarget.title = msg
     this.updateMiniTranscript()
   }
 

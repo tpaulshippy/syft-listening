@@ -23,7 +23,7 @@ const FIXTURE = `
       <span data-speech-insights-target="iconStop" class="hidden">stop</span>
     </button>
     <p data-speech-insights-target="caption">Tap to speak</p>
-    <div data-speech-insights-target="miniTranscript"><span data-speech-insights-target="miniFinal"></span><span data-speech-insights-target="miniInterim"></span><span data-speech-insights-target="miniState"></span></div>
+    <div data-speech-insights-target="miniTranscript"><span data-speech-insights-target="miniFinal"></span><span data-speech-insights-target="miniState"></span><span data-speech-insights-target="miniTail"></span><span data-speech-insights-target="miniInterim"></span></div>
     <p data-speech-insights-target="supportWarning" class="hidden">unsupported</p>
   </div>
   <div data-speech-insights-target="metricsGrid">
@@ -499,6 +499,45 @@ describe("transcript + status", () => {
     c.updateMiniTranscript()
     expect(c.miniFinalTarget.textContent.startsWith("… ")).toBe(true)
     expect(c.miniFinalTarget.textContent.length).toBeLessThanOrEqual(102)
+  })
+
+  it("✅ sits after the last analyzed word with newer words after it", async () => {
+    fetch.mockResolvedValue(okRes({ answers: {} }))
+    const c = await boot()
+    c.apiKeyTarget.value = "ts_test"
+    c.manualTextTarget.value = "one two three four five six"
+    await c.analyzeNow()
+    expect(c.miniStateTarget.textContent).toBe("✅")
+    expect(c.miniFinalTarget.textContent).toContain("six")
+    expect(c.miniTailTarget.textContent).toBe("")
+    // New words spoken after the analysis render after the checkmark.
+    c.manualTextTarget.value = "one two three four five six seven eight"
+    c.updateMiniTranscript()
+    expect(c.miniStateTarget.textContent).toBe("✅")
+    expect(c.miniFinalTarget.textContent).toContain("six")
+    expect(c.miniFinalTarget.textContent).not.toContain("seven")
+    expect(c.miniTailTarget.textContent).toContain("seven eight")
+  })
+
+  it("⏳ sits at the end of the window being analyzed", async () => {
+    let release
+    fetch.mockReturnValue(new Promise((resolve) => { release = resolve }))
+    const c = await boot()
+    c.apiKeyTarget.value = "ts_test"
+    c.manualTextTarget.value = "one two three four five six"
+    const pending = c.analyzeNow()
+    expect(c.miniStateTarget.textContent).toBe("⏳")
+    // Speech continues while the request is in flight: the hourglass
+    // stays at the analyzed window end, newer words follow it.
+    c.manualTextTarget.value = "one two three four five six seven eight"
+    c.updateMiniTranscript()
+    expect(c.miniStateTarget.textContent).toBe("⏳")
+    expect(c.miniFinalTarget.textContent).toContain("six")
+    expect(c.miniFinalTarget.textContent).not.toContain("seven")
+    expect(c.miniTailTarget.textContent).toContain("seven eight")
+    release(okRes({ answers: {} }))
+    await pending
+    expect(c.miniStateTarget.textContent).toBe("✅")
   })
 
   it("updateWordCount counts words", async () => {

@@ -1,5 +1,43 @@
 import { Controller } from "@hotwired/stimulus"
 
+// Module-level pure helpers (kept outside the class so per-method
+// cyclomatic complexity — and therefore CRAP — stays low; the class
+// methods below stay thin delegates).
+export function clampInt(raw, min, max, fallback) {
+  const n = parseInt(raw, 10)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(max, Math.max(min, n))
+}
+
+export function countWords(text) {
+  return (text || "").split(/\s+/).filter(Boolean).length
+}
+
+export function noulConfidence(p) {
+  return Math.abs(Number(p) - 0.5) * 2
+}
+
+export function scoreHexFor(fraction, scale, muted, qualityColor) {
+  if (scale === "quality") return qualityColor(fraction)
+  const ramp = { sky: ["#38bdf8", "#0284c7"], violet: ["#a78bfa", "#7c3aed"] }[scale]
+  if (!ramp) return muted
+  if (fraction < 0.34) return muted
+  if (fraction < 0.67) return ramp[0]
+  return ramp[1]
+}
+
+export function parsePositiveInt(raw, fallback) {
+  const n = parseInt(raw, 10)
+  if (!Number.isFinite(n) || n <= 0) return fallback
+  return n
+}
+
+export function habitFlagColor(n) {
+  if (n === 0) return "#10b981"
+  if (n === 1) return "#f59e0b"
+  return "#f43f5e"
+}
+
 // Speech Insights: free in-browser transcription (Web Speech API) +
 // near-real-time Jev analysis via POST /jev_analyze (Rails proxy).
 //
@@ -167,11 +205,23 @@ export default class extends Controller {
   }
 
   setRecordingUI(recording) {
+    this.toggleRecorderHighlight(recording)
+    this.toggleRecordIcons(recording)
+    this.updateRecordLabels(recording)
+  }
+
+  toggleRecorderHighlight(recording) {
     if (this.hasRecorderCardTarget) {
       this.recorderCardTarget.classList.toggle("recording", recording)
     }
+  }
+
+  toggleRecordIcons(recording) {
     if (this.hasIconMicTarget) this.iconMicTarget.classList.toggle("hidden", recording)
     if (this.hasIconStopTarget) this.iconStopTarget.classList.toggle("hidden", !recording)
+  }
+
+  updateRecordLabels(recording) {
     if (this.hasCaptionTarget) {
       this.captionTarget.textContent = recording ? "Tap to stop" : "Tap to speak"
     }
@@ -206,8 +256,7 @@ export default class extends Controller {
 
   // --- cadence ------------------------------------------------------------
   wordInterval() {
-    const n = parseInt(this.wordIntervalTarget.value, 10)
-    return Number.isFinite(n) && n > 0 ? n : 5
+    return parsePositiveInt(this.wordIntervalTarget.value, 5)
   }
 
   sentenceTriggerOn() {
@@ -215,8 +264,7 @@ export default class extends Controller {
   }
 
   windowChars() {
-    const n = parseInt(this.charsWindowTarget.value, 10)
-    return Number.isFinite(n) && n > 0 ? n : 150
+    return parsePositiveInt(this.charsWindowTarget.value, 150)
   }
 
   cadenceChanged() {
@@ -239,15 +287,19 @@ export default class extends Controller {
   restoreCadence() {
     try {
       const prefs = JSON.parse(localStorage.getItem("syft_jev_cadence") || "{}")
-      if (prefs.words !== undefined) {
-        this.wordIntervalTarget.value = Math.min(30, Math.max(1, parseInt(prefs.words, 10) || 5))
-      }
-      if (prefs.sentence !== undefined) this.sentenceTriggerTarget.checked = !!prefs.sentence
-      if (prefs.chars !== undefined) {
-        this.charsWindowTarget.value = Math.min(1000, Math.max(100, parseInt(prefs.chars, 10) || 150))
-      }
+      this.applyCadencePrefs(prefs || {})
     } catch { /* keep defaults */ }
     this.cadenceChanged()
+  }
+
+  applyCadencePrefs(prefs) {
+    if (prefs.words !== undefined) {
+      this.wordIntervalTarget.value = clampInt(prefs.words, 1, 30, 5)
+    }
+    if (prefs.sentence !== undefined) this.sentenceTriggerTarget.checked = !!prefs.sentence
+    if (prefs.chars !== undefined) {
+      this.charsWindowTarget.value = clampInt(prefs.chars, 100, 1000, 150)
+    }
   }
 
   updateCardsVisibility() {
@@ -333,35 +385,7 @@ export default class extends Controller {
     this.recognition.continuous = true
     this.recognition.interimResults = true
     this.recognition.lang = "en-US"
-
-    this.recognition.onresult = (event) => {
-      let interim = ""
-      let heardSentence = false
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript
-        if (event.results[i].isFinal) {
-          this.finalText += transcript + " "
-          heardSentence = true
-        } else {
-          interim += transcript
-        }
-      }
-      this.transcriptFinalTarget.textContent = this.finalText
-      this.transcriptInterimTarget.textContent = interim
-      this.interimText = interim
-      this.updateWordCount()
-      this.updateMiniTranscript()
-      this.maybeAutoAnalyze(heardSentence)
-    }
-    this.recognition.onerror = (event) => {
-      this.setStatus(`Mic error: ${event.error}`)
-    }
-    this.recognition.onend = () => {
-      // Chrome stops after ~60s of silence; auto-restart while toggled on.
-      if (this.listening) {
-        try { this.recognition.start() } catch { /* already started */ }
-      }
-    }
+    this.bindRecognitionHandlers()
 
     try {
       this.recognition.start()
@@ -372,6 +396,38 @@ export default class extends Controller {
     } catch (e) {
       this.setStatus(`Could not start mic: ${e.message}`)
     }
+  }
+
+  bindRecognitionHandlers() {
+    this.recognition.onresult = (event) => this.handleRecognitionResult(event)
+    this.recognition.onerror = (event) => {
+      this.setStatus(`Mic error: ${event.error}`)
+    }
+    this.recognition.onend = () => {
+      // Chrome stops after ~60s of silence; auto-restart while toggled on.
+      if (this.listening) {
+        try { this.recognition.start() } catch { /* already started */ }
+      }
+    }
+  }
+
+  handleRecognitionResult(event) {
+    let interim = ""
+    let heardSentence = false
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      if (event.results[i].isFinal) {
+        this.finalText += event.results[i][0].transcript + " "
+        heardSentence = true
+      } else {
+        interim += event.results[i][0].transcript
+      }
+    }
+    this.transcriptFinalTarget.textContent = this.finalText
+    this.transcriptInterimTarget.textContent = interim
+    this.interimText = interim
+    this.updateWordCount()
+    this.updateMiniTranscript()
+    this.maybeAutoAnalyze(heardSentence)
   }
 
   stopRecognition() {
@@ -408,36 +464,38 @@ export default class extends Controller {
   }
 
   resetMetrics() {
-    this.element.querySelectorAll("[data-metric-card]").forEach((card) => {
-      card.style.borderTopColor = ""
-      card.querySelectorAll('[data-result="value"]').forEach((el) => {
-        el.textContent = "—"
-        el.style.color = ""
-        el.className = el.className
-          .replace("text-zinc-900", "text-zinc-300")
-          .replace("dark:text-zinc-100", "dark:text-zinc-700")
-      })
-      card.querySelectorAll('[data-result="label"], [data-result="meta"]').forEach((el) => {
-        el.textContent = ""
-      })
-      card.querySelectorAll('[data-result="bar"]').forEach((el) => {
-        el.style.width = "0%"
-        el.style.backgroundColor = ""
-      })
-      card.querySelectorAll('[data-result="dist"], [data-result="flags"]').forEach((el) => {
-        el.innerHTML = ""
-      })
-      card.querySelectorAll('[data-result="emoji"]').forEach((el) => {
-        el.textContent = "😐"
-        el.style.backgroundColor = ""
-      })
-    })
+    this.element.querySelectorAll("[data-metric-card]").forEach((card) => this.resetCard(card))
     this.lastAnalyzedText = ""
     this.lastAnalyzedEnd = null
     this.analyzingEnd = null
     this.lastErrorEnd = null
     this.pendingAnalyze = false
     this.updateMiniTranscript()
+  }
+
+  resetCard(card) {
+    card.style.borderTopColor = ""
+    card.querySelectorAll('[data-result="value"]').forEach((el) => {
+      el.textContent = "—"
+      el.style.color = ""
+      el.className = el.className
+        .replace("text-zinc-900", "text-zinc-300")
+        .replace("dark:text-zinc-100", "dark:text-zinc-700")
+    })
+    card.querySelectorAll('[data-result="label"], [data-result="meta"]').forEach((el) => {
+      el.textContent = ""
+    })
+    card.querySelectorAll('[data-result="bar"]').forEach((el) => {
+      el.style.width = "0%"
+      el.style.backgroundColor = ""
+    })
+    card.querySelectorAll('[data-result="dist"], [data-result="flags"]').forEach((el) => {
+      el.innerHTML = ""
+    })
+    card.querySelectorAll('[data-result="emoji"]').forEach((el) => {
+      el.textContent = "😐"
+      el.style.backgroundColor = ""
+    })
   }
 
   // Grow the manual textbox to fit its content (CSS max-height caps it).
@@ -460,7 +518,7 @@ export default class extends Controller {
   // at most once; if a request is in flight analyzeNow() queues a retry
   // (pendingAnalyze) instead of dropping the boundary.
   maybeAutoAnalyze(heardSentence = false) {
-    const words = this.currentText().split(/\s+/).filter(Boolean).length
+    const words = countWords(this.currentText())
     const interval = this.wordInterval()
     const crossed = Math.floor(words / interval) !== Math.floor(this.lastTriggerWords / interval)
     if ((heardSentence && this.sentenceTriggerOn()) || crossed) {
@@ -483,28 +541,37 @@ export default class extends Controller {
     return (this.finalText + " " + this.transcriptInterimTarget.textContent).trim()
   }
 
+  analyzeGuard(state, metrics, key) {
+    if (countWords(state) < 3) return "too-short"
+    if (!metrics.length) return "Enable at least one metric."
+    if (!key) return "Paste your Jev API key first."
+    if (this.analyzing) return "busy"
+    if (state === this.lastAnalyzedText) return "duplicate"
+    return null
+  }
+
   async analyzeNow() {
     const metrics = this.enabledMetrics()
     const key = this.apiKeyTarget.value.trim()
     const full = this.currentText()
     const state = full.slice(-this.windowChars())
 
-    if (state.split(/\s+/).filter(Boolean).length < 3) return // too short
-    if (!metrics.length) {
-      this.setStatus("Enable at least one metric.")
-      return
-    }
-    if (!key) {
-      this.setStatus("Paste your Jev API key first.")
-      return
-    }
-    if (this.analyzing) {
+    const guard = this.analyzeGuard(state, metrics, key)
+    if (guard === "too-short" || guard === "duplicate") return
+    if (guard === "busy") {
       // A boundary was crossed mid-request — retry once it finishes
       // instead of dropping this interval.
       this.pendingAnalyze = true
       return
     }
-    if (state === this.lastAnalyzedText) return
+    if (guard) {
+      this.setStatus(guard)
+      return
+    }
+    await this.runAnalysis(state, metrics, key, full)
+  }
+
+  async runAnalysis(state, metrics, key, full) {
     this.analyzing = true
     this.analyzingEnd = full.length
     this.lastErrorEnd = null
@@ -514,44 +581,54 @@ export default class extends Controller {
       const res = await this.postAnalyze(state, metrics, key)
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        if (res.status === 401) {
-          // Key revoked or invalid — lock the interactive sections again.
-          localStorage.removeItem("syft_jev_key_ok")
-          this.updateGate()
-          this.keyStatusTarget.textContent = "That key was rejected — check it and tap Test."
-          this.keyStatusTarget.className = "text-xs mt-1 text-red-600"
-        }
-        this.analyzing = false
-        this.lastErrorEnd = this.analyzingEnd
-        this.analyzingEnd = null
-        this.setStatus(this.upstreamError(data, res.status))
+        this.handleAnalyzeError(data, res.status)
         return
       }
-      this.lastAnalyzedText = state
-      this.analyzing = false
-      this.lastAnalyzedEnd = this.analyzingEnd
-      this.analyzingEnd = null
-      this.lastErrorEnd = null
-      this.renderAnswers(data.answers || {})
-      this.setStatus(`Analyzed: “${state.replace(/\s+/g, " ").trim()}”`)
+      this.handleAnalyzeSuccess(state, data.answers || {})
     } catch {
-      this.analyzing = false
-      this.lastErrorEnd = this.analyzingEnd
-      this.analyzingEnd = null
-      this.setStatus("Analysis failed — check connection and try again.")
+      this.handleAnalyzeException()
     } finally {
       this.analyzing = false
       this.analyzingEnd = null
       this.updateMiniTranscript()
-      if (this.pendingAnalyze) {
-        this.pendingAnalyze = false
-        const latest = this.currentText()
-        const latestState = latest.slice(-this.windowChars())
-        if (latestState !== this.lastAnalyzedText &&
-            latestState.split(/\s+/).filter(Boolean).length >= 3) {
-          this.analyzeNow()
-        }
-      }
+      this.drainPending()
+    }
+  }
+
+  handleAnalyzeSuccess(state, answers) {
+    this.lastAnalyzedText = state
+    this.lastAnalyzedEnd = this.analyzingEnd
+    this.lastErrorEnd = null
+    this.renderAnswers(answers)
+    this.setStatus(`Analyzed: “${state.replace(/\s+/g, " ").trim()}”`)
+  }
+
+  handleAnalyzeError(data, status) {
+    if (status === 401) this.lockAfterUnauthorized()
+    this.lastErrorEnd = this.analyzingEnd
+    this.setStatus(this.upstreamError(data, status))
+  }
+
+  handleAnalyzeException() {
+    this.lastErrorEnd = this.analyzingEnd
+    this.setStatus("Analysis failed — check connection and try again.")
+  }
+
+  lockAfterUnauthorized() {
+    // Key revoked or invalid — lock the interactive sections again.
+    localStorage.removeItem("syft_jev_key_ok")
+    this.updateGate()
+    this.keyStatusTarget.textContent = "That key was rejected — check it and tap Test."
+    this.keyStatusTarget.className = "text-xs mt-1 text-red-600"
+  }
+
+  drainPending() {
+    if (!this.pendingAnalyze) return
+    this.pendingAnalyze = false
+    const latest = this.currentText()
+    const latestState = latest.slice(-this.windowChars())
+    if (latestState !== this.lastAnalyzedText && countWords(latestState) >= 3) {
+      this.analyzeNow()
     }
   }
 
@@ -565,17 +642,26 @@ export default class extends Controller {
   }
 
   renderAnswers(answers) {
-    if (answers.factual_claim) {
-      this.renderNoul(this.cardFactualClaimTarget, answers.factual_claim,
-        "States a checkable fact", "No checkable fact")
-    }
-    if (answers.specificity) this.renderScore(this.cardSpecificityTarget, answers.specificity, 4, this.SPECIFICITY_LABELS, "sky")
-    if (answers.complexity) this.renderScore(this.cardComplexityTarget, answers.complexity, 4, this.COMPLEXITY_LABELS, "violet")
-    if (answers.grammar) this.renderScore(this.cardGrammarTarget, answers.grammar, 3, this.GRAMMAR_LABELS, "quality")
-    if (answers.emotion) this.renderChoice(this.cardEmotionTarget, answers.emotion)
-    if (answers.filler || answers.hedging || answers.repetition || answers.question_asked) {
-      this.renderHabits(this.cardHabitsTarget, answers)
-    }
+    this.renderSingleAnswers(answers)
+    this.renderHabitsAnswer(answers)
+  }
+
+  renderSingleAnswers(answers) {
+    const jobs = [
+      [answers.factual_claim, () => this.renderNoul(this.cardFactualClaimTarget, answers.factual_claim,
+        "States a checkable fact", "No checkable fact")],
+      [answers.specificity, () => this.renderScore(this.cardSpecificityTarget, answers.specificity, 4, this.SPECIFICITY_LABELS, "sky")],
+      [answers.complexity, () => this.renderScore(this.cardComplexityTarget, answers.complexity, 4, this.COMPLEXITY_LABELS, "violet")],
+      [answers.grammar, () => this.renderScore(this.cardGrammarTarget, answers.grammar, 3, this.GRAMMAR_LABELS, "quality")],
+      [answers.emotion, () => this.renderChoice(this.cardEmotionTarget, answers.emotion)],
+    ]
+    jobs.forEach(([present, render]) => { if (present) render() })
+  }
+
+  renderHabitsAnswer(answers) {
+    const keys = ["filler", "hedging", "repetition", "question_asked"]
+    if (!keys.some((k) => answers[k])) return
+    this.renderHabits(this.cardHabitsTarget, answers)
   }
 
   // Below 0.5 the model is guessing — show it muted and say so.
@@ -626,10 +712,7 @@ export default class extends Controller {
     const idx = Math.max(0, Math.min(max, Math.round(score)))
     const uncertain = (answer.confidence ?? 1) < 0.5
     const fraction = max ? score / max : 0
-    let hex = this.MUTED
-    if (scale === "quality") hex = this.qualityColor(fraction)
-    else if (scale === "sky") hex = fraction < 0.34 ? this.MUTED : fraction < 0.67 ? "#38bdf8" : "#0284c7"
-    else if (scale === "violet") hex = fraction < 0.34 ? this.MUTED : fraction < 0.67 ? "#a78bfa" : "#7c3aed"
+    const hex = scoreHexFor(fraction, scale, this.MUTED, (f) => this.qualityColor(f))
     card.querySelector('[data-result="value"]').textContent = score.toFixed(2)
     card.querySelector('[data-result="value"]').className = this.valueClass(!uncertain)
     card.querySelector('[data-result="label"]').textContent = labels[idx] || ""
@@ -641,7 +724,7 @@ export default class extends Controller {
   renderNoul(card, answer, yesLabel, noLabel) {
     const p = Number(answer.noul)
     const yes = p >= 0.5
-    const confidence = Math.abs(p - 0.5) * 2 // Nouls carry no confidence field
+    const confidence = noulConfidence(p) // Nouls carry no confidence field
     const uncertain = confidence < 0.5
     const vivid = !uncertain && yes // confident "No" stays neutral gray
     card.querySelector('[data-result="value"]').textContent = yes ? "Yes" : "No"
@@ -656,56 +739,77 @@ export default class extends Controller {
     const keys = Object.keys(this.HABIT_LABELS).filter((k) => answers[k])
     const flags = card.querySelector('[data-result="flags"]')
     flags.innerHTML = ""
+    const n = this.appendHabitRows(flags, keys, answers)
+    card.querySelector('[data-result="value"]').textContent = n ? `${n} flagged` : "None"
+    card.querySelector('[data-result="value"]').className = this.valueClass(true)
+    this.paintCard(card, habitFlagColor(n), true)
+    card.querySelector('[data-result="meta"]').textContent =
+      keys.length ? `${n} of ${keys.length} habits flagged` : ""
+  }
+
+  appendHabitRows(flags, keys, answers) {
     let n = 0
     keys.forEach((k) => {
       const p = Number(answers[k].noul)
       const yes = p >= 0.5
       if (yes) n += 1
-      const row = document.createElement("div")
-      row.className = "flex items-center gap-2"
-      row.innerHTML =
-        `<span class="flex-grow">${this.HABIT_LABELS[k]}</span>` +
-        `<span class="font-medium ${yes ? "text-zinc-900 dark:text-zinc-100" : ""}">${yes ? "Yes" : "No"}</span>` +
-        `<span class="w-10 text-right tabular-nums">${this.pct(Math.max(p, 1 - p))}</span>`
-      flags.appendChild(row)
+      flags.appendChild(this.habitRow(k, yes, p))
     })
-    card.querySelector('[data-result="value"]').textContent = n ? `${n} flagged` : "None"
-    card.querySelector('[data-result="value"]').className = this.valueClass(true)
-    this.paintCard(card, n === 0 ? "#10b981" : n === 1 ? "#f59e0b" : "#f43f5e", true)
-    card.querySelector('[data-result="meta"]').textContent =
-      keys.length ? `${n} of ${keys.length} habits flagged` : ""
+    return n
+  }
+
+  habitRow(key, yes, p) {
+    const row = document.createElement("div")
+    row.className = "flex items-center gap-2"
+    row.innerHTML =
+      `<span class="flex-grow">${this.HABIT_LABELS[key]}</span>` +
+      `<span class="font-medium ${yes ? "text-zinc-900 dark:text-zinc-100" : ""}">${yes ? "Yes" : "No"}</span>` +
+      `<span class="w-10 text-right tabular-nums">${this.pct(Math.max(p, 1 - p))}</span>`
+    return row
   }
 
   renderChoice(card, answer) {
     const choice = (answer.choice || "").toLowerCase()
     const uncertain = (answer.confidence ?? 1) < 0.5
     const hex = this.EMOTION_COLORS[choice] || this.MUTED
+    this.updateEmotionHeader(card, answer, choice, uncertain)
+    const barColor = uncertain ? this.MUTED : hex
+    this.updateEmotionDist(card, answer.probabilities || {}, barColor)
+    this.paintCard(card, hex, !uncertain)
+    // paintCard already colored the value text; the dist rows carry their own bar color above.
+    this.setUncertain(card, uncertain, answer.confidence)
+  }
+
+  updateEmotionHeader(card, answer, choice, uncertain) {
     const emojiEl = card.querySelector('[data-result="emoji"]')
     if (emojiEl) emojiEl.textContent = this.EMOTION_EMOJI[choice] || "❓"
     card.querySelector('[data-result="value"]').textContent = answer.choice || "—"
     card.querySelector('[data-result="value"]').className =
       "mt-1 text-3xl font-semibold capitalize " +
       (uncertain ? "text-zinc-300 dark:text-zinc-700" : "text-zinc-900 dark:text-zinc-100")
+  }
+
+  updateEmotionDist(card, probs, barColor) {
     const dist = card.querySelector('[data-result="dist"]')
     dist.innerHTML = ""
-    const probs = answer.probabilities || {}
-    const barColor = uncertain ? this.MUTED : hex
     Object.entries(probs)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 4)
       .forEach(([label, p]) => {
-        const row = document.createElement("div")
-        row.className = "flex items-center gap-2"
-        const emoji = this.EMOTION_EMOJI[String(label).toLowerCase()] || ""
-        row.innerHTML =
-          `<span class="w-28 shrink-0 capitalize">${emoji ? `${emoji} ` : ""}${label}</span>` +
-          `<div class="flex-grow h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800"><div class="h-1.5 rounded-full" style="width:${p * 100}%;background-color:${barColor}"></div></div>` +
-          `<span class="w-10 text-right tabular-nums">${this.pct(p)}</span>`
-        dist.appendChild(row)
+        dist.appendChild(this.emotionRow(label, p, barColor))
       })
-    this.paintCard(card, hex, !uncertain)
-    // paintCard already colored the value text; the dist rows carry their own bar color above.
-    this.setUncertain(card, uncertain, answer.confidence)
+  }
+
+  emotionRow(label, p, barColor) {
+    const row = document.createElement("div")
+    row.className = "flex items-center gap-2"
+    const emoji = this.EMOTION_EMOJI[String(label).toLowerCase()] || ""
+    const prefix = emoji ? `${emoji} ` : ""
+    row.innerHTML =
+      `<span class="w-28 shrink-0 capitalize">${prefix}${label}</span>` +
+      `<div class="flex-grow h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800"><div class="h-1.5 rounded-full" style="width:${p * 100}%;background-color:${barColor}"></div></div>` +
+      `<span class="w-10 text-right tabular-nums">${this.pct(p)}</span>`
+    return row
   }
 
   // --- helpers ---------------------------------------------------------------
@@ -737,46 +841,57 @@ export default class extends Controller {
   updateMiniTranscript() {
     if (!this.hasMiniFinalTarget || !this.hasMiniInterimTarget) return
     const marker = this.markerForStatus()
-    if (this.hasMiniStateTarget) {
-      this.miniStateTarget.textContent = marker.emoji
-      this.miniStateTarget.title = this.lastStatus || "Idle"
-    }
+    this.updateMiniMarker(marker)
     const text = this.currentText()
     if (!text) {
-      this.miniFinalTarget.textContent = this.lastStatus || "Idle"
-      this.miniFinalTarget.style.opacity = "0.6"
-      if (this.hasMiniTailTarget) this.miniTailTarget.textContent = ""
-      this.miniInterimTarget.textContent = ""
+      this.renderMiniEmpty()
     } else {
-      const window = this.windowChars()
-      const windowStart = Math.max(0, text.length - window)
-      const trimmed = windowStart > 0
-      const manual = this.manualTextTarget.value.trim()
-      let interim = manual ? "" : (this.interimText || "")
-      let interimLen = 0
-      if (interim && text.endsWith(interim)) {
-        interimLen = interim.length
-      } else {
-        interim = ""
-      }
-      const finalEnd = text.length - interimLen
-      this.miniFinalTarget.style.opacity = ""
-      if (!marker.emoji || marker.pos == null) {
-        const finalPart = text.slice(windowStart, finalEnd)
-        this.miniFinalTarget.textContent = (trimmed ? "… " : "") + finalPart
-        if (this.hasMiniTailTarget) this.miniTailTarget.textContent = ""
-        this.miniInterimTarget.textContent = interim
-      } else {
-        // Clamp to the visible final tail so the marker never splits the
-        // live interim string; newer words render after the emoji.
-        const clamped = Math.min(Math.max(marker.pos, windowStart), finalEnd)
-        const before = text.slice(windowStart, clamped)
-        const after = text.slice(clamped, finalEnd)
-        this.miniFinalTarget.textContent = (trimmed ? "… " : "") + before
-        if (this.hasMiniTailTarget) this.miniTailTarget.textContent = after
-        this.miniInterimTarget.textContent = interim
-      }
+      this.renderMiniWindow(text, marker)
     }
+  }
+
+  updateMiniMarker(marker) {
+    if (!this.hasMiniStateTarget) return
+    this.miniStateTarget.textContent = marker.emoji
+    this.miniStateTarget.title = this.lastStatus || "Idle"
+  }
+
+  renderMiniEmpty() {
+    this.miniFinalTarget.textContent = this.lastStatus || "Idle"
+    this.miniFinalTarget.style.opacity = "0.6"
+    if (this.hasMiniTailTarget) this.miniTailTarget.textContent = ""
+    this.miniInterimTarget.textContent = ""
+  }
+
+  miniWindowParts(text) {
+    const window = this.windowChars()
+    const windowStart = Math.max(0, text.length - window)
+    const manual = this.manualTextTarget.value.trim()
+    let interim = manual ? "" : (this.interimText || "")
+    if (!interim || !text.endsWith(interim)) interim = ""
+    return { windowStart, trimmed: windowStart > 0, interim, finalEnd: text.length - interim.length }
+  }
+
+  renderMiniWindow(text, marker) {
+    const { windowStart, trimmed, interim, finalEnd } = this.miniWindowParts(text)
+    const prefix = trimmed ? "… " : ""
+    this.miniFinalTarget.style.opacity = ""
+    if (!marker.emoji || marker.pos == null) {
+      this.miniFinalTarget.textContent = prefix + text.slice(windowStart, finalEnd)
+      if (this.hasMiniTailTarget) this.miniTailTarget.textContent = ""
+      this.miniInterimTarget.textContent = interim
+    } else {
+      this.renderMiniWithMarker(text, windowStart, finalEnd, interim, prefix, marker.pos)
+    }
+  }
+
+  renderMiniWithMarker(text, windowStart, finalEnd, interim, prefix, pos) {
+    // Clamp to the visible final tail so the marker never splits the
+    // live interim string; newer words render after the emoji.
+    const clamped = Math.min(Math.max(pos, windowStart), finalEnd)
+    this.miniFinalTarget.textContent = prefix + text.slice(windowStart, clamped)
+    if (this.hasMiniTailTarget) this.miniTailTarget.textContent = text.slice(clamped, finalEnd)
+    this.miniInterimTarget.textContent = interim
   }
 
   // Fixed (non-scrolling) height for the mini transcript, sized to fit
@@ -814,7 +929,7 @@ export default class extends Controller {
   }
 
   updateWordCount() {
-    const n = this.currentText().split(/\s+/).filter(Boolean).length
+    const n = countWords(this.currentText())
     if (this.hasWordCountTarget) this.wordCountTarget.textContent = n ? `· ${n} words` : ""
   }
 }

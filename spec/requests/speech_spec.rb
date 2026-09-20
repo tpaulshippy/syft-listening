@@ -109,5 +109,80 @@ RSpec.describe "Speech", type: :request do
       }
       expect(response).to have_http_status(:success)
     end
+
+    it "forwards upstream errors with their status" do
+      http = instance_double(Net::HTTP)
+      upstream = instance_double(Net::HTTPResponse, code: "422", body: { detail: "bad question" }.to_json)
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:use_ssl=)
+      allow(http).to receive(:open_timeout=)
+      allow(http).to receive(:read_timeout=)
+      allow(http).to receive(:request).and_return(upstream)
+
+      post "/jev_analyze", params: { text: "hello world here", metrics: [ "specificity" ], api_key: "ts_test" }
+      expect(response).to have_http_status(422)
+      expect(JSON.parse(response.body)["detail"]).to eq("bad question")
+    end
+
+    it "passes through non-JSON upstream bodies as raw" do
+      http = instance_double(Net::HTTP)
+      upstream = instance_double(Net::HTTPResponse, code: "200", body: "not-json{{{")
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:use_ssl=)
+      allow(http).to receive(:open_timeout=)
+      allow(http).to receive(:read_timeout=)
+      allow(http).to receive(:request).and_return(upstream)
+
+      post "/jev_analyze", params: { text: "hello world here", metrics: [ "specificity" ], api_key: "ts_test" }
+      expect(response).to have_http_status(:success)
+      expect(JSON.parse(response.body)["raw"]).to eq("not-json{{{")
+    end
+
+    it "returns bad gateway on Jev timeout" do
+      http = instance_double(Net::HTTP)
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:use_ssl=)
+      allow(http).to receive(:open_timeout=)
+      allow(http).to receive(:read_timeout=)
+      allow(http).to receive(:request).and_raise(Net::ReadTimeout)
+
+      post "/jev_analyze", params: { text: "hello world here", metrics: [ "specificity" ], api_key: "ts_test" }
+      expect(response).to have_http_status(:bad_gateway)
+      expect(JSON.parse(response.body)["error"]).to match(/timed out/)
+    end
+
+    it "returns bad gateway on connection failure" do
+      http = instance_double(Net::HTTP)
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:use_ssl=)
+      allow(http).to receive(:open_timeout=)
+      allow(http).to receive(:read_timeout=)
+      allow(http).to receive(:request).and_raise(SocketError, "down")
+
+      post "/jev_analyze", params: { text: "hello world here", metrics: [ "specificity" ], api_key: "ts_test" }
+      expect(response).to have_http_status(:bad_gateway)
+    end
+
+    it "falls back to TYPESAFE_API_KEY when the client sends none" do
+      http = instance_double(Net::HTTP)
+      upstream = instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:use_ssl=)
+      allow(http).to receive(:open_timeout=)
+      allow(http).to receive(:read_timeout=)
+      allow(http).to receive(:request) do |req|
+        expect(req["Authorization"]).to eq("Bearer ts_env")
+        upstream
+      end
+
+      prev = ENV["TYPESAFE_API_KEY"]
+      ENV["TYPESAFE_API_KEY"] = "ts_env"
+      begin
+        post "/jev_analyze", params: { text: "hello world here", metrics: [ "specificity" ], api_key: "" }
+        expect(response).to have_http_status(:success)
+      ensure
+        ENV["TYPESAFE_API_KEY"] = prev
+      end
+    end
   end
 end

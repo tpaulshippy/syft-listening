@@ -173,90 +173,66 @@ function findColumn(schema, slug) {
   return (schema?.columns || []).find((c) => c.slug === slug)
 }
 
-// Row filter — offline parse only (Jev answers are choice/noul, so Jev
-// can't emit free-text values). Supports "where author is Paul",
-// "filtered to author Paul" / "filtered by status open", and
-// "only open" (value matched across text-like columns).
-// Returns { column: slug, value } or null.
-function columnPrefixMatch(schema, tailWords) {
-  const norm = (s) => String(s ?? "").toLowerCase().replace(/_/g, " ").replace(/\s+/g, " ").trim()
-  let best = null
-  for (const c of schema?.columns || []) {
-    for (const variant of [c.name, c.slug]) {
-      const parts = norm(variant).split(" ").filter(Boolean)
-      if (!parts.length || parts.length > tailWords.length) continue
-      const head = tailWords.slice(0, parts.length).map((w) => norm(w))
-      if (head.join(" ") === parts.join(" ")) {
-        if (!best || parts.length > best.words) best = { column: c, words: parts.length }
-      }
-    }
-  }
-  return best
-}
+// Row filter — Jev-native only. The backend asks Jev `filter_column`
+// (which column, or "none"), `filter_op` (how the value matches), and one
+// `filter_value_<slug>` choice per low-cardinality column, since Jev can't
+// emit free text. Offline renders are unfiltered. Shape:
+// { column: slug, op, value } or null.
+export const FILTER_OPS = ["equals", "contains", "starts_with", "ends_with"]
 
-function cleanFilterValue(raw) {
-  return String(raw ?? "").trim().replace(/^["'“”‘’]+|["'“”‘’]+$/g, "").replace(/[.,;!]+$/g, "").trim()
-}
-
-export function parseFilter(schema, prompt, rows = null) {
-  const text = String(prompt || "").trim()
-  const cols = schema?.columns || []
-  if (!cols.length || !text) return null
-  const clause = text.match(/\bwhere\b\s+(.+)$/i)?.[1]
-    ?? text.match(/\bfiltered\s+(?:to|by|on)\b\s+(.+)$/i)?.[1]
-    ?? text.match(/\bfilter\b\s+(.+)$/i)?.[1]
-  if (clause) {
-    const tailWords = clause.trim().split(/\s+/)
-    const hit = columnPrefixMatch(schema, tailWords)
-    if (!hit) return null
-    let rest = tailWords.slice(hit.words)
-    if (rest.length && /^(is|are|=|==|:)$/i.test(rest[0])) rest = rest.slice(1)
-    const value = cleanFilterValue(rest.join(" "))
-    if (!value) return null
-    return { column: hit.column.slug, value }
-  }
-  const only = text.match(/\bonly\b\s+(.+)$/i)?.[1]
-  if (only) {
-    const tailWords = only.trim().split(/\s+/)
-    const hit = columnPrefixMatch(schema, tailWords)
-    if (hit) {
-      const value = cleanFilterValue(tailWords.slice(hit.words).join(" "))
-      if (value) return { column: hit.column.slug, value }
-    }
-    // Value-only ("only open"): resolve the column by scanning row values.
-    const value = cleanFilterValue(only)
-    if (!value || !rows?.length) return null
-    const wanted = value.toLowerCase()
-    const ordered = colsByType(schema, ["categorical", "text", "temporal"])
-    for (const c of [...ordered, ...cols.filter((x) => !ordered.includes(x))]) {
-      if ((rows || []).some((r) => {
-        const v = cellOf(r, c.name)
-        return v !== null && v !== undefined && String(v).trim().toLowerCase() === wanted
-      })) return { column: c.slug, value }
-    }
-    return null
-  }
-  return null
+function filterTest(op, want) {
+  if (op === "contains") return (v) => v.includes(want)
+  if (op === "starts_with") return (v) => v.startsWith(want)
+  if (op === "ends_with") return (v) => v.endsWith(want)
+  return (v) => v === want
 }
 
 export function applyFilter(rows, schema, filter) {
   if (!filter?.column || filter?.value == null || String(filter.value).trim() === "") return rows || []
   const name = findColumn(schema, filter.column)?.name ?? filter.column
   const want = String(filter.value).trim().toLowerCase()
+  const test = filterTest(filter.op || "equals", want)
   return (rows || []).filter((r) => {
     const v = cellOf(r, name)
-    return v !== null && v !== undefined && String(v).trim().toLowerCase() === want
+    return v !== null && v !== undefined && test(String(v).trim().toLowerCase())
   })
 }
 
 export function filterLabel(filter, schema) {
   if (!filter) return ""
   const name = findColumn(schema, filter.column)?.name ?? filter.column
+  const op = filter.op || "equals"
+  if (op === "contains") return `${name} contains “${filter.value}”`
+  if (op === "starts_with") return `${name} starts with “${filter.value}”`
+  if (op === "ends_with") return `${name} ends with “${filter.value}”`
   return `${name} = ${filter.value}`
 }
 
+// Shared (whole-dashboard) filter from Jev answers. Column and op use the
+// standard mergers; the value must be a real cell in that column (guards
+// against a hallucinated choice) — otherwise no filter, recorded fallback.
+function sharedFilter(m, fb, answers, usedFallback) {
+  const column = m.fieldChoice("filter_column", "none")
+  if (column === "none" || column === "count_rows") return null
+  const op = m.choice("filter_op", "equals", FILTER_OPS)
+  const key = `filter_value_${column}`
+  const a = answers?.[key]
+  const conf = Number(a?.confidence ?? NaN)
+  const value = typeof a?.choice === "string" ? a.choice.trim() : ""
+  const colName = (fb.schemaColumns || []).find((c) => c.slug === column)?.name ?? column
+  const want = value.toLowerCase()
+  const test = filterTest(op, want)
+  const ok = value !== "" && conf >= 0.5 && (fb.allRows || []).some((r) => {
+    const v = cellOf(r, colName)
+    return v !== null && v !== undefined && test(String(v).trim().toLowerCase())
+  })
+  if (!ok) { usedFallback.push(key); return null }
+  return { column, op, value }
+}
+
 // Offline keyword parse over an arbitrary schema — fallback without a key.
-export function defaultSpec(schema, prompt, rows = null) {
+// Filters need Jev (values are enumerated choices), so offline is unfiltered.
+export function defaultSpec(schema, prompt) {
   const p = (prompt || "").toLowerCase()
   const has = (...words) => words.some((w) => p.includes(w))
   const numeric = colsByType(schema, ["numeric"])
@@ -297,7 +273,7 @@ export function defaultSpec(schema, prompt, rows = null) {
     showTotals: has("total", "kpi", "sum", "how many"),
     horizontal: false,
     include: null,
-    filter: parseFilter(schema, prompt, rows),
+    filter: null,
     title: prompt,
   }
 }
@@ -333,8 +309,8 @@ function makeMergers(answers, schema, usedFallback) {
 
 // One panel's spec. Suffix "" reads the un-suffixed (panel-1) keys,
 // "_2" / "_3" the per-panel fan-out keys. Shared display flags are global.
-// Filter is offline-only (Jev can't emit free-text values): always the
-// per-clause fallback.
+// The row filter is shared across panels (one filter_column/filter_op pair
+// for the whole dashboard); callers override fb.filter with it.
 function panelSpec(m, suffix, fb, shared) {
   const view = m.choice(`view${suffix}`, fb.view, VIEWS)
   return {
@@ -365,10 +341,11 @@ function sharedFlags(m, fb) {
 }
 
 export function specFromAnswers(answers, schema, prompt, rows = null) {
-  const fb = { ...defaultSpec(schema, prompt, rows), schemaColumns: schema?.columns || [] }
+  const fb = { ...defaultSpec(schema, prompt), schemaColumns: schema?.columns || [], allRows: rows }
   const usedFallback = []
   const m = makeMergers(answers, schema, usedFallback)
-  return { spec: panelSpec(m, "", fb, sharedFlags(m, fb)), usedFallback }
+  const filter = sharedFilter(m, fb, answers, usedFallback)
+  return { spec: panelSpec(m, "", { ...fb, filter }, sharedFlags(m, fb)), usedFallback }
 }
 
 export const MAX_PANELS = 3
@@ -381,11 +358,11 @@ export function splitPrompt(prompt) {
     .map((s) => s.trim()).filter(Boolean).slice(0, MAX_PANELS)
 }
 
-export function defaultDashboard(schema, prompt, rows = null) {
+export function defaultDashboard(schema, prompt) {
   const p = (prompt || "").toLowerCase()
   const segments = splitPrompt(prompt)
   const clauses = segments.length ? segments : [prompt]
-  const panels = clauses.map((seg) => defaultSpec(schema, seg, rows))
+  const panels = clauses.map((seg) => defaultSpec(schema, seg))
   const layout = clauses.length < 2 ? "single"
     : p.includes("side by side") ? "side-by-side"
     : p.includes("grid") || p.includes("dashboard") ? "grid"
@@ -394,7 +371,7 @@ export function defaultDashboard(schema, prompt, rows = null) {
 }
 
 export function dashboardFromAnswers(answers, schema, prompt, rows = null) {
-  const fb = defaultDashboard(schema, prompt, rows)
+  const fb = defaultDashboard(schema, prompt)
   const usedFallback = []
   const m = makeMergers(answers, schema, usedFallback)
   const countWord = m.choice("panel_count",
@@ -402,7 +379,9 @@ export function dashboardFromAnswers(answers, schema, prompt, rows = null) {
     Object.keys(PANEL_COUNT_WORDS))
   const count = Math.min(MAX_PANELS, PANEL_COUNT_WORDS[countWord])
   const layout = m.choice("layout", count < 2 ? "single" : fb.layout, LAYOUTS)
-  const fbWithCols = (panel) => ({ ...panel, schemaColumns: schema?.columns || [] })
+  const fbBase = { schemaColumns: schema?.columns || [], allRows: rows }
+  const filter = sharedFilter(m, fbBase, answers, usedFallback)
+  const fbWithCols = (panel) => ({ ...panel, ...fbBase, filter })
   const shared = sharedFlags(m, { ...fb.panels[0], schemaColumns: schema?.columns || [] })
   const panels = Array.from({ length: count }, (_, i) =>
     panelSpec(m, i === 0 ? "" : `_${i + 1}`, fbWithCols(fb.panels[i] || fb.panels[0]), shared))

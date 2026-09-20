@@ -129,15 +129,43 @@ RSpec.describe "Studio", type: :request do
         end
         expect(questions["view_2"]["criteria"]).to include("bar", "table", "kpi")
         expect(questions["y_field_3"]["criteria"]).to include("revenue", "count_rows")
+        # …plus the Jev-native row filter: column + op + value enums
+        expect(questions["filter_column"]["criteria"]).to include("genre", "revenue", "none")
+        expect(questions["filter_op"]["criteria"]).to include("equals", "contains", "starts_with", "ends_with")
+        expect(questions["filter_value_genre"]["criteria"]).to include("scifi", "nonfiction")
+        expect(questions["filter_value_revenue"]["criteria"]).to include("665.0", "522.0")
         upstream
       end
 
       post "/jev_studio", params: { prompt: "Bar chart of revenue by genre", dataset: bookstore, api_key: "ts_test" }
       expect(response).to have_http_status(:success)
       parsed = JSON.parse(response.body)
-      # 2 dashboard + 10 panel-1 + 12 panels 2-3 + one flag per column
-      expect(parsed["question_count"]).to eq(24 + parsed["schema"]["columns"].size)
+      # 2 dashboard + 10 panel-1 + 12 panels 2-3 + filter_column/filter_op +
+      # one value enum per low-cardinality column (5 here) + one flag per column
+      expect(parsed["question_count"]).to eq(26 + 2 * parsed["schema"]["columns"].size)
       expect(parsed["upstream_ms"]).to be_a(Integer)
+    end
+
+    it "skips filter value enums for unique and long-text columns" do
+      rows = (1..31).map { |i| { "id" => "INC-#{i}", "status" => i.even? ? "open" : "resolved", "notes" => "x" * 80 } }
+      sent = nil
+      http = instance_double(Net::HTTP)
+      upstream = instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:use_ssl=)
+      allow(http).to receive(:open_timeout=)
+      allow(http).to receive(:read_timeout=)
+      allow(http).to receive(:request) do |req|
+        sent = JSON.parse(req.body)["questions"]
+        upstream
+      end
+
+      post "/jev_studio", params: { prompt: "Table of incidents", dataset: rows, api_key: "ts_test" }
+      expect(response).to have_http_status(:success)
+      expect(sent["filter_value_status"]["criteria"]).to include("open", "resolved")
+      expect(sent.keys).not_to include("filter_value_id") # 31 distinct > cap
+      expect(sent.keys).not_to include("filter_value_notes") # long-text type
+      expect(sent["filter_column"]["criteria"]).to include("status", "none")
     end
 
     it "builds one panel per voice clause for multi-view prompts" do

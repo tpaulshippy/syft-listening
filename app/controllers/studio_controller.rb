@@ -11,7 +11,10 @@ require "csv"
 # Questions = one fixed `view` choice over the component registry + dynamic
 # field-binding choices whose options are the dataset's actual columns
 # (slugged; Choice supports up to 255 options) + feature nouls + one
-# include_<slug> noul per column (the fan-out that scales with data width).
+# include_<slug> noul per column (the fan-out that scales with data width)
+# + Jev-native row filter: `filter_column` / `filter_op` choices plus one
+# `filter_value_<slug>` choice per low-cardinality column (Jev can't emit
+# free text, so values are enumerated).
 # The frontend (`studio_controller.js`) is a generic interpreter: it maps the
 # winning spec onto Chart.js (bar/line/pie/scatter/bubbles) or hand-rendered
 # table/cards/kpi DOM. Jev selects parameters; it never invents components.
@@ -73,7 +76,7 @@ class StudioController < ApplicationController
     return render json: { error: "Missing Jev API key. Paste your TypeSafe key to build." }, status: :unauthorized if api_key.blank?
 
     schema = infer_schema(rows[:rows])
-    questions = build_questions(schema)
+    questions = build_questions(schema, rows[:rows])
     payload = {
       model: JEV_MODEL,
       state: {
@@ -192,7 +195,7 @@ class StudioController < ApplicationController
     rows.first(10)
   end
 
-  def build_questions(schema)
+  def build_questions(schema, rows)
     columns = schema[:columns]
     by_type = ->(types) { columns.select { |c| types.include?(c[:type]) } }
     option_map = ->(cols) { cols.each_with_object({}) { |c, h| h[c[:slug]] = "`#{c[:name]}` (#{c[:type]})" } }
@@ -256,12 +259,52 @@ class StudioController < ApplicationController
       },
       "show_legend" => noul("Should a legend be shown for `request`?"),
       "show_totals" => noul("Should headline totals/averages be shown for `request`?"),
-      "horizontal" => noul("Should bars run horizontally (long category names) for `request`?")
+      "horizontal" => noul("Should bars run horizontally (long category names) for `request`?"),
+      "filter_column" => {
+        type: "choice",
+        instructions: "If `request` keeps only some rows, which column does it filter on?",
+        criteria: option_map.call(columns).merge("none" => "No filtering — show all rows")
+      },
+      "filter_op" => {
+        type: "choice",
+        instructions: "If `request` keeps only some rows, how does the filter value match?",
+        criteria: {
+          equals: "Keep only rows exactly matching the value",
+          contains: "Keep rows whose value contains the text anywhere",
+          starts_with: "Keep rows whose value starts with the text",
+          ends_with: "Keep rows whose value ends with the text"
+        }
+      }
     }
     (2..MAX_PANELS).each { |i| questions.merge!(panel_questions(i, columns, numeric, option_map)) }
+    questions.merge!(filter_value_questions(columns, rows))
     # Per-column include flags — the width-driven fan-out.
     columns.each do |col|
       questions["include_#{col[:slug]}"] = noul("Is the column `#{col[:name]}` (#{col[:type]}) needed for `request`?")
+    end
+    questions
+  end
+
+  # Jev can't emit free text, so filter values reach it as enumerated
+  # choices: one question per low-cardinality column listing its distinct
+  # values. Skips long-text columns, near-unique columns (no point filtering
+  # to one of 31+ values), and single-value columns. Like the include_ flags,
+  # this fan-out scales with data width.
+  FILTER_VALUE_MAX_OPTIONS = 30
+
+  def filter_value_questions(columns, rows)
+    questions = {}
+    columns.each do |col|
+      next unless %w[categorical temporal numeric].include?(col[:type])
+      distinct = rows.map { |r| r[col[:name]].nil? ? r[col[:name].to_sym] : r[col[:name]] }
+        .compact.map(&:to_s).map(&:strip).reject(&:empty?).uniq
+      next if distinct.size < 2 || distinct.size > FILTER_VALUE_MAX_OPTIONS
+      next if distinct.any? { |v| v.length > 60 }
+      questions["filter_value_#{col[:slug]}"] = {
+        type: "choice",
+        instructions: "If `request` keeps only some `#{col[:name]}` rows, which value? (used only when the filter targets `#{col[:name]}`)",
+        criteria: distinct.each_with_object({}) { |v, h| h[v] = "Keep only rows where `#{col[:name]}` is #{v}" }
+      }
     end
     questions
   end

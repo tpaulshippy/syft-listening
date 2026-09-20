@@ -120,15 +120,15 @@
     <div class="mt-2 min-h-12 text-sm leading-relaxed">
       <span data-speech-insights-target="transcriptFinal"></span><span data-speech-insights-target="transcriptInterim" class="text-zinc-400 dark:text-zinc-500"></span>
     </div>
-    <textarea data-speech-insights-target="manualText" rows="2" placeholder="Or type / paste text to analyze instead…"
+    <textarea data-speech-insights-target="manualText" rows="3" placeholder="Or type / paste text to analyze instead…"
               class="mt-2 w-full resize-none rounded-xl border border-zinc-200 bg-transparent px-3 py-2 text-base placeholder:text-zinc-400 focus:outline-none dark:border-zinc-800 dark:placeholder:text-zinc-600"></textarea>
-    <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
-      <label class="flex items-center gap-2">
-        Every
+    <div class="mt-2 flex flex-col gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+      <label class="flex items-center gap-3">
+        <span class="shrink-0">Every</span>
         <input data-speech-insights-target="wordInterval" type="range" min="1" max="30" step="1" value="5"
                data-action="input->speech-insights#cadenceChanged"
-               class="h-1 w-28 cursor-pointer accent-zinc-900 dark:accent-zinc-100" />
-        <span data-speech-insights-target="wordIntervalLabel">5 words</span>
+               class="h-1 min-w-0 flex-1 cursor-pointer accent-zinc-900 dark:accent-zinc-100" />
+        <span data-speech-insights-target="wordIntervalLabel" class="shrink-0 whitespace-nowrap">5 words</span>
       </label>
       <label class="flex items-center gap-2">
         <input data-speech-insights-target="sentenceTrigger" type="checkbox" checked
@@ -136,12 +136,12 @@
                class="h-4 w-4 accent-zinc-900 dark:accent-zinc-100" />
         Every sentence
       </label>
-      <label class="flex items-center gap-2">
-        Window
+      <label class="flex items-center gap-3">
+        <span class="shrink-0">Window</span>
         <input data-speech-insights-target="charsWindow" type="range" min="100" max="1400" step="50" value="350"
                data-action="input->speech-insights#cadenceChanged"
-               class="h-1 w-28 cursor-pointer accent-zinc-900 dark:accent-zinc-100" />
-        <span data-speech-insights-target="charsWindowLabel">350 chars (~58 words)</span>
+               class="h-1 min-w-0 flex-1 cursor-pointer accent-zinc-900 dark:accent-zinc-100" />
+        <span data-speech-insights-target="charsWindowLabel" class="shrink-0 whitespace-nowrap">350 chars (~58 words)</span>
       </label>
     </div>
     <div class="mt-2 flex gap-2">

@@ -373,6 +373,15 @@ export function chartUnavailableHtml(reason) {
   return `<p style="font-size:12px;color:#a1a1aa;margin-bottom:6px;">Chart unavailable here (${escapeHtml(reason)}). Tabulated instead.</p>`
 }
 
+// Resolves the Chart constructor off the global scope. The UMD script sets
+// window.Chart to the Chart class itself (pre-registered); an ESM-style
+// namespace ({ Chart, registerables }) is accepted too.
+export function resolveChartClass(root) {
+  const cls = root?.Chart?.Chart ?? root?.Chart
+  if (typeof cls !== "function") throw new Error("Chart.js script (chart.umd.js) failed to load")
+  return cls
+}
+
 // --- Stimulus controller (dataset + voice + Jev call + Chart.js mount) --------
 export default class extends Controller {
   static targets = [
@@ -624,16 +633,11 @@ export default class extends Controller {
 
   // Chart.js ships as a classic UMD script (see the <script> tag in the
   // studio view): single self-contained file, no ESM graph that can 404 on
-  // a missing chunk. The UMD namespace carries the Chart class plus
-  // registerables; memoized after first registration (idempotent).
+  // a missing chunk. The UMD build pre-registers all components and sets
+  // window.Chart to the Chart class itself.
   loadChartLib() {
     if (this.ChartClass) return this.ChartClass
-    const ns = window.Chart
-    if (!ns || !ns.Chart || !ns.registerables) {
-      throw new Error("Chart.js script (chart.umd.js) failed to load")
-    }
-    ns.Chart.register(...ns.registerables)
-    this.ChartClass = ns.Chart
+    this.ChartClass = resolveChartClass(window)
     return this.ChartClass
   }
 

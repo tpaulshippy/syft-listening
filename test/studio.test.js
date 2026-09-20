@@ -13,6 +13,7 @@ import {
   renderCardsHtml,
   renderKpiHtml,
   chartUnavailableHtml,
+  resolveChartClass,
 } from "../app/javascript/controllers/studio_controller.js"
 
 describe("inferSchema (arbitrary data)", () => {
@@ -163,6 +164,15 @@ describe("DOM renderers", () => {
     expect(html).toContain("Tabulated instead")
     expect(html).toContain("Failed to fetch")
     expect(html).not.toContain("<script>")
+  })
+
+  it("resolves the UMD Chart class off window", () => {
+    function FakeChart() {}
+    expect(resolveChartClass({ Chart: FakeChart })).toBe(FakeChart)
+    expect(resolveChartClass({ Chart: { Chart: FakeChart, registerables: [] } })).toBe(FakeChart)
+    expect(() => resolveChartClass({})).toThrow("failed to load")
+    expect(() => resolveChartClass({ Chart: {} })).toThrow("failed to load")
+    expect(() => resolveChartClass(undefined)).toThrow("failed to load")
   })
 
   it("renders a table with schema headers, biggest first", () => {

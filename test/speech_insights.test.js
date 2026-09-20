@@ -47,8 +47,8 @@ const FIXTURE = `
     <input data-speech-insights-target="wordInterval" type="range" min="1" max="30" value="5" />
     <span data-speech-insights-target="wordIntervalLabel">5 words</span>
     <input data-speech-insights-target="sentenceTrigger" type="checkbox" checked />
-    <input data-speech-insights-target="charsWindow" type="range" min="100" max="1400" value="350" />
-    <span data-speech-insights-target="charsWindowLabel">350 chars</span>
+    <input data-speech-insights-target="charsWindow" type="range" min="100" max="1000" value="150" />
+    <span data-speech-insights-target="charsWindowLabel">150 chars</span>
   </div>
   <div data-speech-insights-target="apiKeyCard">
     <input data-speech-insights-target="apiKey" type="password" />
@@ -204,8 +204,8 @@ describe("cadence controls", () => {
     const proto = Object.getPrototypeOf(c)
     expect(proto.wordInterval.call({ wordIntervalTarget: { value: "abc" } })).toBe(5)
     expect(proto.wordInterval.call({ wordIntervalTarget: { value: "0" } })).toBe(5)
-    expect(proto.windowChars.call({ charsWindowTarget: { value: "-3" } })).toBe(350)
-    expect(proto.windowChars.call({ charsWindowTarget: { value: "" } })).toBe(350)
+    expect(proto.windowChars.call({ charsWindowTarget: { value: "-3" } })).toBe(150)
+    expect(proto.windowChars.call({ charsWindowTarget: { value: "" } })).toBe(150)
     expect(c.sentenceTriggerOn()).toBe(true)
   })
 
@@ -230,18 +230,21 @@ describe("cadence controls", () => {
     expect(c.wordIntervalTarget.value).toBe("30")
     expect(c.sentenceTriggerTarget.checked).toBe(false)
     expect(c.charsWindowTarget.value).toBe("100")
+    localStorage.setItem("syft_jev_cadence", JSON.stringify({ chars: 5000 }))
+    c.restoreCadence()
+    expect(c.charsWindowTarget.value).toBe("1000")
   })
 
   it("sizes the mini transcript height from the window chars", async () => {
     const c = await boot()
     const lines = (chars) => Math.max(1, Math.ceil(chars / c.MINI_CHARS_PER_LINE))
-    expect(c.miniTranscriptTarget.style.height).toBe(`${lines(350) * c.MINI_LINE_HEIGHT}px`)
+    expect(c.miniTranscriptTarget.style.height).toBe(`${lines(150) * c.MINI_LINE_HEIGHT}px`)
     c.charsWindowTarget.value = "100"
     c.cadenceChanged()
     expect(c.miniTranscriptTarget.style.height).toBe(`${lines(100) * c.MINI_LINE_HEIGHT}px`)
-    c.charsWindowTarget.value = "1400"
+    c.charsWindowTarget.value = "1000"
     c.cadenceChanged()
-    expect(c.miniTranscriptTarget.style.height).toBe(`${lines(1400) * c.MINI_LINE_HEIGHT}px`)
+    expect(c.miniTranscriptTarget.style.height).toBe(`${lines(1000) * c.MINI_LINE_HEIGHT}px`)
   })
 })
 

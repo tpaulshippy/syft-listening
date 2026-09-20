@@ -7,7 +7,7 @@ import { Controller } from "@hotwired/stimulus"
 // - Each metric toggle maps to Jev questions ("habits" fans out to 4 nouls); disabled metrics are not sent.
 // - Auto-analyze cadence is user-configurable: every N words (slider,
 //   default 5) plus optionally every finalized sentence (checkbox).
-//   Only the tail of the text is sent (window slider, default 350 chars)
+//   Only the tail of the text is sent (window slider, default 150 chars)
 //   to keep it fast/cheap.
 // - Confidence < 0.5 renders as "uncertain" (nouls use distance from 0.5);
 //   accents (border, bar, badge, value) fade to gray; vivid hues follow the
@@ -215,7 +215,7 @@ export default class extends Controller {
 
   windowChars() {
     const n = parseInt(this.charsWindowTarget.value, 10)
-    return Number.isFinite(n) && n > 0 ? n : 350
+    return Number.isFinite(n) && n > 0 ? n : 150
   }
 
   cadenceChanged() {
@@ -243,7 +243,7 @@ export default class extends Controller {
       }
       if (prefs.sentence !== undefined) this.sentenceTriggerTarget.checked = !!prefs.sentence
       if (prefs.chars !== undefined) {
-        this.charsWindowTarget.value = Math.min(1400, Math.max(100, parseInt(prefs.chars, 10) || 350))
+        this.charsWindowTarget.value = Math.min(1000, Math.max(100, parseInt(prefs.chars, 10) || 150))
       }
     } catch { /* keep defaults */ }
     this.cadenceChanged()

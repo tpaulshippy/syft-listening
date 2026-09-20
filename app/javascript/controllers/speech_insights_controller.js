@@ -95,6 +95,7 @@ export default class extends Controller {
     this.interimText = ""
     this.lastStatus = "Idle"
     this.analyzing = false
+    this.pendingAnalyze = false
     this.lastAnalyzedText = ""
     this.lastAnalyzedEnd = null
     this.analyzingEnd = null
@@ -350,13 +351,7 @@ export default class extends Controller {
       this.interimText = interim
       this.updateWordCount()
       this.updateMiniTranscript()
-      const words = this.currentText().split(/\s+/).filter(Boolean).length
-      const interval = this.wordInterval()
-      const crossed = Math.floor(words / interval) !== Math.floor(this.lastTriggerWords / interval)
-      if ((heardSentence && this.sentenceTriggerOn()) || crossed) {
-        this.analyzeNow()
-      }
-      this.lastTriggerWords = words
+      this.maybeAutoAnalyze(heardSentence)
     }
     this.recognition.onerror = (event) => {
       this.setStatus(`Mic error: ${event.error}`)
@@ -399,6 +394,7 @@ export default class extends Controller {
     this.lastAnalyzedEnd = null
     this.analyzingEnd = null
     this.lastErrorEnd = null
+    this.pendingAnalyze = false
     this.setStatus("Idle")
     this.elapsedSeconds = 0
     this.lastTriggerWords = 0
@@ -440,6 +436,7 @@ export default class extends Controller {
     this.lastAnalyzedEnd = null
     this.analyzingEnd = null
     this.lastErrorEnd = null
+    this.pendingAnalyze = false
     this.updateMiniTranscript()
   }
 
@@ -450,6 +447,26 @@ export default class extends Controller {
     el.style.height = `${el.scrollHeight + (el.offsetHeight - el.clientHeight)}px`
     this.updateWordCount()
     this.updateMiniTranscript()
+  }
+
+  // Typed/pasted text follows the same Every-N-words cadence as speech.
+  manualInput() {
+    this.fitManualText()
+    this.maybeAutoAnalyze(false)
+  }
+
+  // Shared cadence check for speech (onresult) and typing (manualInput).
+  // Updates lastTriggerWords unconditionally so each N-word boundary fires
+  // at most once; if a request is in flight analyzeNow() queues a retry
+  // (pendingAnalyze) instead of dropping the boundary.
+  maybeAutoAnalyze(heardSentence = false) {
+    const words = this.currentText().split(/\s+/).filter(Boolean).length
+    const interval = this.wordInterval()
+    const crossed = Math.floor(words / interval) !== Math.floor(this.lastTriggerWords / interval)
+    if ((heardSentence && this.sentenceTriggerOn()) || crossed) {
+      this.analyzeNow()
+    }
+    this.lastTriggerWords = words
   }
 
   useSample() {
@@ -481,7 +498,13 @@ export default class extends Controller {
       this.setStatus("Paste your Jev API key first.")
       return
     }
-    if (this.analyzing || state === this.lastAnalyzedText) return
+    if (this.analyzing) {
+      // A boundary was crossed mid-request — retry once it finishes
+      // instead of dropping this interval.
+      this.pendingAnalyze = true
+      return
+    }
+    if (state === this.lastAnalyzedText) return
     this.analyzing = true
     this.analyzingEnd = full.length
     this.lastErrorEnd = null
@@ -520,6 +543,15 @@ export default class extends Controller {
       this.analyzing = false
       this.analyzingEnd = null
       this.updateMiniTranscript()
+      if (this.pendingAnalyze) {
+        this.pendingAnalyze = false
+        const latest = this.currentText()
+        const latestState = latest.slice(-this.windowChars())
+        if (latestState !== this.lastAnalyzedText &&
+            latestState.split(/\s+/).filter(Boolean).length >= 3) {
+          this.analyzeNow()
+        }
+      }
     }
   }
 

@@ -52,6 +52,10 @@ Optional: set `TYPESAFE_API_KEY` in the environment as a fallback server-side ke
 | GET | `/` | `speech#show` (the app) |
 | GET | `/listen` | redirect to `/` |
 | POST | `/jev_analyze` | proxy to Jev (`{ text, metrics, api_key }`) |
+| GET | `/build` | `builder#show` (voice UI builder: one Jev fan-out → deterministic render) |
+| POST | `/jev_build` | proxy to Jev (`{ prompt, api_key }`; state = request + task/calendar dataset) |
+| GET | `/studio` | `studio#show` (generalized data studio: any JSON dataset + voice render prompt → Chart.js) |
+| POST | `/jev_studio` | proxy to Jev (`{ prompt, dataset|sample, api_key }`; questions generated from the dataset schema) |
 | GET | `/up` | health check |
 
 ## Configuration
@@ -86,10 +90,18 @@ npm run lint
 ```
 app/
   controllers/speech_controller.rb       # show + Jev proxy (analyze)
+  controllers/builder_controller.rb      # voice UI builder: show + one-shot Jev fan-out (analyze)
+  controllers/studio_controller.rb       # data studio: schema-driven dynamic Jev questions (analyze)
   views/speech/show.html.erb             # key input, toggles, transcript, result cards
+  views/builder/show.html.erb            # voice prompt bar, rendered interface, answer inspector
+  views/studio/show.html.erb             # arbitrary dataset input + voice prompt + Chart.js canvas
   javascript/controllers/speech_insights_controller.js  # Web Speech API + per-sentence analysis + key gate
-config/routes.rb                         # root -> speech#show, POST /jev_analyze
+  javascript/controllers/builder_controller.js  # voice prompt + Jev fan-out + deterministic UI renderer
+  javascript/controllers/studio_controller.js  # schema inference + generic Chart.js/table/cards/KPI interpreter
+config/routes.rb                         # root -> speech#show, POST /jev_analyze, GET /build, POST /jev_build, GET /studio, POST /jev_studio
 spec/requests/speech_spec.rb
+spec/requests/builder_spec.rb
+spec/requests/studio_spec.rb
 ```
 
 ## Deployment

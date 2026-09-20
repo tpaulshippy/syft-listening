@@ -1,0 +1,634 @@
+import { Controller } from "@hotwired/stimulus"
+
+// Generalized voice UI studio: data-agnostic parallel fan-out + generic render.
+//
+// State = { request, schema, rows }; questions are generated from the schema
+// (field-binding choices list the dataset's own columns), Jev answers them in
+// parallel, and the interpreter below maps the winning spec onto Chart.js
+// (bar/line/pie/scatter/bubbles) or hand-rendered table/cards/KPI DOM.
+// Pure helpers are module-level exports so Vitest can cover them without a
+// browser; Chart.js is loaded lazily only when a chart actually mounts
+// (jsdom has no canvas).
+
+export const VIEWS = ["table", "cards", "kpi", "bar", "line", "pie", "scatter", "bubbles"]
+const CHART_VIEWS = ["bar", "line", "pie", "scatter", "bubbles"]
+
+export const SAMPLES = {
+  bookstore: [
+    { title: "The Midnight Library", genre: "fiction", units: 42, revenue: 756.0, month: "2026-06" },
+    { title: "Atomic Habits", genre: "nonfiction", units: 67, revenue: 1206.0, month: "2026-06" },
+    { title: "Dune", genre: "scifi", units: 35, revenue: 665.0, month: "2026-06" },
+    { title: "The Midnight Library", genre: "fiction", units: 51, revenue: 918.0, month: "2026-07" },
+    { title: "Atomic Habits", genre: "nonfiction", units: 58, revenue: 1044.0, month: "2026-07" },
+    { title: "Dune", genre: "scifi", units: 44, revenue: 836.0, month: "2026-07" },
+    { title: "Project Hail Mary", genre: "scifi", units: 39, revenue: 741.0, month: "2026-07" },
+    { title: "Sapiens", genre: "nonfiction", units: 29, revenue: 522.0, month: "2026-07" },
+  ],
+  workouts: [
+    { date: "2026-09-01", activity: "run", minutes: 32, km: 5.1, effort: 7 },
+    { date: "2026-09-03", activity: "swim", minutes: 45, km: 1.5, effort: 6 },
+    { date: "2026-09-05", activity: "run", minutes: 58, km: 9.2, effort: 8 },
+    { date: "2026-09-08", activity: "bike", minutes: 75, km: 22.4, effort: 6 },
+    { date: "2026-09-10", activity: "run", minutes: 28, km: 4.6, effort: 5 },
+    { date: "2026-09-12", activity: "gym", minutes: 50, km: 0, effort: 7 },
+  ],
+  incidents: [
+    { id: "INC-101", service: "checkout", severity: "critical", minutes_open: 47, status: "resolved", owner: "priya" },
+    { id: "INC-102", service: "search", severity: "minor", minutes_open: 120, status: "open", owner: "sam" },
+    { id: "INC-103", service: "checkout", severity: "major", minutes_open: 25, status: "open", owner: "maya" },
+    { id: "INC-104", service: "billing", severity: "major", minutes_open: 63, status: "resolved", owner: "you" },
+    { id: "INC-105", service: "search", severity: "minor", minutes_open: 15, status: "resolved", owner: "you" },
+  ],
+}
+
+export const PALETTE = ["#38bdf8", "#f472b6", "#34d399", "#fbbf24", "#a78bfa", "#fb7185", "#22d3ee", "#f97316"]
+
+export function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
+}
+
+export function slugify(name, taken = {}) {
+  let base = String(name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")
+  if (!base) base = "col"
+  let slug = base
+  let i = 2
+  while (taken[slug]) { slug = `${base}_${i}`; i += 1 }
+  taken[slug] = true
+  return slug
+}
+
+export function isNumericValue(v) {
+  if (typeof v === "number" && Number.isFinite(v)) return true
+  return typeof v === "string" && v.trim().match(/^-?\d+(\.\d+)?$/) !== null
+}
+
+export function isTemporalValue(v) {
+  return typeof v === "string" && v.trim().match(/^\d{4}-\d{2}(-\d{2})?$/) !== null
+}
+
+export function columnType(values) {
+  const present = (values || []).filter((v) => v !== null && v !== undefined && v !== "")
+  if (!present.length) return "categorical"
+  if (present.every(isNumericValue)) return "numeric"
+  if (present.every(isTemporalValue)) return "temporal"
+  if (present.some((v) => String(v).length > 60)) return "text"
+  return "categorical"
+}
+
+export function cellOf(row, name) {
+  if (row == null) return undefined
+  if (Object.prototype.hasOwnProperty.call(row, name)) return row[name]
+  return undefined
+}
+
+export function coerceNumber(v) {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null
+  if (typeof v === "string" && v.trim() !== "" && isNumericValue(v)) return Number(v)
+  return null
+}
+
+// Client mirror of StudioController#infer_schema (schema preview + fallback).
+export function inferSchema(rows) {
+  const names = []
+  for (const row of rows || []) {
+    for (const k of Object.keys(row || {})) if (!names.includes(k)) names.push(k)
+  }
+  const taken = {}
+  const columns = names.slice(0, 60).map((name) => ({
+    name,
+    slug: slugify(name, taken),
+    type: columnType((rows || []).map((r) => cellOf(r, name))),
+  }))
+  return { columns, row_count: (rows || []).length }
+}
+
+export function noulConfidence(p) {
+  return Math.abs(Number(p) - 0.5) * 2
+}
+
+function colsByType(schema, types) {
+  return (schema?.columns || []).filter((c) => types.includes(c.type))
+}
+
+function findColumn(schema, slug) {
+  return (schema?.columns || []).find((c) => c.slug === slug)
+}
+
+// Offline keyword parse over an arbitrary schema — fallback without a key.
+export function defaultSpec(schema, prompt) {
+  const p = (prompt || "").toLowerCase()
+  const has = (...words) => words.some((w) => p.includes(w))
+  const numeric = colsByType(schema, ["numeric"])
+  const cats = colsByType(schema, ["categorical", "temporal", "text"])
+  const temporal = colsByType(schema, ["temporal"])
+  // Name a column if the prompt mentions it.
+  const mentioned = (c) => p.includes(c.name.toLowerCase()) || p.includes(c.slug.replace(/_/g, " "))
+  const named = (schema?.columns || []).find(mentioned)
+  const numericNamed = numeric.find(mentioned)?.slug || null
+  let view = "table"
+  if (has("pie", "share", "proportion", "breakdown")) view = "pie"
+  else if (has("line", "trend", "over time", "timeline")) view = "line"
+  else if (has("scatter", "correlation", " vs ", "versus")) view = "scatter"
+  else if (has("bubble")) view = "bubbles"
+  else if (has("bar", "chart", "compare", "by ", "per ")) view = "bar"
+  else if (has("kpi", "total", "how many", "sum of", "average")) view = "kpi"
+  else if (has("card")) view = "cards"
+  else if (has("table", "grid", "list", "spreadsheet", "rows")) view = "table"
+  else if (numeric.length && cats.length) view = "bar"
+
+  const xField = (view === "scatter" || view === "bubbles")
+    ? (numericNamed || numeric[0]?.slug || "none")
+    : (named && named.type !== "numeric" ? named.slug
+      : (view === "line" && temporal.length ? temporal[0].slug : (cats[0]?.slug || "none")))
+  let yField = numericNamed || numeric[0]?.slug || "count_rows"
+  if ((view === "scatter" || view === "bubbles") && yField === xField) {
+    yField = (numeric.find((c) => c.slug !== xField))?.slug || yField
+  }
+  const seconds = cats.filter((c) => c.slug !== xField)
+  const colorField = has("by ", "per ", "color", "coloured", "colored", "split", "stack", "series") || view === "pie"
+    ? (seconds[0]?.slug || "none") : "none"
+  return {
+    view,
+    xField, yField, colorField, sizeField: "none",
+    aggregation: has("average", "avg", "mean") ? "avg" : has("count", "how many", "number of") ? "count" : "sum",
+    sortBy: has("biggest", "largest", "top", "desc") ? "value_desc" : has("smallest", "asc") ? "value_asc" : "label_asc",
+    showLegend: view === "pie" || colorField !== "none",
+    showTotals: has("total", "kpi", "sum", "how many"),
+    horizontal: false,
+    include: null,
+    title: prompt,
+  }
+}
+
+// Merge Jev answers with the offline fallback; slugs validated vs schema.
+export function specFromAnswers(answers, schema, prompt) {
+  const fb = defaultSpec(schema, prompt)
+  const usedFallback = []
+  const validSlugs = new Set((schema?.columns || []).map((c) => c.slug))
+  const fieldChoice = (key, fallback) => {
+    const a = answers?.[key]
+    const conf = Number(a?.confidence ?? NaN)
+    if (a?.choice && (a.choice === "none" || a.choice === "count_rows" || validSlugs.has(a.choice)) && conf >= 0.5) {
+      return a.choice
+    }
+    usedFallback.push(key)
+    return fallback
+  }
+  const choice = (key, fallback, allowed) => {
+    const a = answers?.[key]
+    const conf = Number(a?.confidence ?? NaN)
+    if (a?.choice && allowed.includes(a.choice) && conf >= 0.5) return a.choice
+    usedFallback.push(key)
+    return fallback
+  }
+  const noul = (key, fallback) => {
+    const a = answers?.[key]
+    if (a == null || a.noul == null) { usedFallback.push(key); return fallback }
+    const p = Number(a.noul)
+    if (noulConfidence(p) < 0.5) { usedFallback.push(key); return fallback }
+    return p >= 0.5
+  }
+  const include = {}
+  for (const col of schema?.columns || []) {
+    include[col.slug] = noul(`include_${col.slug}`, true)
+  }
+  const view = choice("view", fb.view, VIEWS)
+  return {
+    spec: {
+      view,
+      xField: view === "kpi" ? fb.xField : fieldChoice("x_field", fb.xField),
+      yField: fieldChoice("y_field", fb.yField),
+      colorField: fieldChoice("color_field", fb.colorField),
+      sizeField: fieldChoice("size_field", fb.sizeField),
+      aggregation: choice("aggregation", fb.aggregation, ["sum", "avg", "count"]),
+      sortBy: choice("sort_by", fb.sortBy, ["value_desc", "value_asc", "label_asc"]),
+      showLegend: noul("show_legend", fb.showLegend),
+      showTotals: noul("show_totals", fb.showTotals),
+      horizontal: noul("horizontal", fb.horizontal),
+      include,
+      title: prompt,
+    },
+    usedFallback,
+  }
+}
+
+function colName(schema, slug) {
+  return findColumn(schema, slug)?.name ?? slug
+}
+
+export function visibleColumns(schema, include) {
+  const cols = schema?.columns || []
+  if (!include) return cols
+  const kept = cols.filter((c) => include[c.slug] !== false)
+  return kept.length ? kept : cols
+}
+
+// Group rows by xField and reduce yField — pure, feeds Chart.js directly.
+export function aggregateCategory(rows, spec, schema) {
+  const groups = new Map()
+  for (const row of rows || []) {
+    const xRaw = spec.xField === "none" ? "all" : cellOf(row, colName(schema, spec.xField))
+    const key = xRaw === null || xRaw === undefined || xRaw === "" ? "(blank)" : String(xRaw)
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(row)
+  }
+  let labels = [...groups.keys()]
+  let values = labels.map((label) => {
+    const items = groups.get(label)
+    if (spec.yField === "count_rows" || spec.aggregation === "count") return items.length
+    const nums = items.map((r) => coerceNumber(cellOf(r, colName(schema, spec.yField)))).filter((n) => n !== null)
+    if (!nums.length) return 0
+    const sum = nums.reduce((a, b) => a + b, 0)
+    return spec.aggregation === "avg" ? sum / nums.length : sum
+  })
+  const order = labels.map((label, i) => ({ label, value: values[i] }))
+  if (spec.sortBy === "value_desc") order.sort((a, b) => b.value - a.value)
+  else if (spec.sortBy === "value_asc") order.sort((a, b) => a.value - b.value)
+  else order.sort((a, b) => String(a.label).localeCompare(String(b.label)))
+  return { labels: order.map((o) => o.label), values: order.map((o) => round2(o.value)) }
+}
+
+function round2(n) {
+  return Math.round(Number(n) * 100) / 100
+}
+
+// Points for scatter/bubbles, grouped into one series per color value.
+export function scatterSeries(rows, spec, schema) {
+  const xName = colName(schema, spec.xField)
+  const yName = spec.yField === "count_rows" ? null : colName(schema, spec.yField)
+  const sName = spec.sizeField === "none" ? null : colName(schema, spec.sizeField)
+  const cName = spec.colorField === "none" ? null : colName(schema, spec.colorField)
+  const byColor = new Map()
+  for (const row of rows || []) {
+    const x = coerceNumber(cellOf(row, xName))
+    const y = yName ? coerceNumber(cellOf(row, yName)) : coerceNumber(cellOf(row, xName))
+    if (x === null || y === null) continue
+    const color = cName ? String(cellOf(row, cName) ?? "all") : "all"
+    const r = sName ? coerceNumber(cellOf(row, sName)) : null
+    if (!byColor.has(color)) byColor.set(color, [])
+    byColor.get(color).push({ x, y, r: r === null ? 5 : Math.max(3, Math.min(18, 3 + r / 8)) })
+  }
+  return [...byColor.entries()].map(([label, data], i) => ({
+    label, data, backgroundColor: PALETTE[i % PALETTE.length],
+  }))
+}
+
+// Pure Chart.js config builder — no Chart instance, jsdom-safe.
+export function buildChartConfig(spec, rows, schema) {
+  const agg = aggregateCategory(rows, spec, schema)
+  const legend = { display: !!spec.showLegend }
+  if (spec.view === "pie") {
+    return {
+      type: "pie",
+      data: {
+        labels: agg.labels,
+        datasets: [{ data: agg.values, backgroundColor: agg.labels.map((_, i) => PALETTE[i % PALETTE.length]) }],
+      },
+      options: { responsive: true, plugins: { legend } },
+    }
+  }
+  if (spec.view === "scatter" || spec.view === "bubbles") {
+    const series = scatterSeries(rows, spec, schema).map((s) => ({
+      ...s, ...(spec.view === "bubbles" ? {} : { pointRadius: 5 }),
+    }))
+    return {
+      type: spec.view === "bubbles" ? "bubble" : "scatter",
+      data: { datasets: series },
+      options: { responsive: true, plugins: { legend } },
+    }
+  }
+  const horizontal = !!spec.horizontal && spec.view === "bar"
+  return {
+    type: spec.view === "line" ? "line" : "bar",
+    data: {
+      labels: agg.labels,
+      datasets: [{
+        label: spec.yField === "count_rows" ? "count" : colName(schema, spec.yField),
+        data: agg.values,
+        backgroundColor: spec.view === "line" ? "#38bdf8" : agg.labels.map((_, i) => PALETTE[i % PALETTE.length]),
+        ...(spec.view === "line" ? { fill: false, tension: 0.25 } : {}),
+      }],
+    },
+    options: { responsive: true, indexAxis: horizontal ? "y" : "x", plugins: { legend } },
+  }
+}
+
+function fmt(n) {
+  if (typeof n !== "number" || !Number.isFinite(n)) return String(n ?? "")
+  return Number.isInteger(n) ? n.toLocaleString() : n.toLocaleString(undefined, { maximumFractionDigits: 2 })
+}
+
+export function renderTableHtml(rows, spec, schema) {
+  const cols = visibleColumns(schema, spec.include)
+  const sorted = [...(rows || [])]
+  if (spec.yField !== "count_rows") {
+    const yName = colName(schema, spec.yField)
+    sorted.sort((a, b) => {
+      const av = coerceNumber(cellOf(a, yName)) ?? 0
+      const bv = coerceNumber(cellOf(b, yName)) ?? 0
+      return spec.sortBy === "value_asc" ? av - bv : bv - av
+    })
+  }
+  const head = cols.map((c) => `<th style="text-align:left;padding:6px 8px;color:#71717a;font-weight:600;">${escapeHtml(c.name)}</th>`).join("")
+  const body = sorted.map((row) =>
+    `<tr style="border-top:1px solid #f4f4f5;">` +
+    cols.map((c) => `<td style="padding:6px 8px;">${escapeHtml(cellOf(row, c.name))}</td>`).join("") + `</tr>`).join("")
+  return `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>` +
+    totalsLine(rows, spec, schema)
+}
+
+export function renderCardsHtml(rows, spec, schema) {
+  const cols = visibleColumns(schema, spec.include)
+  const titleCol = (spec.xField !== "none" && findColumn(schema, spec.xField)) ? colName(schema, spec.xField) : cols[0]?.name
+  const cards = (rows || []).map((row) => {
+    const facts = cols.filter((c) => c.name !== titleCol).slice(0, 5).map((c) =>
+      `<div style="font-size:11px;color:#52525b;"><span style="color:#a1a1aa;">${escapeHtml(c.name)}</span> ${escapeHtml(cellOf(row, c.name))}</div>`).join("")
+    return `<div style="border:1px solid #e4e4e7;border-radius:12px;padding:10px;min-width:180px;flex:1;">` +
+      `<h4 style="font-size:13px;font-weight:700;margin-bottom:4px;">${escapeHtml(cellOf(row, titleCol))}</h4>${facts}</div>`
+  }).join("")
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${cards}</div>` + totalsLine(rows, spec, schema)
+}
+
+export function renderKpiHtml(rows, spec, schema) {
+  const numeric = colsByType(schema, ["numeric"])
+  const kpis = numeric.slice(0, 4).map((c) => {
+    const nums = (rows || []).map((r) => coerceNumber(cellOf(r, c.name))).filter((n) => n !== null)
+    const sum = nums.reduce((a, b) => a + b, 0)
+    return `<div style="border:1px solid #e4e4e7;border-radius:12px;padding:12px;min-width:140px;flex:1;text-align:center;">` +
+      `<div style="font-size:11px;color:#71717a;">${escapeHtml(c.name)} · sum</div>` +
+      `<div style="font-size:28px;font-weight:700;">${fmt(round2(sum))}</div>` +
+      `<div style="font-size:11px;color:#71717a;">avg ${fmt(round2(nums.length ? sum / nums.length : 0))} · n=${rows?.length ?? 0}</div></div>`
+  }).join("")
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${kpis || "<p>No numeric columns.</p>"}</div>`
+}
+
+function totalsLine(rows, spec, schema) {
+  if (!spec.showTotals) return ""
+  const agg = aggregateCategory(rows, spec, schema)
+  const total = agg.values.reduce((a, b) => a + b, 0)
+  return `<p style="font-size:11px;color:#71717a;margin-top:8px;">${agg.labels.length} groups · total ${fmt(round2(total))}</p>`
+}
+
+// --- Stimulus controller (dataset + voice + Jev call + Chart.js mount) --------
+export default class extends Controller {
+  static targets = [
+    "dataset", "schemaLine", "prompt", "micButton", "askButton", "canvas",
+    "latency", "questionCount", "inspector", "status", "voiceStatus",
+    "supportWarning", "headline", "apiKey", "keyStatus", "testButton",
+  ]
+
+  connect() {
+    this.recognition = null
+    this.listening = false
+    this.chart = null
+    this.apiKeyTarget.value = localStorage.getItem("syft_jev_key") || ""
+    this.apiKeyTarget.addEventListener("input", () => {
+      localStorage.setItem("syft_jev_key", this.apiKeyTarget.value.trim())
+      this.updateKeyStatus()
+    })
+    this.apiKeyTarget.addEventListener("paste", () => {
+      setTimeout(() => {
+        localStorage.setItem("syft_jev_key", this.apiKeyTarget.value.trim())
+        this.testKey()
+      }, 0)
+    })
+    this.updateKeyStatus()
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) this.supportWarningTarget.classList.remove("hidden")
+  }
+
+  disconnect() {
+    try { this.recognition?.stop() } catch { /* ignore */ }
+    try { this.chart?.destroy() } catch { /* ignore */ }
+  }
+
+  // --- dataset -----------------------------------------------------------------
+  parseDataset() {
+    const raw = this.datasetTarget.value.trim()
+    if (!raw) return { error: "Paste a JSON array or pick a sample." }
+    try {
+      const parsed = JSON.parse(raw)
+      if (!Array.isArray(parsed) || !parsed.length || !parsed.every((r) => r && typeof r === "object")) {
+        return { error: "Dataset must be a non-empty array of objects." }
+      }
+      return { rows: parsed }
+    } catch {
+      return { error: "Dataset is not valid JSON." }
+    }
+  }
+
+  datasetInput() {
+    const parsed = this.parseDataset()
+    if (parsed.error) {
+      this.schemaLineTarget.textContent = parsed.error
+      return
+    }
+    const schema = inferSchema(parsed.rows)
+    this.schemaLineTarget.textContent =
+      `${parsed.rows.length} rows · ` + schema.columns.map((c) => `${c.name}:${c.type}`).join(", ")
+  }
+
+  useSample(event) {
+    const key = event.currentTarget.dataset.sample
+    this.datasetTarget.value = JSON.stringify(SAMPLES[key] || [], null, 1)
+    this.datasetInput()
+    this.statusTarget.textContent = `Loaded ${key} sample — now speak or type how to render it.`
+  }
+
+  // --- key (shared) ---------------------------------------------------------------
+  updateKeyStatus() {
+    const key = this.apiKeyTarget.value.trim()
+    const ok = key.length > 0 && localStorage.getItem("syft_jev_key_ok") === key
+    this.keyStatusTarget.textContent = ok ? "✓ Key works — Jev will answer the schema-driven question set."
+      : key ? "Tap Test to verify this key. Without a key, the offline parse renders instead."
+      : "Add your key for the full parallel Jev pass — or just Ask and the offline parse renders."
+    this.keyStatusTarget.className = "mt-1 text-xs " + (ok ? "text-emerald-600" : "text-zinc-500 dark:text-zinc-400")
+  }
+
+  toggleKeyVisibility() {
+    this.apiKeyTarget.type = this.apiKeyTarget.type === "password" ? "text" : "password"
+  }
+
+  async testKey() {
+    const key = this.apiKeyTarget.value.trim()
+    if (!key) { this.keyStatusTarget.textContent = "Paste your key first."; return }
+    this.keyStatusTarget.textContent = "Testing…"
+    try {
+      const res = await fetch("/jev_analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": document.querySelector('meta[name="csrf-token"]')?.content },
+        body: JSON.stringify({ text: "The Eiffel Tower is in Paris.", metrics: ["specificity"], api_key: key }),
+      })
+      if (res.ok) {
+        localStorage.setItem("syft_jev_key_ok", key)
+        this.updateKeyStatus()
+      } else {
+        localStorage.removeItem("syft_jev_key_ok")
+        this.keyStatusTarget.textContent = "✗ Key rejected — check it and try again."
+        this.keyStatusTarget.className = "text-xs mt-1 text-red-600"
+      }
+    } catch {
+      this.keyStatusTarget.textContent = "✗ Could not reach the server."
+      this.keyStatusTarget.className = "text-xs mt-1 text-red-600"
+    }
+  }
+
+  // --- voice -----------------------------------------------------------------------
+  toggleVoice() {
+    if (this.listening) { try { this.recognition?.stop() } catch { /* ignore */ } return }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) {
+      this.voiceStatusTarget.textContent = "Voice not supported here — type your request instead."
+      return
+    }
+    this.recognition = new SR()
+    this.recognition.continuous = false
+    this.recognition.interimResults = true
+    this.recognition.lang = "en-US"
+    let finalText = ""
+    this.recognition.onresult = (event) => {
+      let interim = ""
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) finalText += event.results[i][0].transcript + " "
+        else interim += event.results[i][0].transcript
+      }
+      this.promptTarget.value = (finalText + interim).trim()
+      this.voiceStatusTarget.textContent = interim ? `Hearing: “${interim}…”` : `Heard: “${finalText.trim()}”`
+    }
+    this.recognition.onerror = (event) => {
+      this.listening = false
+      this.voiceStatusTarget.textContent = `Mic error: ${event.error} — you can type instead.`
+    }
+    this.recognition.onend = () => {
+      this.listening = false
+      this.micButtonTarget.style.background = ""
+      const heard = this.promptTarget.value.trim()
+      if (heard) {
+        this.voiceStatusTarget.textContent = `Heard: “${heard}” — building…`
+        this.ask()
+      } else {
+        this.voiceStatusTarget.textContent = "Didn't catch that — try again or type."
+      }
+    }
+    try {
+      this.recognition.start()
+      this.listening = true
+      this.micButtonTarget.style.background = "#dc2626"
+      this.voiceStatusTarget.textContent = "Listening… say how to render it (“Bar chart of revenue by genre”)."
+    } catch (e) {
+      this.voiceStatusTarget.textContent = `Could not start mic: ${e.message}`
+    }
+  }
+
+  promptKeydown(event) {
+    if (event.key === "Enter") this.ask()
+  }
+
+  promptInput() {
+    this.headlineTarget.textContent = this.promptTarget.value.trim() || "Paste any dataset, then speak or type how to render it."
+  }
+
+  usePrompt(event) {
+    this.promptTarget.value = event.currentTarget.dataset.prompt
+    this.promptInput()
+    this.ask()
+  }
+
+  // --- build --------------------------------------------------------------------------
+  async ask() {
+    const prompt = this.promptTarget.value.trim()
+    if (!prompt) { this.statusTarget.textContent = "Say or type how to render the data first."; return }
+    const parsed = this.parseDataset()
+    if (parsed.error) { this.statusTarget.textContent = parsed.error; return }
+    const rows = parsed.rows
+    const t0 = performance.now()
+    this.headlineTarget.textContent = prompt
+    this.askButtonTarget.disabled = true
+    this.statusTarget.textContent = "Asking Jev the schema-driven questions in parallel…"
+    try {
+      const key = this.apiKeyTarget.value.trim()
+      const schema = inferSchema(rows)
+      if (!key) {
+        this.renderResult(defaultSpec(schema, prompt), rows, schema, prompt, t0,
+          { count: 0, model: "offline parse", answers: {}, usedFallback: ["all"], offlineReason: "no key — offline parse" })
+        return
+      }
+      const res = await fetch("/jev_studio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": document.querySelector('meta[name="csrf-token"]')?.content },
+        body: JSON.stringify({ prompt, dataset: rows.slice(0, 100), api_key: key }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.status === 401) {
+        localStorage.removeItem("syft_jev_key_ok")
+        this.updateKeyStatus()
+        this.renderResult(defaultSpec(schema, prompt), rows, schema, prompt, t0,
+          { count: 0, model: "offline parse", answers: {}, usedFallback: ["all"], offlineReason: "key rejected — offline parse" })
+        return
+      }
+      if (!res.ok || !data.answers) {
+        this.renderResult(defaultSpec(schema, prompt), rows, schema, prompt, t0,
+          { count: 0, model: "offline parse", answers: {}, usedFallback: ["all"], offlineReason: `Jev error (HTTP ${res.status}) — offline parse` })
+        return
+      }
+      const serverSchema = data.schema || schema
+      const { spec, usedFallback } = specFromAnswers(data.answers || {}, serverSchema, prompt)
+      this.renderResult(spec, rows, serverSchema, prompt, t0, {
+        count: data.question_count ?? Object.keys(data.answers).length,
+        model: data.model || "jev-latest",
+        answers: data.answers,
+        usedFallback,
+      })
+    } catch {
+      const schema = inferSchema(rows)
+      this.renderResult(defaultSpec(schema, prompt), rows, schema, prompt, t0,
+        { count: 0, model: "offline parse", answers: {}, usedFallback: ["all"], offlineReason: "connection failed — offline parse" })
+    } finally {
+      this.askButtonTarget.disabled = false
+    }
+  }
+
+  renderResult(spec, rows, schema, prompt, t0, meta) {
+    const ms = Math.round(performance.now() - t0)
+    try { this.chart?.destroy() } catch { /* ignore */ }
+    this.chart = null
+    if (CHART_VIEWS.includes(spec.view)) {
+      this.mountChart(spec, rows, schema)
+    } else if (spec.view === "cards") {
+      this.canvasTarget.innerHTML = renderCardsHtml(rows, spec, schema)
+    } else if (spec.view === "kpi") {
+      this.canvasTarget.innerHTML = renderKpiHtml(rows, spec, schema)
+    } else {
+      this.canvasTarget.innerHTML = renderTableHtml(rows, spec, schema)
+      spec.view = "table"
+    }
+    this.latencyTarget.textContent = `${ms.toLocaleString()} ms`
+    this.questionCountTarget.textContent = meta.count
+      ? `${meta.count} multiple-choice answers in parallel · ${meta.model}`
+      : `offline parse · ${meta.offlineReason}`
+    const rows_out = Object.entries(meta.answers || {}).slice(0, 60).map(([k, a]) => {
+      const val = a?.choice ?? (a?.noul != null ? (Number(a.noul) >= 0.5 ? "yes" : "no") : "?")
+      const c = a?.confidence ?? (a?.noul != null ? noulConfidence(a.noul) : null)
+      const fb = meta.usedFallback?.includes(k) ? " · fallback" : ""
+      return `<div>${escapeHtml(k)} = <strong>${escapeHtml(val)}</strong> <span style="color:#a1a1aa;">${c == null ? "" : `conf ${Number(c).toFixed(2)}`}${escapeHtml(fb)}</span></div>`
+    })
+    this.inspectorTarget.innerHTML = rows_out.join("") || `<div style="color:#a1a1aa;">offline parse — no Jev answers for this render.</div>`
+    this.statusTarget.textContent = `Rendered “${prompt}” as ${spec.view}.` +
+      (meta.usedFallback?.length ? ` ${meta.usedFallback.length} answer(s) fell back.` : " All answers from Jev.")
+  }
+
+  async mountChart(spec, rows, schema) {
+    const config = buildChartConfig(spec, rows, schema)
+    this.canvasTarget.innerHTML = `<div style="position:relative;height:320px;"><canvas></canvas></div>` + totalsLine(rows, spec, schema)
+    try {
+      const { Chart, registerables } = await import("chart.js")
+      Chart.register(...registerables)
+      const canvas = this.canvasTarget.querySelector("canvas")
+      this.chart = new Chart(canvas, config)
+    } catch {
+      // No canvas/Chart available — the deterministic fallback is a table.
+      this.canvasTarget.innerHTML = `<p style="font-size:12px;color:#a1a1aa;margin-bottom:6px;">Chart unavailable here — tabulated instead.</p>` +
+        renderTableHtml(rows, { ...spec, view: "table" }, schema)
+    }
+  }
+}

@@ -7,6 +7,14 @@ Rails.application.routes.draw do
   get "/listen", to: redirect("/")
   post "/jev_analyze", to: "speech#analyze", as: "jev_analyze"
 
+  # Voice UI builder (one Jev fan-out call -> deterministic render)
+  get "/build", to: "builder#show", as: "build"
+  post "/jev_build", to: "builder#analyze", as: "jev_build"
+
+  # Generalized voice UI studio (schema-driven questions, Chart.js render)
+  get "/studio", to: "studio#show", as: "studio"
+  post "/jev_studio", to: "studio#analyze", as: "jev_studio"
+
   # Defines the root path route ("/")
   root "speech#show"
 end

@@ -15,7 +15,7 @@ import { Controller } from "@hotwired/stimulus"
 export default class extends Controller {
   static targets = [
     "apiKey", "apiKeyCard", "keyStatus", "testButton",
-    "metric", "status", "supportWarning",
+    "metric", "miniTranscript", "miniFinal", "miniInterim", "miniState", "supportWarning",
     "transcriptFinal", "transcriptInterim", "wordCount", "manualText",
     "wordInterval", "wordIntervalLabel", "sentenceTrigger",
     "charsWindow", "charsWindowLabel",
@@ -86,6 +86,8 @@ export default class extends Controller {
     this.listening = false
     this.recognition = null
     this.finalText = ""
+    this.interimText = ""
+    this.lastStatus = "Idle"
     this.analyzing = false
     this.lastAnalyzedText = ""
     this.lastTriggerWords = 0
@@ -110,6 +112,7 @@ export default class extends Controller {
     this.buildWaveform()
     this.updateTimer()
     this.updateWordCount()
+    this.updateMiniTranscript()
     this.updateCardsVisibility()
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
@@ -219,6 +222,7 @@ export default class extends Controller {
       localStorage.setItem("syft_jev_cadence",
         JSON.stringify({ words: n, sentence: this.sentenceTriggerTarget.checked, chars: c }))
     } catch { /* private mode etc. — cadence just won't persist */ }
+    this.updateMiniTranscript()
   }
 
   restoreCadence() {
@@ -333,7 +337,9 @@ export default class extends Controller {
       }
       this.transcriptFinalTarget.textContent = this.finalText
       this.transcriptInterimTarget.textContent = interim
+      this.interimText = interim
       this.updateWordCount()
+      this.updateMiniTranscript()
       const words = this.currentText().split(/\s+/).filter(Boolean).length
       const interval = this.wordInterval()
       const crossed = Math.floor(words / interval) !== Math.floor(this.lastTriggerWords / interval)
@@ -373,10 +379,14 @@ export default class extends Controller {
     }
     this.setStatus("Idle")
     this.transcriptInterimTarget.textContent = ""
+    this.interimText = ""
+    this.updateMiniTranscript()
   }
 
   clearTranscript() {
     this.finalText = ""
+    this.interimText = ""
+    this.setStatus("Idle")
     this.elapsedSeconds = 0
     this.lastTriggerWords = 0
     this.updateTimer()
@@ -421,6 +431,8 @@ export default class extends Controller {
     const el = this.manualTextTarget
     el.style.height = "auto"
     el.style.height = `${el.scrollHeight + (el.offsetHeight - el.clientHeight)}px`
+    this.updateWordCount()
+    this.updateMiniTranscript()
   }
 
   useSample() {
@@ -646,8 +658,54 @@ export default class extends Controller {
     return `Jev error (HTTP ${status})`
   }
 
+  // Mini transcript under the record button mirrors the full transcript
+  // live (final + muted interim, left-aligned via markup) but shows only
+  // the analysis window tail — the start is trimmed once text exceeds it.
+  // Analysis state is a trailing emoji (⏳ analyzing, ✅ analyzed,
+  // ⚠️ error) with the full message as its tooltip; anything else
+  // (Idle, Listening…, mic errors) shows as muted placeholder text
+  // when there is no transcript yet.
+  updateMiniTranscript() {
+    if (!this.hasMiniFinalTarget || !this.hasMiniInterimTarget) return
+    const text = this.currentText()
+    if (!text) {
+      this.miniFinalTarget.textContent = this.lastStatus || "Idle"
+      this.miniFinalTarget.style.opacity = "0.6"
+      this.miniInterimTarget.textContent = ""
+    } else {
+      const window = this.windowChars()
+      const tail = text.slice(-window)
+      const trimmed = text.length > tail.length
+      const interim = this.manualTextTarget.value.trim() ? "" : (this.interimText || "")
+      let interimPart = ""
+      let finalPart = tail
+      if (interim && text.endsWith(interim)) {
+        interimPart = tail.slice(Math.max(0, tail.length - interim.length))
+        finalPart = tail.slice(0, tail.length - interimPart.length)
+      }
+      this.miniFinalTarget.textContent = (trimmed ? "… " : "") + finalPart
+      this.miniFinalTarget.style.opacity = ""
+      this.miniInterimTarget.textContent = interimPart
+    }
+    if (this.hasMiniTranscriptTarget) {
+      this.miniTranscriptTarget.scrollTop = this.miniTranscriptTarget.scrollHeight
+    }
+  }
+
   setStatus(msg) {
-    if (this.hasStatusTarget) this.statusTarget.textContent = msg
+    this.lastStatus = msg
+    if (!this.hasMiniStateTarget) return
+    if (msg === "Analyzing…") {
+      this.miniStateTarget.textContent = "⏳"
+    } else if (msg.startsWith("Analyzed")) {
+      this.miniStateTarget.textContent = "✅"
+    } else if (msg === "Idle" || msg === "Listening… speak now.") {
+      this.miniStateTarget.textContent = ""
+    } else {
+      this.miniStateTarget.textContent = "⚠️"
+    }
+    this.miniStateTarget.title = msg
+    this.updateMiniTranscript()
   }
 
   pct(x) {

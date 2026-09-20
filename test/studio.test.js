@@ -21,7 +21,6 @@ import {
   dashboardContainerStyle,
   panelSectionHtml,
   parseDatasetText,
-  parseCsv,
 } from "../app/javascript/controllers/studio_controller.js"
 
 describe("inferSchema (arbitrary data)", () => {

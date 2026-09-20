@@ -674,7 +674,10 @@ export default class extends Controller {
   }
 
   promptKeydown(event) {
-    if (event.key === "Enter") this.ask()
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault()
+      this.ask()
+    }
   }
 
   promptInput() {

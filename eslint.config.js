@@ -2,7 +2,7 @@ import js from "@eslint/js"
 import globals from "globals"
 
 export default [
-  { ignores: ["node_modules/**", "app/assets/builds/**"] },
+  { ignores: ["node_modules/**", "vendor/**", "app/assets/builds/**"] },
   js.configs.recommended,
   {
     languageOptions: {

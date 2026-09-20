@@ -90,14 +90,44 @@ RSpec.describe "Studio", type: :request do
         %w[title genre units revenue month].each do |slug|
           expect(questions.keys).to include("include_#{slug}")
         end
+        # …plus the dashboard fan-out: layout, count, per-panel bindings
+        expect(questions["layout"]["criteria"]).to include("single", "stack", "side_by_side", "grid")
+        expect(questions["panel_count"]["criteria"]).to include("one", "two", "three")
+        %w[view_2 x_field_2 y_field_2 color_field_2 aggregation_2 sort_by_2
+           view_3 x_field_3 y_field_3 color_field_3 aggregation_3 sort_by_3].each do |key|
+          expect(questions.keys).to include(key)
+        end
+        expect(questions["view_2"]["criteria"]).to include("bar", "table", "kpi")
+        expect(questions["y_field_3"]["criteria"]).to include("revenue", "count_rows")
         upstream
       end
 
       post "/jev_studio", params: { prompt: "Bar chart of revenue by genre", dataset: bookstore, api_key: "ts_test" }
       expect(response).to have_http_status(:success)
       parsed = JSON.parse(response.body)
-      expect(parsed["question_count"]).to eq(parsed["schema"]["columns"].size + 10)
+      # 2 dashboard + 10 panel-1 + 12 panels 2-3 + one flag per column
+      expect(parsed["question_count"]).to eq(24 + parsed["schema"]["columns"].size)
       expect(parsed["upstream_ms"]).to be_a(Integer)
+    end
+
+    it "builds one panel per voice clause for multi-view prompts" do
+      http = instance_double(Net::HTTP)
+      upstream = instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:use_ssl=)
+      allow(http).to receive(:open_timeout=)
+      allow(http).to receive(:read_timeout=)
+      allow(http).to receive(:request) do |req|
+        body = JSON.parse(req.body)
+        expect(body["state"]["request"]).to include("KPI")
+        upstream
+      end
+
+      post "/jev_studio", params: {
+        prompt: "Bar chart of revenue by genre with KPI totals",
+        dataset: bookstore, api_key: "ts_test"
+      }
+      expect(response).to have_http_status(:success)
     end
 
     it "forwards upstream errors with their status" do

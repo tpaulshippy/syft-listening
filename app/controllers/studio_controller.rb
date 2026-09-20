@@ -55,6 +55,11 @@ class StudioController < ApplicationController
   }.freeze
 
   VIEWS = %w[table cards kpi bar line pie scatter bubbles].freeze
+  # Panels beyond the first use suffixed keys (view_2, x_field_2, …).
+  # Panel 1 keeps the un-suffixed keys. The renderer ignores panels past
+  # panel_count (speculative fan-out: Jev answers everything anyway).
+  MAX_PANELS = 3
+  ORDINALS = { 2 => "second", 3 => "third" }.freeze
 
   def show
   end
@@ -179,19 +184,29 @@ class StudioController < ApplicationController
     numeric = by_type.call(%w[numeric])
 
     questions = {
+      "layout" => {
+        type: "choice",
+        instructions: "If `request` asks for more than one panel, how should they be arranged?",
+        criteria: {
+          single: "One panel only (or panels are irrelevant)",
+          stack: "Panels stacked vertically, one on top of another",
+          side_by_side: "Panels next to each other in columns",
+          grid: "Panels in a responsive grid (three or dashboard-style)"
+        }
+      },
+      "panel_count" => {
+        type: "choice",
+        instructions: "How many panels (visualizations) does `request` ask for?",
+        criteria: {
+          one: "A single visualization",
+          two: "Two visualizations (e.g. a chart plus a table or KPIs)",
+          three: "Three visualizations (a small dashboard)"
+        }
+      },
       "view" => {
         type: "choice",
-        instructions: "Which component from the registry best renders `request` over this dataset?",
-        criteria: {
-          table: "Sortable data grid, one row per record",
-          cards: "Card per record with title and key facts",
-          kpi: "Headline totals/averages (counts, sums)",
-          bar: "Bar chart: value per category",
-          line: "Line chart: trend over time or ordered categories",
-          pie: "Pie chart: share of a whole across few categories",
-          scatter: "Scatter plot: correlation of two numbers",
-          bubbles: "Bubble plot: two numbers plus size and colour"
-        }
+        instructions: "Which component from the registry best renders `request` (first panel) over this dataset?",
+        criteria: view_criteria
       },
       "x_field" => {
         type: "choice",
@@ -215,31 +230,89 @@ class StudioController < ApplicationController
       },
       "aggregation" => {
         type: "choice",
-        instructions: "How should repeated values per category combine for `request`?",
-        criteria: {
-          sum: "Add values up",
-          avg: "Average values",
-          count: "Count rows"
-        }
+        instructions: "How should repeated values per category combine for `request` (first panel)?",
+        criteria: aggregation_criteria
       },
       "sort_by" => {
         type: "choice",
-        instructions: "How should categories/records be ordered for `request`?",
-        criteria: {
-          value_desc: "Largest value first",
-          value_asc: "Smallest value first",
-          label_asc: "Alphabetical / chronological"
-        }
+        instructions: "How should categories/records be ordered for `request` (first panel)?",
+        criteria: sort_criteria
       },
       "show_legend" => noul("Should a legend be shown for `request`?"),
       "show_totals" => noul("Should headline totals/averages be shown for `request`?"),
       "horizontal" => noul("Should bars run horizontally (long category names) for `request`?")
     }
+    (2..MAX_PANELS).each { |i| questions.merge!(panel_questions(i, columns, numeric, option_map)) }
     # Per-column include flags — the width-driven fan-out.
     columns.each do |col|
       questions["include_#{col[:slug]}"] = noul("Is the column `#{col[:name]}` (#{col[:type]}) needed for `request`?")
     end
     questions
+  end
+
+  def view_criteria
+    {
+      table: "Sortable data grid, one row per record",
+      cards: "Card per record with title and key facts",
+      kpi: "Headline totals/averages (counts, sums)",
+      bar: "Bar chart: value per category",
+      line: "Line chart: trend over time or ordered categories",
+      pie: "Pie chart: share of a whole across few categories",
+      scatter: "Scatter plot: correlation of two numbers",
+      bubbles: "Bubble plot: two numbers plus size and colour"
+    }
+  end
+
+  def aggregation_criteria
+    {
+      sum: "Add values up",
+      avg: "Average values",
+      count: "Count rows"
+    }
+  end
+
+  def sort_criteria
+    {
+      value_desc: "Largest value first",
+      value_asc: "Smallest value first",
+      label_asc: "Alphabetical / chronological"
+    }
+  end
+
+  def panel_questions(i, columns, numeric, option_map)
+    ord = ORDINALS.fetch(i)
+    {
+      "view_#{i}" => {
+        type: "choice",
+        instructions: "If `request` asks for several panels, which component renders the #{ord} panel?",
+        criteria: view_criteria
+      },
+      "x_field_#{i}" => {
+        type: "choice",
+        instructions: "If `request` asks for several panels, which column goes on the axis/title of the #{ord} panel?",
+        criteria: option_map.call(columns).merge("none" => "No axis / auto")
+      },
+      "y_field_#{i}" => {
+        type: "choice",
+        instructions: "If `request` asks for several panels, which numeric column supplies the values of the #{ord} panel?",
+        criteria: option_map.call(numeric).merge("count_rows" => "Just count rows per category")
+      },
+      "color_field_#{i}" => {
+        type: "choice",
+        instructions: "If `request` asks for several panels, which column drives colour splits of the #{ord} panel?",
+        criteria: option_map.call(columns).merge("none" => "Single colour, no split")
+      },
+      "aggregation_#{i}" => {
+        type: "choice",
+        instructions: "If `request` asks for several panels, how should values per category combine in the #{ord} panel?",
+        criteria: aggregation_criteria
+      },
+      "sort_by_#{i}" => {
+        type: "choice",
+        instructions: "If `request` asks for several panels, how should the #{ord} panel be ordered?",
+        criteria: sort_criteria
+      }
+    }
   end
 
   def noul(instructions)

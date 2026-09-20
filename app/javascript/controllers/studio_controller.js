@@ -161,9 +161,7 @@ export function defaultSpec(schema, prompt) {
 }
 
 // Merge Jev answers with the offline fallback; slugs validated vs schema.
-export function specFromAnswers(answers, schema, prompt) {
-  const fb = defaultSpec(schema, prompt)
-  const usedFallback = []
+function makeMergers(answers, schema, usedFallback) {
   const validSlugs = new Set((schema?.columns || []).map((c) => c.slug))
   const fieldChoice = (key, fallback) => {
     const a = answers?.[key]
@@ -188,28 +186,113 @@ export function specFromAnswers(answers, schema, prompt) {
     if (noulConfidence(p) < 0.5) { usedFallback.push(key); return fallback }
     return p >= 0.5
   }
-  const include = {}
-  for (const col of schema?.columns || []) {
-    include[col.slug] = noul(`include_${col.slug}`, true)
-  }
-  const view = choice("view", fb.view, VIEWS)
+  return { fieldChoice, choice, noul }
+}
+
+// One panel's spec. Suffix "" reads the un-suffixed (panel-1) keys,
+// "_2" / "_3" the per-panel fan-out keys. Shared display flags are global.
+function panelSpec(m, suffix, fb, shared) {
+  const view = m.choice(`view${suffix}`, fb.view, VIEWS)
   return {
-    spec: {
-      view,
-      xField: view === "kpi" ? fb.xField : fieldChoice("x_field", fb.xField),
-      yField: fieldChoice("y_field", fb.yField),
-      colorField: fieldChoice("color_field", fb.colorField),
-      sizeField: fieldChoice("size_field", fb.sizeField),
-      aggregation: choice("aggregation", fb.aggregation, ["sum", "avg", "count"]),
-      sortBy: choice("sort_by", fb.sortBy, ["value_desc", "value_asc", "label_asc"]),
-      showLegend: noul("show_legend", fb.showLegend),
-      showTotals: noul("show_totals", fb.showTotals),
-      horizontal: noul("horizontal", fb.horizontal),
-      include,
-      title: prompt,
-    },
-    usedFallback,
+    view,
+    xField: view === "kpi" ? fb.xField : m.fieldChoice(`x_field${suffix}`, fb.xField),
+    yField: m.fieldChoice(`y_field${suffix}`, fb.yField),
+    colorField: m.fieldChoice(`color_field${suffix}`, fb.colorField),
+    sizeField: m.fieldChoice(`size_field${suffix}`, fb.sizeField),
+    aggregation: m.choice(`aggregation${suffix}`, fb.aggregation, ["sum", "avg", "count"]),
+    sortBy: m.choice(`sort_by${suffix}`, fb.sortBy, ["value_desc", "value_asc", "label_asc"]),
+    ...shared,
+    title: fb.title,
   }
+}
+
+function sharedFlags(m, fb) {
+  const include = {}
+  for (const col of fb.schemaColumns || []) {
+    include[col.slug] = m.noul(`include_${col.slug}`, true)
+  }
+  return {
+    showLegend: m.noul("show_legend", fb.showLegend),
+    showTotals: m.noul("show_totals", fb.showTotals),
+    horizontal: m.noul("horizontal", fb.horizontal),
+    include,
+  }
+}
+
+export function specFromAnswers(answers, schema, prompt) {
+  const fb = { ...defaultSpec(schema, prompt), schemaColumns: schema?.columns || [] }
+  const usedFallback = []
+  const m = makeMergers(answers, schema, usedFallback)
+  return { spec: panelSpec(m, "", fb, sharedFlags(m, fb)), usedFallback }
+}
+
+export const MAX_PANELS = 3
+export const LAYOUTS = ["single", "stack", "side-by-side", "grid"]
+export const PANEL_COUNT_WORDS = { one: 1, two: 2, three: 3 }
+
+// Voice prompts compose with "and / plus / with": each clause becomes a panel.
+export function splitPrompt(prompt) {
+  return String(prompt || "").split(/\s+(?:and|plus|with|alongside)\s+/i)
+    .map((s) => s.trim()).filter(Boolean).slice(0, MAX_PANELS)
+}
+
+export function defaultDashboard(schema, prompt) {
+  const p = (prompt || "").toLowerCase()
+  const segments = splitPrompt(prompt)
+  const clauses = segments.length ? segments : [prompt]
+  const panels = clauses.map((seg) => defaultSpec(schema, seg))
+  const layout = clauses.length < 2 ? "single"
+    : p.includes("side by side") ? "side-by-side"
+    : p.includes("grid") || p.includes("dashboard") ? "grid"
+    : "stack"
+  return { layout, panels, title: prompt }
+}
+
+export function dashboardFromAnswers(answers, schema, prompt) {
+  const fb = defaultDashboard(schema, prompt)
+  const usedFallback = []
+  const m = makeMergers(answers, schema, usedFallback)
+  const countWord = m.choice("panel_count",
+    Object.keys(PANEL_COUNT_WORDS).find((w) => PANEL_COUNT_WORDS[w] === fb.panels.length) || "one",
+    Object.keys(PANEL_COUNT_WORDS))
+  const count = Math.min(MAX_PANELS, PANEL_COUNT_WORDS[countWord])
+  const layout = m.choice("layout", count < 2 ? "single" : fb.layout, LAYOUTS)
+  const fbWithCols = (panel) => ({ ...panel, schemaColumns: schema?.columns || [] })
+  const shared = sharedFlags(m, { ...fb.panels[0], schemaColumns: schema?.columns || [] })
+  const panels = Array.from({ length: count }, (_, i) =>
+    panelSpec(m, i === 0 ? "" : `_${i + 1}`, fbWithCols(fb.panels[i] || fb.panels[0]), shared))
+  return { dashboard: { layout: count < 2 ? "single" : layout, panels, title: prompt }, usedFallback }
+}
+
+// Deterministic panel title — Jev can't generate text, so derive it.
+export function panelTitle(panel, schema) {
+  if (panel.view === "kpi") return "totals · kpi"
+  const y = panel.yField === "count_rows" ? "count" : colName(schema, panel.yField)
+  const x = panel.xField === "none" ? "" : ` by ${colName(schema, panel.xField)}`
+  return `${y}${x} · ${panel.view}`
+}
+
+export function dashboardContainerStyle(layout) {
+  if (layout === "side-by-side") return "display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;"
+  if (layout === "grid") return "display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;"
+  return "display:flex;flex-direction:column;gap:10px;"
+}
+
+export function panelSectionHtml(panel, rows, schema, slot) {
+  let body
+  if (CHART_VIEWS.includes(panel.view)) {
+    body = `<div data-chart-slot="${slot}" style="position:relative;height:280px;"><canvas></canvas></div>` +
+      totalsLine(rows, panel, schema)
+  } else if (panel.view === "cards") {
+    body = renderCardsHtml(rows, panel, schema)
+  } else if (panel.view === "kpi") {
+    body = renderKpiHtml(rows, panel, schema)
+  } else {
+    body = renderTableHtml(rows, { ...panel, view: "table" }, schema)
+    panel.view = "table"
+  }
+  return `<section style="border:1px solid #e4e4e7;border-radius:12px;padding:10px;min-width:0;">` +
+    `<h4 style="font-size:12px;font-weight:700;margin-bottom:6px;">${escapeHtml(panelTitle(panel, schema))}</h4>${body}</section>`
 }
 
 function colName(schema, slug) {
@@ -393,7 +476,7 @@ export default class extends Controller {
   connect() {
     this.recognition = null
     this.listening = false
-    this.chart = null
+    this.charts = []
     this.ChartClass = null
     this.apiKeyTarget.value = localStorage.getItem("syft_jev_key") || ""
     this.apiKeyTarget.addEventListener("input", () => {
@@ -413,7 +496,14 @@ export default class extends Controller {
 
   disconnect() {
     try { this.recognition?.stop() } catch { /* ignore */ }
-    try { this.chart?.destroy() } catch { /* ignore */ }
+    this.destroyCharts()
+  }
+
+  destroyCharts() {
+    for (const chart of this.charts || []) {
+      try { chart.destroy() } catch { /* ignore */ }
+    }
+    this.charts = []
   }
 
   // --- dataset -----------------------------------------------------------------
@@ -548,6 +638,11 @@ export default class extends Controller {
     this.ask()
   }
 
+  offlineDashboard(prompt, rows, schema, t0, reason) {
+    this.renderResult(defaultDashboard(schema, prompt), rows, schema, prompt, t0,
+      { count: 0, model: "offline parse", answers: {}, usedFallback: ["all"], offlineReason: reason })
+  }
+
   // --- build --------------------------------------------------------------------------
   async ask() {
     const prompt = this.promptTarget.value.trim()
@@ -563,8 +658,7 @@ export default class extends Controller {
       const key = this.apiKeyTarget.value.trim()
       const schema = inferSchema(rows)
       if (!key) {
-        this.renderResult(defaultSpec(schema, prompt), rows, schema, prompt, t0,
-          { count: 0, model: "offline parse", answers: {}, usedFallback: ["all"], offlineReason: "no key — offline parse" })
+        this.offlineDashboard(prompt, rows, schema, t0, "no key — offline parse")
         return
       }
       const res = await fetch("/jev_studio", {
@@ -576,58 +670,49 @@ export default class extends Controller {
       if (res.status === 401) {
         localStorage.removeItem("syft_jev_key_ok")
         this.updateKeyStatus()
-        this.renderResult(defaultSpec(schema, prompt), rows, schema, prompt, t0,
-          { count: 0, model: "offline parse", answers: {}, usedFallback: ["all"], offlineReason: "key rejected — offline parse" })
+        this.offlineDashboard(prompt, rows, schema, t0, "key rejected — offline parse")
         return
       }
       if (!res.ok || !data.answers) {
-        this.renderResult(defaultSpec(schema, prompt), rows, schema, prompt, t0,
-          { count: 0, model: "offline parse", answers: {}, usedFallback: ["all"], offlineReason: `Jev error (HTTP ${res.status}) — offline parse` })
+        this.offlineDashboard(prompt, rows, schema, t0, `Jev error (HTTP ${res.status}) — offline parse`)
         return
       }
       const serverSchema = data.schema || schema
-      const { spec, usedFallback } = specFromAnswers(data.answers || {}, serverSchema, prompt)
-      this.renderResult(spec, rows, serverSchema, prompt, t0, {
+      const { dashboard, usedFallback } = dashboardFromAnswers(data.answers || {}, serverSchema, prompt)
+      this.renderResult(dashboard, rows, serverSchema, prompt, t0, {
         count: data.question_count ?? Object.keys(data.answers).length,
         model: data.model || "jev-latest",
         answers: data.answers,
         usedFallback,
       })
     } catch {
-      const schema = inferSchema(rows)
-      this.renderResult(defaultSpec(schema, prompt), rows, schema, prompt, t0,
-        { count: 0, model: "offline parse", answers: {}, usedFallback: ["all"], offlineReason: "connection failed — offline parse" })
+      this.offlineDashboard(prompt, rows, inferSchema(rows), t0, "connection failed — offline parse")
     } finally {
       this.askButtonTarget.disabled = false
     }
   }
 
-  renderResult(spec, rows, schema, prompt, t0, meta) {
+  renderResult(dashboard, rows, schema, prompt, t0, meta) {
     const ms = Math.round(performance.now() - t0)
-    try { this.chart?.destroy() } catch { /* ignore */ }
-    this.chart = null
-    if (CHART_VIEWS.includes(spec.view)) {
-      this.mountChart(spec, rows, schema)
-    } else if (spec.view === "cards") {
-      this.canvasTarget.innerHTML = renderCardsHtml(rows, spec, schema)
-    } else if (spec.view === "kpi") {
-      this.canvasTarget.innerHTML = renderKpiHtml(rows, spec, schema)
-    } else {
-      this.canvasTarget.innerHTML = renderTableHtml(rows, spec, schema)
-      spec.view = "table"
-    }
+    this.destroyCharts()
+    this.canvasTarget.innerHTML =
+      `<div style="${dashboardContainerStyle(dashboard.layout)}">` +
+      dashboard.panels.map((panel, i) => panelSectionHtml(panel, rows, schema, i)).join("") +
+      `</div>`
+    this.mountPanelCharts(dashboard, rows, schema)
     this.latencyTarget.textContent = `${ms.toLocaleString()} ms`
     this.questionCountTarget.textContent = meta.count
       ? `${meta.count} multiple-choice answers in parallel · ${meta.model}`
       : `offline parse · ${meta.offlineReason}`
-    const rows_out = Object.entries(meta.answers || {}).slice(0, 60).map(([k, a]) => {
+    const rows_out = Object.entries(meta.answers || {}).slice(0, 80).map(([k, a]) => {
       const val = a?.choice ?? (a?.noul != null ? (Number(a.noul) >= 0.5 ? "yes" : "no") : "?")
       const c = a?.confidence ?? (a?.noul != null ? noulConfidence(a.noul) : null)
       const fb = meta.usedFallback?.includes(k) ? " · fallback" : ""
       return `<div>${escapeHtml(k)} = <strong>${escapeHtml(val)}</strong> <span style="color:#a1a1aa;">${c == null ? "" : `conf ${Number(c).toFixed(2)}`}${escapeHtml(fb)}</span></div>`
     })
     this.inspectorTarget.innerHTML = rows_out.join("") || `<div style="color:#a1a1aa;">offline parse — no Jev answers for this render.</div>`
-    this.statusTarget.textContent = `Rendered “${prompt}” as ${spec.view}.` +
+    const n = dashboard.panels.length
+    this.statusTarget.textContent = `Rendered “${prompt}” as ${n} panel${n === 1 ? "" : "s"} (${dashboard.layout}).` +
       (meta.usedFallback?.length ? ` ${meta.usedFallback.length} answer(s) fell back.` : " All answers from Jev.")
   }
 
@@ -641,20 +726,21 @@ export default class extends Controller {
     return this.ChartClass
   }
 
-  mountChart(spec, rows, schema) {
-    const config = buildChartConfig(spec, rows, schema)
-    this.canvasTarget.innerHTML = `<div style="position:relative;height:320px;"><canvas></canvas></div>` + totalsLine(rows, spec, schema)
-    try {
-      const Chart = this.loadChartLib()
-      const canvas = this.canvasTarget.querySelector("canvas")
-      this.chart = new Chart(canvas, config)
-    } catch (e) {
-      // No canvas/Chart available — the deterministic fallback is a table.
-      // Surface the reason (previously swallowed) so it can be diagnosed.
-      const reason = (e && e.message) || String(e)
-      console.error("Chart.js failed to mount:", e)
-      this.canvasTarget.innerHTML = chartUnavailableHtml(reason) +
-        renderTableHtml(rows, { ...spec, view: "table" }, schema)
-    }
+  mountPanelCharts(dashboard, rows, schema) {
+    this.canvasTarget.querySelectorAll("[data-chart-slot]").forEach((slotEl) => {
+      const panel = dashboard.panels[Number(slotEl.dataset.chartSlot)]
+      if (!panel || !CHART_VIEWS.includes(panel.view)) return
+      try {
+        const Chart = this.loadChartLib()
+        this.charts.push(new Chart(slotEl.querySelector("canvas"), buildChartConfig(panel, rows, schema)))
+      } catch (e) {
+        // No canvas/Chart available — the deterministic fallback is a table.
+        // Surface the reason (previously swallowed) so it can be diagnosed.
+        const reason = (e && e.message) || String(e)
+        console.error("Chart.js failed to mount:", e)
+        slotEl.outerHTML = chartUnavailableHtml(reason) +
+          renderTableHtml(rows, { ...panel, view: "table" }, schema)
+      }
+    })
   }
 }

@@ -14,6 +14,12 @@ import {
   renderKpiHtml,
   chartUnavailableHtml,
   resolveChartClass,
+  splitPrompt,
+  defaultDashboard,
+  dashboardFromAnswers,
+  panelTitle,
+  dashboardContainerStyle,
+  panelSectionHtml,
 } from "../app/javascript/controllers/studio_controller.js"
 
 describe("inferSchema (arbitrary data)", () => {
@@ -212,5 +218,79 @@ describe("end-to-end on a never-before-seen dataset (voice prompt, no key)", () 
     expect(config.type).toBe("bar")
     const i = config.data.labels.indexOf("moon")
     expect(config.data.datasets[0].data[i]).toBe(1)
+  })
+})
+
+describe("dashboard (option 2: multi-panel)", () => {
+  const schema = inferSchema(SAMPLES.bookstore)
+
+  it("splits a spoken multi-view prompt into clauses", () => {
+    expect(splitPrompt("Bar chart of revenue by genre with KPI totals")).toEqual([
+      "Bar chart of revenue by genre", "KPI totals",
+    ])
+    expect(splitPrompt("Plot units over month and a table of everything")).toHaveLength(2)
+    expect(splitPrompt("Bar chart")).toEqual(["Bar chart"])
+  })
+
+  it("builds one panel per clause offline, stacked by default", () => {
+    const dash = defaultDashboard(schema, "Bar chart of revenue by genre with KPI totals")
+    expect(dash.panels).toHaveLength(2)
+    expect(dash.panels[0].view).toBe("bar")
+    expect(dash.panels[1].view).toBe("kpi")
+    expect(dash.layout).toBe("stack")
+  })
+
+  it("honours side-by-side / grid layout keywords", () => {
+    expect(defaultDashboard(schema, "A bar chart and a table side by side").layout).toBe("side-by-side")
+    expect(defaultDashboard(schema, "A bar chart and a table and KPIs as a grid").layout).toBe("grid")
+    expect(defaultDashboard(schema, "Bar chart of revenue by genre").layout).toBe("single")
+  })
+
+  it("merges per-panel Jev answers, falling back per slot", () => {
+    const { dashboard, usedFallback } = dashboardFromAnswers({
+      layout: { choice: "side-by-side", confidence: 0.9 },
+      panel_count: { choice: "two", confidence: 0.92 },
+      view: { choice: "bar", confidence: 0.94 },
+      x_field: { choice: "genre", confidence: 0.9 },
+      y_field: { choice: "revenue", confidence: 0.88 },
+      view_2: { choice: "kpi", confidence: 0.85 },
+      y_field_2: { choice: "owner", confidence: 0.9 }, // not a column -> fallback
+    }, schema, "Bar chart of revenue by genre with KPI totals")
+    expect(dashboard.layout).toBe("side-by-side")
+    expect(dashboard.panels).toHaveLength(2)
+    expect(dashboard.panels[0].view).toBe("bar")
+    expect(dashboard.panels[1].view).toBe("kpi")
+    expect(usedFallback).toContain("y_field_2")
+    expect(usedFallback).not.toContain("view_2")
+  })
+
+  it("clamps to a single panel when Jev says one", () => {
+    const { dashboard } = dashboardFromAnswers({
+      panel_count: { choice: "one", confidence: 0.95 },
+      view: { choice: "table", confidence: 0.9 },
+    }, schema, "Bar chart of revenue by genre with KPI totals")
+    expect(dashboard.panels).toHaveLength(1)
+    expect(dashboard.layout).toBe("single")
+  })
+
+  it("derives deterministic panel titles", () => {
+    const { dashboard } = dashboardFromAnswers({}, schema, "Bar chart of revenue by genre")
+    expect(panelTitle(dashboard.panels[0], schema)).toBe("revenue by genre · bar")
+  })
+
+  it("renders panel sections with chart slots and titles", () => {
+    const { dashboard } = dashboardFromAnswers({
+      panel_count: { choice: "two", confidence: 0.9 },
+      view: { choice: "bar", confidence: 0.9 },
+      x_field: { choice: "genre", confidence: 0.9 },
+      y_field: { choice: "revenue", confidence: 0.9 },
+      view_2: { choice: "kpi", confidence: 0.9 },
+    }, schema, "Bar chart of revenue by genre with KPI totals")
+    const html = dashboard.panels.map((p, i) => panelSectionHtml(p, SAMPLES.bookstore, schema, i)).join("")
+    expect(html).toContain('data-chart-slot="0"')
+    expect(html).toContain("revenue by genre · bar")
+    expect(html).toContain("6,688") // total revenue KPI across all 8 rows
+    expect(dashboardContainerStyle("side-by-side")).toContain("grid")
+    expect(dashboardContainerStyle("stack")).toContain("column")
   })
 })

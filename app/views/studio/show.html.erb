@@ -52,15 +52,15 @@
       <button data-action="click->studio#usePrompt" data-prompt="KPI totals: how many workouts and total minutes" class="rounded-full border border-zinc-300 px-3 py-1 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">🔢 KPIs</button>
       <button data-action="click->studio#usePrompt" data-prompt="Bar chart of revenue by genre with KPI totals" class="rounded-full border border-zinc-300 px-3 py-1 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">🧩 Chart + KPIs</button>
     </div>
-    <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Can render: table · cards · KPI · bar · line · pie · scatter · bubbles — name one in your request.</p>
+    <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Can render: table · cards · KPI · bar · line · pie · scatter · bubbles — name one; add “where author is Paul” to filter rows.</p>
   </div>
 
   <!-- Request -> UI latency line -->
-  <div class="mt-2 flex items-baseline justify-between text-sm">
+  <div class="mt-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm">
     <p class="text-zinc-500 dark:text-zinc-400">Request → UI
-      <span data-studio-target="latency" class="text-2xl font-bold text-emerald-700 dark:text-emerald-400">—</span>
+      <span data-studio-target="latency" class="whitespace-nowrap text-2xl font-bold text-emerald-700 dark:text-emerald-400">—</span>
     </p>
-    <p class="text-xs text-zinc-500 dark:text-zinc-400" data-studio-target="questionCount"></p>
+    <p class="min-w-0 text-xs text-zinc-500 sm:text-right dark:text-zinc-400" data-studio-target="questionCount"></p>
   </div>
   <p class="text-xs text-zinc-500 dark:text-zinc-400" data-studio-target="status" aria-live="polite"></p>
 

@@ -21,6 +21,9 @@ import {
   dashboardContainerStyle,
   panelSectionHtml,
   parseDatasetText,
+  parseFilter,
+  applyFilter,
+  filterLabel,
 } from "../app/javascript/controllers/studio_controller.js"
 
 describe("inferSchema (arbitrary data)", () => {
@@ -338,5 +341,67 @@ describe("CSV dataset input", () => {
     const { rows, error } = parseDatasetText('[{"a":1}]')
     expect(error).toBeUndefined()
     expect(rows).toEqual([{ a: 1 }])
+  })
+})
+
+describe("row filter (offline parse)", () => {
+  const schema = inferSchema(SAMPLES.incidents)
+  const verses = [
+    { title: "v1", author: "Paul", words: 120 },
+    { title: "v2", author: "Paul", words: 80 },
+    { title: "v3", author: "Mary", words: 200 },
+  ]
+  const vschema = inferSchema(verses)
+
+  it("parses 'filtered to <column> <value>'", () => {
+    expect(parseFilter(vschema, "Scatter of verses filtered to author Paul")).toEqual({ column: "author", value: "Paul" })
+  })
+
+  it("parses 'where <column> is <value>'", () => {
+    expect(parseFilter(schema, "Table of incidents where status is open")).toEqual({ column: "status", value: "open" })
+  })
+
+  it("parses 'filtered by <column> <value>'", () => {
+    expect(parseFilter(schema, "Bar chart filtered by service checkout")).toEqual({ column: "service", value: "checkout" })
+  })
+
+  it("resolves value-only 'only <value>' against row values", () => {
+    expect(parseFilter(schema, "Table of incidents, only open", SAMPLES.incidents)).toEqual({ column: "status", value: "open" })
+  })
+
+  it("returns null when there is no filter phrasing", () => {
+    expect(parseFilter(schema, "Table of all incidents, biggest minutes_open first")).toBeNull()
+    expect(parseFilter(schema, "Bar chart of revenue by genre")).toBeNull()
+  })
+
+  it("matches rows case-insensitively", () => {
+    const kept = applyFilter(SAMPLES.incidents, schema, { column: "status", value: "OPEN" })
+    expect(kept.map((r) => r.id).sort()).toEqual(["INC-102", "INC-103"])
+  })
+
+  it("returns all rows without a filter and none on mismatch", () => {
+    expect(applyFilter(SAMPLES.incidents, schema, null)).toHaveLength(5)
+    expect(applyFilter(SAMPLES.incidents, schema, { column: "status", value: "nobody" })).toHaveLength(0)
+  })
+
+  it("labels a filter for display", () => {
+    expect(filterLabel({ column: "status", value: "open" }, schema)).toBe("status = open")
+  })
+
+  it("flows from prompt into spec and aggregation", () => {
+    const spec = defaultSpec(vschema, "Bar chart of words by author where author is Paul", verses)
+    expect(spec.filter).toEqual({ column: "author", value: "Paul" })
+    const agg = aggregateCategory(verses,
+      { ...spec, xField: "author", yField: "words", aggregation: "sum", sortBy: "label_asc" }, vschema)
+    expect(agg.labels).toEqual(["Paul"])
+    expect(agg.values).toEqual([200])
+  })
+
+  it("shows an empty state instead of an empty chart", () => {
+    const html = panelSectionHtml(
+      { view: "bar", xField: "author", yField: "words", filter: { column: "author", value: "nobody" } },
+      verses, vschema, 0)
+    expect(html).toContain("No rows match")
+    expect(html).not.toContain("data-chart-slot")
   })
 })

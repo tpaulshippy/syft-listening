@@ -173,8 +173,90 @@ function findColumn(schema, slug) {
   return (schema?.columns || []).find((c) => c.slug === slug)
 }
 
+// Row filter — offline parse only (Jev answers are choice/noul, so Jev
+// can't emit free-text values). Supports "where author is Paul",
+// "filtered to author Paul" / "filtered by status open", and
+// "only open" (value matched across text-like columns).
+// Returns { column: slug, value } or null.
+function columnPrefixMatch(schema, tailWords) {
+  const norm = (s) => String(s ?? "").toLowerCase().replace(/_/g, " ").replace(/\s+/g, " ").trim()
+  let best = null
+  for (const c of schema?.columns || []) {
+    for (const variant of [c.name, c.slug]) {
+      const parts = norm(variant).split(" ").filter(Boolean)
+      if (!parts.length || parts.length > tailWords.length) continue
+      const head = tailWords.slice(0, parts.length).map((w) => norm(w))
+      if (head.join(" ") === parts.join(" ")) {
+        if (!best || parts.length > best.words) best = { column: c, words: parts.length }
+      }
+    }
+  }
+  return best
+}
+
+function cleanFilterValue(raw) {
+  return String(raw ?? "").trim().replace(/^["'“”‘’]+|["'“”‘’]+$/g, "").replace(/[.,;!]+$/g, "").trim()
+}
+
+export function parseFilter(schema, prompt, rows = null) {
+  const text = String(prompt || "").trim()
+  const cols = schema?.columns || []
+  if (!cols.length || !text) return null
+  const clause = text.match(/\bwhere\b\s+(.+)$/i)?.[1]
+    ?? text.match(/\bfiltered\s+(?:to|by|on)\b\s+(.+)$/i)?.[1]
+    ?? text.match(/\bfilter\b\s+(.+)$/i)?.[1]
+  if (clause) {
+    const tailWords = clause.trim().split(/\s+/)
+    const hit = columnPrefixMatch(schema, tailWords)
+    if (!hit) return null
+    let rest = tailWords.slice(hit.words)
+    if (rest.length && /^(is|are|=|==|:)$/i.test(rest[0])) rest = rest.slice(1)
+    const value = cleanFilterValue(rest.join(" "))
+    if (!value) return null
+    return { column: hit.column.slug, value }
+  }
+  const only = text.match(/\bonly\b\s+(.+)$/i)?.[1]
+  if (only) {
+    const tailWords = only.trim().split(/\s+/)
+    const hit = columnPrefixMatch(schema, tailWords)
+    if (hit) {
+      const value = cleanFilterValue(tailWords.slice(hit.words).join(" "))
+      if (value) return { column: hit.column.slug, value }
+    }
+    // Value-only ("only open"): resolve the column by scanning row values.
+    const value = cleanFilterValue(only)
+    if (!value || !rows?.length) return null
+    const wanted = value.toLowerCase()
+    const ordered = colsByType(schema, ["categorical", "text", "temporal"])
+    for (const c of [...ordered, ...cols.filter((x) => !ordered.includes(x))]) {
+      if ((rows || []).some((r) => {
+        const v = cellOf(r, c.name)
+        return v !== null && v !== undefined && String(v).trim().toLowerCase() === wanted
+      })) return { column: c.slug, value }
+    }
+    return null
+  }
+  return null
+}
+
+export function applyFilter(rows, schema, filter) {
+  if (!filter?.column || filter?.value == null || String(filter.value).trim() === "") return rows || []
+  const name = findColumn(schema, filter.column)?.name ?? filter.column
+  const want = String(filter.value).trim().toLowerCase()
+  return (rows || []).filter((r) => {
+    const v = cellOf(r, name)
+    return v !== null && v !== undefined && String(v).trim().toLowerCase() === want
+  })
+}
+
+export function filterLabel(filter, schema) {
+  if (!filter) return ""
+  const name = findColumn(schema, filter.column)?.name ?? filter.column
+  return `${name} = ${filter.value}`
+}
+
 // Offline keyword parse over an arbitrary schema — fallback without a key.
-export function defaultSpec(schema, prompt) {
+export function defaultSpec(schema, prompt, rows = null) {
   const p = (prompt || "").toLowerCase()
   const has = (...words) => words.some((w) => p.includes(w))
   const numeric = colsByType(schema, ["numeric"])
@@ -215,6 +297,7 @@ export function defaultSpec(schema, prompt) {
     showTotals: has("total", "kpi", "sum", "how many"),
     horizontal: false,
     include: null,
+    filter: parseFilter(schema, prompt, rows),
     title: prompt,
   }
 }
@@ -250,6 +333,8 @@ function makeMergers(answers, schema, usedFallback) {
 
 // One panel's spec. Suffix "" reads the un-suffixed (panel-1) keys,
 // "_2" / "_3" the per-panel fan-out keys. Shared display flags are global.
+// Filter is offline-only (Jev can't emit free-text values): always the
+// per-clause fallback.
 function panelSpec(m, suffix, fb, shared) {
   const view = m.choice(`view${suffix}`, fb.view, VIEWS)
   return {
@@ -261,6 +346,7 @@ function panelSpec(m, suffix, fb, shared) {
     aggregation: m.choice(`aggregation${suffix}`, fb.aggregation, ["sum", "avg", "count"]),
     sortBy: m.choice(`sort_by${suffix}`, fb.sortBy, ["value_desc", "value_asc", "label_asc"]),
     ...shared,
+    filter: fb.filter ?? null,
     title: fb.title,
   }
 }
@@ -278,8 +364,8 @@ function sharedFlags(m, fb) {
   }
 }
 
-export function specFromAnswers(answers, schema, prompt) {
-  const fb = { ...defaultSpec(schema, prompt), schemaColumns: schema?.columns || [] }
+export function specFromAnswers(answers, schema, prompt, rows = null) {
+  const fb = { ...defaultSpec(schema, prompt, rows), schemaColumns: schema?.columns || [] }
   const usedFallback = []
   const m = makeMergers(answers, schema, usedFallback)
   return { spec: panelSpec(m, "", fb, sharedFlags(m, fb)), usedFallback }
@@ -295,11 +381,11 @@ export function splitPrompt(prompt) {
     .map((s) => s.trim()).filter(Boolean).slice(0, MAX_PANELS)
 }
 
-export function defaultDashboard(schema, prompt) {
+export function defaultDashboard(schema, prompt, rows = null) {
   const p = (prompt || "").toLowerCase()
   const segments = splitPrompt(prompt)
   const clauses = segments.length ? segments : [prompt]
-  const panels = clauses.map((seg) => defaultSpec(schema, seg))
+  const panels = clauses.map((seg) => defaultSpec(schema, seg, rows))
   const layout = clauses.length < 2 ? "single"
     : p.includes("side by side") ? "side-by-side"
     : p.includes("grid") || p.includes("dashboard") ? "grid"
@@ -307,8 +393,8 @@ export function defaultDashboard(schema, prompt) {
   return { layout, panels, title: prompt }
 }
 
-export function dashboardFromAnswers(answers, schema, prompt) {
-  const fb = defaultDashboard(schema, prompt)
+export function dashboardFromAnswers(answers, schema, prompt, rows = null) {
+  const fb = defaultDashboard(schema, prompt, rows)
   const usedFallback = []
   const m = makeMergers(answers, schema, usedFallback)
   const countWord = m.choice("panel_count",
@@ -338,20 +424,26 @@ export function dashboardContainerStyle(layout) {
 }
 
 export function panelSectionHtml(panel, rows, schema, slot) {
+  const kept = applyFilter(rows, schema, panel.filter)
+  const caption = panel.filter
+    ? `<p style="font-size:11px;color:#71717a;margin:-2px 0 6px;">Filter ${escapeHtml(filterLabel(panel.filter, schema))} · ${kept.length} of ${(rows || []).length} rows</p>`
+    : ""
   let body
-  if (CHART_VIEWS.includes(panel.view)) {
+  if (panel.filter && !kept.length) {
+    body = `<p style="font-size:12px;color:#a1a1aa;">No rows match ${escapeHtml(filterLabel(panel.filter, schema))}.</p>`
+  } else if (CHART_VIEWS.includes(panel.view)) {
     body = `<div data-chart-slot="${slot}" style="position:relative;height:280px;"><canvas></canvas></div>` +
-      totalsLine(rows, panel, schema)
+      totalsLine(kept, panel, schema)
   } else if (panel.view === "cards") {
-    body = renderCardsHtml(rows, panel, schema)
+    body = renderCardsHtml(kept, panel, schema)
   } else if (panel.view === "kpi") {
-    body = renderKpiHtml(rows, panel, schema)
+    body = renderKpiHtml(kept, panel, schema)
   } else {
-    body = renderTableHtml(rows, { ...panel, view: "table" }, schema)
+    body = renderTableHtml(kept, { ...panel, view: "table" }, schema)
     panel.view = "table"
   }
   return `<section style="border:1px solid #e4e4e7;border-radius:12px;padding:10px;min-width:0;">` +
-    `<h4 style="font-size:12px;font-weight:700;margin-bottom:6px;">${escapeHtml(panelTitle(panel, schema))}</h4>${body}</section>`
+    `<h4 style="font-size:12px;font-weight:700;margin-bottom:6px;">${escapeHtml(panelTitle(panel, schema))}</h4>${caption}${body}</section>`
 }
 
 function colName(schema, slug) {
@@ -368,7 +460,7 @@ export function visibleColumns(schema, include) {
 // Group rows by xField and reduce yField — pure, feeds Chart.js directly.
 export function aggregateCategory(rows, spec, schema) {
   const groups = new Map()
-  for (const row of rows || []) {
+  for (const row of applyFilter(rows, schema, spec.filter)) {
     const xRaw = spec.xField === "none" ? "all" : cellOf(row, colName(schema, spec.xField))
     const key = xRaw === null || xRaw === undefined || xRaw === "" ? "(blank)" : String(xRaw)
     if (!groups.has(key)) groups.set(key, [])
@@ -401,7 +493,7 @@ export function scatterSeries(rows, spec, schema) {
   const sName = spec.sizeField === "none" ? null : colName(schema, spec.sizeField)
   const cName = spec.colorField === "none" ? null : colName(schema, spec.colorField)
   const byColor = new Map()
-  for (const row of rows || []) {
+  for (const row of applyFilter(rows, schema, spec.filter)) {
     const x = coerceNumber(cellOf(row, xName))
     const y = yName ? coerceNumber(cellOf(row, yName)) : coerceNumber(cellOf(row, xName))
     if (x === null || y === null) continue
@@ -462,7 +554,8 @@ function fmt(n) {
 
 export function renderTableHtml(rows, spec, schema) {
   const cols = visibleColumns(schema, spec.include)
-  const sorted = [...(rows || [])]
+  const kept = applyFilter(rows, schema, spec.filter)
+  const sorted = [...kept]
   if (spec.yField !== "count_rows") {
     const yName = colName(schema, spec.yField)
     sorted.sort((a, b) => {
@@ -476,30 +569,32 @@ export function renderTableHtml(rows, spec, schema) {
     `<tr style="border-top:1px solid #f4f4f5;">` +
     cols.map((c) => `<td style="padding:6px 8px;">${escapeHtml(cellOf(row, c.name))}</td>`).join("") + `</tr>`).join("")
   return `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>` +
-    totalsLine(rows, spec, schema)
+    totalsLine(kept, spec, schema)
 }
 
 export function renderCardsHtml(rows, spec, schema) {
   const cols = visibleColumns(schema, spec.include)
+  const kept = applyFilter(rows, schema, spec.filter)
   const titleCol = (spec.xField !== "none" && findColumn(schema, spec.xField)) ? colName(schema, spec.xField) : cols[0]?.name
-  const cards = (rows || []).map((row) => {
+  const cards = kept.map((row) => {
     const facts = cols.filter((c) => c.name !== titleCol).slice(0, 5).map((c) =>
       `<div style="font-size:11px;color:#52525b;"><span style="color:#a1a1aa;">${escapeHtml(c.name)}</span> ${escapeHtml(cellOf(row, c.name))}</div>`).join("")
     return `<div style="border:1px solid #e4e4e7;border-radius:12px;padding:10px;min-width:180px;flex:1;">` +
       `<h4 style="font-size:13px;font-weight:700;margin-bottom:4px;">${escapeHtml(cellOf(row, titleCol))}</h4>${facts}</div>`
   }).join("")
-  return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${cards}</div>` + totalsLine(rows, spec, schema)
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${cards}</div>` + totalsLine(kept, spec, schema)
 }
 
 export function renderKpiHtml(rows, spec, schema) {
   const numeric = colsByType(schema, ["numeric"])
+  const kept = applyFilter(rows, schema, spec.filter)
   const kpis = numeric.slice(0, 4).map((c) => {
-    const nums = (rows || []).map((r) => coerceNumber(cellOf(r, c.name))).filter((n) => n !== null)
+    const nums = kept.map((r) => coerceNumber(cellOf(r, c.name))).filter((n) => n !== null)
     const sum = nums.reduce((a, b) => a + b, 0)
     return `<div style="border:1px solid #e4e4e7;border-radius:12px;padding:12px;min-width:140px;flex:1;text-align:center;">` +
       `<div style="font-size:11px;color:#71717a;">${escapeHtml(c.name)} · sum</div>` +
       `<div style="font-size:28px;font-weight:700;">${fmt(round2(sum))}</div>` +
-      `<div style="font-size:11px;color:#71717a;">avg ${fmt(round2(nums.length ? sum / nums.length : 0))} · n=${rows?.length ?? 0}</div></div>`
+      `<div style="font-size:11px;color:#71717a;">avg ${fmt(round2(nums.length ? sum / nums.length : 0))} · n=${kept.length}</div></div>`
   }).join("")
   return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${kpis || "<p>No numeric columns.</p>"}</div>`
 }
@@ -691,7 +786,7 @@ export default class extends Controller {
   }
 
   offlineDashboard(prompt, rows, schema, t0, reason) {
-    this.renderResult(defaultDashboard(schema, prompt), rows, schema, prompt, t0,
+    this.renderResult(defaultDashboard(schema, prompt, rows), rows, schema, prompt, t0,
       { count: 0, model: "offline parse", answers: {}, usedFallback: ["all"], offlineReason: reason })
   }
 
@@ -730,7 +825,7 @@ export default class extends Controller {
         return
       }
       const serverSchema = data.schema || schema
-      const { dashboard, usedFallback } = dashboardFromAnswers(data.answers || {}, serverSchema, prompt)
+      const { dashboard, usedFallback } = dashboardFromAnswers(data.answers || {}, serverSchema, prompt, rows)
       this.renderResult(dashboard, rows, serverSchema, prompt, t0, {
         count: data.question_count ?? Object.keys(data.answers).length,
         model: data.model || "jev-latest",
@@ -765,7 +860,10 @@ export default class extends Controller {
     this.inspectorTarget.innerHTML = rows_out.join("") || `<div style="color:#a1a1aa;">offline parse — no Jev answers for this render.</div>`
     const n = dashboard.panels.length
     this.statusTarget.textContent = `Rendered “${prompt}” as ${n} panel${n === 1 ? "" : "s"} (${dashboard.layout}).` +
-      (meta.usedFallback?.length ? ` ${meta.usedFallback.length} answer(s) fell back.` : " All answers from Jev.")
+      (meta.usedFallback?.length ? ` ${meta.usedFallback.length} answer(s) fell back.` : " All answers from Jev.") +
+      (n === 1 && dashboard.panels[0].filter
+        ? ` Filter ${filterLabel(dashboard.panels[0].filter, schema)} — ${applyFilter(rows, schema, dashboard.panels[0].filter).length} of ${(rows || []).length} rows.`
+        : "")
   }
 
   // Chart.js ships as a classic UMD script (see the <script> tag in the

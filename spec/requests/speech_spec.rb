@@ -1,10 +1,62 @@
 require 'rails_helper'
 
 RSpec.describe "Speech", type: :request do
-  describe "GET /" do
+  describe "GET / (main page)" do
     it "returns http success" do
       get "/"
       expect(response).to have_http_status(:success)
+    end
+
+    it "renders the speech-insights Stimulus root" do
+      get "/"
+      expect(response.body).to include('data-controller="speech-insights"')
+    end
+
+    it "renders the recorder" do
+      get "/"
+      body = response.body
+      expect(body).to include('data-speech-insights-target="recordButton"')
+      expect(body).to include('data-speech-insights-target="timer"')
+      expect(body).to include('data-speech-insights-target="waveform"')
+      expect(body).to include('data-speech-insights-target="miniTranscript"')
+      expect(body).to include('data-speech-insights-target="supportWarning"')
+      expect(body).to include("Tap to speak")
+    end
+
+    it "renders one card per metric with a toggle checkbox" do
+      get "/"
+      body = response.body
+      %w[emotion habits grammar complexity specificity factual_claim].each do |metric|
+        expect(body).to include(%(data-metric-card="#{metric}"))
+      end
+      %w[emotion habits grammar complexity specificity factual_claim].each do |metric|
+        expect(body).to include(%(value="#{metric}"))
+      end
+    end
+
+    it "renders transcript controls and analysis buttons" do
+      get "/"
+      body = response.body
+      expect(body).to include('data-speech-insights-target="manualText"')
+      expect(body).to include('data-speech-insights-target="wordInterval"')
+      expect(body).to include('data-speech-insights-target="sentenceTrigger"')
+      expect(body).to include('data-speech-insights-target="charsWindow"')
+      expect(body).to include("Analyze now")
+      expect(body).to include("Sample")
+    end
+
+    it "renders the API key gate" do
+      get "/"
+      body = response.body
+      expect(body).to include('data-speech-insights-target="apiKey"')
+      expect(body).to include('data-speech-insights-target="testButton"')
+      expect(body).to include('data-speech-insights-target="keyStatus"')
+      expect(body).to include("console.typesafe.ai/keys")
+    end
+
+    it "discloses how the key is handled" do
+      get "/"
+      expect(response.body).to include("How your key is handled")
     end
   end
 

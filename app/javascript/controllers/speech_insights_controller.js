@@ -177,7 +177,7 @@ export default class extends Controller {
     return this.metricTargets.filter((c) => c.checked).map((c) => c.value)
   }
 
-  metricsChanged(event) {
+  metricsChanged() {
     const prefs = {}
     this.metricTargets.forEach((c) => { prefs[c.value] = c.checked })
     localStorage.setItem("syft_jev_metrics", JSON.stringify(prefs))

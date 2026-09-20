@@ -1,0 +1,17 @@
+{
+  "name": "syft-listening",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.15.0",
+    "@hotwired/stimulus": "^3.2.2",
+    "eslint": "^9.15.0",
+    "globals": "^15.12.0",
+    "jsdom": "^26.0.0",
+    "vitest": "^3.0.0"
+  }
+}

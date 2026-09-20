@@ -26,6 +26,7 @@ Live at https://listen.syftlearning.app (root path `/`; `/listen` redirects ther
 - `solid_cache` / `solid_queue` / `solid_cable`, Thruster, Kamal (Docker deploy)
 - `tailwindcss-rails`, `turbo-rails`, `stimulus-rails`, `importmap-rails`, `jbuilder`
 - RSpec + FactoryBot (`rspec-rails`, `factory_bot_rails`), Brakeman, RuboCop Omakase
+- Vitest + ESLint for the Stimulus JS (`npm test`, `npm run lint` — needs `npm install`)
 - No LLM string generation: Jev returns typed probabilities (`noul` / `choice` / `score`), rendered as score bars, yes/no flags, habit lists, and emotion distributions by the Stimulus `speech-insights` controller.
 
 ## Getting started
@@ -65,11 +66,19 @@ Optional: set `TYPESAFE_API_KEY` in the environment as a fallback server-side ke
 bundle exec rspec
 ```
 
-Specs live in `spec/`. Lint / security:
+JS (Stimulus controller unit tests, `test/`):
+
+```bash
+npm install
+npm test
+```
+
+Specs live in `spec/` (RSpec) and `test/` (Vitest). Lint / security:
 
 ```bash
 bundle exec rubocop
 bundle exec brakeman
+npm run lint
 ```
 
 ## Project structure

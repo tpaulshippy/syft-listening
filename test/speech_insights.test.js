@@ -231,6 +231,18 @@ describe("cadence controls", () => {
     expect(c.sentenceTriggerTarget.checked).toBe(false)
     expect(c.charsWindowTarget.value).toBe("100")
   })
+
+  it("sizes the mini transcript height from the window chars", async () => {
+    const c = await boot()
+    const lines = (chars) => Math.max(1, Math.ceil(chars / c.MINI_CHARS_PER_LINE))
+    expect(c.miniTranscriptTarget.style.height).toBe(`${lines(350) * c.MINI_LINE_HEIGHT}px`)
+    c.charsWindowTarget.value = "100"
+    c.cadenceChanged()
+    expect(c.miniTranscriptTarget.style.height).toBe(`${lines(100) * c.MINI_LINE_HEIGHT}px`)
+    c.charsWindowTarget.value = "1400"
+    c.cadenceChanged()
+    expect(c.miniTranscriptTarget.style.height).toBe(`${lines(1400) * c.MINI_LINE_HEIGHT}px`)
+  })
 })
 
 describe("API key gate", () => {

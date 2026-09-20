@@ -81,6 +81,12 @@ export default class extends Controller {
     other: "#a1a1aa",
   }
   MUTED = "#a1a1aa"
+  // Mini transcript sizing: fixed non-scrolling height derived from the
+  // configured analysis window. leading-6 = 24px per line; ~45 chars fit
+  // per line at text-sm in the recorder card, so the box always fits the
+  // whole window tail with no internal scroll.
+  MINI_LINE_HEIGHT = 24
+  MINI_CHARS_PER_LINE = 45
 
   connect() {
     this.listening = false
@@ -225,6 +231,7 @@ export default class extends Controller {
       localStorage.setItem("syft_jev_cadence",
         JSON.stringify({ words: n, sentence: this.sentenceTriggerTarget.checked, chars: c }))
     } catch { /* private mode etc. — cadence just won't persist */ }
+    this.updateMiniHeight()
     this.updateMiniTranscript()
   }
 
@@ -686,9 +693,9 @@ export default class extends Controller {
   // Mini transcript under the record button mirrors the full transcript
   // live (final + muted interim, left-aligned via markup) but shows only
   // the analysis window tail — the start is trimmed once text exceeds it.
-  // The box is h-24/leading-6 (exactly 4 lines) so scrolling to the
-  // bottom never shaves the top line; keep height a multiple of the
-  // line-height if either ever changes.
+  // The box has a fixed height derived from the configured window size
+  // (see updateMiniHeight) with no internal scroll, so the whole window
+  // tail is always visible.
   // Analysis state is an inline emoji sitting right after the last word
   // of the window being analyzed (⏳ while a request is in flight, ✅ at
   // the last analyzed word, ⚠️ at the failed window end). Words spoken
@@ -738,9 +745,16 @@ export default class extends Controller {
         this.miniInterimTarget.textContent = interim
       }
     }
-    if (this.hasMiniTranscriptTarget) {
-      this.miniTranscriptTarget.scrollTop = this.miniTranscriptTarget.scrollHeight
-    }
+  }
+
+  // Fixed (non-scrolling) height for the mini transcript, sized to fit
+  // the configured analysis window: one leading-6 line per
+  // MINI_CHARS_PER_LINE chars. Called from cadenceChanged, so it runs on
+  // boot (via restoreCadence) and whenever the window slider moves.
+  updateMiniHeight() {
+    if (!this.hasMiniTranscriptTarget) return
+    const lines = Math.max(1, Math.ceil(this.windowChars() / this.MINI_CHARS_PER_LINE))
+    this.miniTranscriptTarget.style.height = `${lines * this.MINI_LINE_HEIGHT}px`
   }
 
   // Emoji + character offset (in currentText()) where it belongs. A null

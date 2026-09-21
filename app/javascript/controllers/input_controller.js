@@ -152,13 +152,83 @@ export function dateFromAnswers(answers, suffix = "") {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
 }
 
-// Coerces a Jev-validated numeric transcript with Number() only: "42" ->
-// 42, "forty-two" -> null (repeat). Guards the empty->0 trap explicitly.
+// Coerces a Jev-validated numeric transcript: digit strings via Number()
+// ("42" -> 42), spoken cardinals via the word tables below ("forty two" ->
+// 42). Null (repeat) unless the whole transcript is numeric.
 export function numberFromTranscript(transcript) {
   const clean = String(transcript ?? "").trim()
   if (!clean) return null
   const n = Number(clean)
-  return Number.isFinite(n) ? n : null
+  if (Number.isFinite(n)) return n
+  return wordsToNumber(clean)
+}
+
+const NUM_ONES = {
+  zero: 0, oh: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
+  seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+  thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17,
+  eighteen: 18, nineteen: 19,
+}
+const NUM_TENS = {
+  twenty: 20, thirty: 30, forty: 40, fifty: 50,
+  sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+}
+const NUM_SCALES = { hundred: 100, thousand: 1000, million: 1000000 }
+
+// Spoken cardinal words to a number: "forty two" -> 42, "one hundred and
+// five" -> 105, "negative three point five" -> -3.5. Lexical normalization
+// behind Jev's validity gate (which already judged the transcript numeric):
+// the closed word tables are the same kind of mapping as MONTHS, and the
+// transcript is split on plain spaces/hyphens only — no matching on meaning.
+// Strict cardinal semantics: "twenty five" composes, but runs like "five
+// six" (digit reads) or "five twenty" repeat instead of guessing — a repeat
+// is cheap, a wrong stored number is not. Anything unrecognized is null.
+export function wordsToNumber(transcript) {
+  const tokens = String(transcript ?? "").split("-").join(" ")
+    .split(" ").map((w) => w.toLowerCase()).filter((w) => w.length)
+  if (!tokens.length) return null
+  let sign = 1
+  let at = 0
+  if (tokens[0] === "negative" || tokens[0] === "minus") { sign = -1; at = 1 }
+  let total = 0
+  let chunk = 0
+  let frac = 0
+  let fracDiv = 1
+  let afterPoint = false
+  let lastAdditive = false
+  let lastWasTens = false
+  let seen = false
+  for (; at < tokens.length; at++) {
+    const w = tokens[at]
+    if (w === "and") continue
+    if (w === "point" && !afterPoint) { afterPoint = true; lastAdditive = false; continue }
+    if (!afterPoint && w in NUM_SCALES) {
+      if (NUM_SCALES[w] === 100) chunk *= 100
+      else { total += chunk * NUM_SCALES[w]; chunk = 0 }
+      lastAdditive = false
+      continue
+    }
+    if (!afterPoint && (w in NUM_ONES || w in NUM_TENS)) {
+      const isOnes = w in NUM_ONES
+      const tensThenOnes = lastAdditive && !(w in NUM_TENS) && NUM_ONES[w] <= 9 && lastWasTens
+      if (lastAdditive && !tensThenOnes) return null
+      chunk += isOnes ? NUM_ONES[w] : NUM_TENS[w]
+      lastWasTens = !isOnes
+      lastAdditive = true
+      seen = true
+      continue
+    }
+    if (afterPoint && (w === "zero" || w === "oh" || (w in NUM_ONES && NUM_ONES[w] <= 9))) {
+      fracDiv *= 10
+      frac += (w === "oh" ? 0 : NUM_ONES[w]) / fracDiv
+      seen = true
+      continue
+    }
+    return null
+  }
+  if (!seen) return null
+  const value = sign * (total + chunk + frac)
+  return Number.isFinite(value) ? value : null
 }
 
 // Voice field picker: Jev maps "which question" onto one field id.

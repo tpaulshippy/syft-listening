@@ -13,6 +13,7 @@ import {
   editFieldFromAnswers,
   dateFromAnswers,
   numberFromTranscript,
+  wordsToNumber,
   DATE_MIN_YEAR,
 } from "../app/javascript/controllers/input_controller.js"
 
@@ -126,14 +127,17 @@ describe("input values", () => {
     expect(usedFallback).toEqual(["month", "day", "year"])
   })
 
-  it("coerces Jev-validated numbers with Number(), repeating words", () => {
+  it("coerces Jev-validated numbers: digits via Number(), words via tables", () => {
     const AGE = { id: "g", name: "Age", type: "number", required: true, options: [] }
     const ok = valuesFromAnswers({ valid: { noul: 0.95 } }, [AGE], "42")
     expect(ok.values).toEqual({ g: 42 })
     expect(ok.usedFallback).toEqual([])
-    const words = valuesFromAnswers({ valid: { noul: 0.95 } }, [AGE], "forty-two")
-    expect(words.values.g).toBeNull()
-    expect(words.usedFallback).toContain("valid")
+    const words = valuesFromAnswers({ valid: { noul: 0.95 } }, [AGE], "forty two")
+    expect(words.values).toEqual({ g: 42 })
+    expect(words.usedFallback).toEqual([])
+    const garbage = valuesFromAnswers({ valid: { noul: 0.95 } }, [AGE], "forty-two-ish")
+    expect(garbage.values.g).toBeNull()
+    expect(garbage.usedFallback).toContain("valid")
   })
 })
 
@@ -168,9 +172,37 @@ describe("date parse (Jev choices in, ISO out)", () => {
   it("coerces digit strings, never words or empties", () => {
     expect(numberFromTranscript("42")).toBe(42)
     expect(numberFromTranscript(" -3.5 ")).toBe(-3.5)
-    expect(numberFromTranscript("forty-two")).toBeNull()
+    expect(numberFromTranscript("forty-two")).toBe(42)
     expect(numberFromTranscript("")).toBeNull()
     expect(numberFromTranscript("   ")).toBeNull()
+  })
+
+  it("parses spoken cardinals behind Jev's validity gate", () => {
+    expect(wordsToNumber("five")).toBe(5)
+    expect(wordsToNumber("forty two")).toBe(42)
+    expect(wordsToNumber("forty-two")).toBe(42)
+    expect(wordsToNumber("twenty five")).toBe(25)
+    expect(wordsToNumber("one hundred and five")).toBe(105)
+    expect(wordsToNumber("one hundred twenty five")).toBe(125)
+    expect(wordsToNumber("four thousand and thirty")).toBe(4030)
+    expect(wordsToNumber("six million five thousand and two")).toBe(6005002)
+    expect(wordsToNumber("negative three point five")).toBe(-3.5)
+    expect(wordsToNumber("minus oh point five")).toBe(-0.5)
+    expect(wordsToNumber("three point one four")).toBeCloseTo(3.14, 10)
+    expect(wordsToNumber("zero")).toBe(0)
+  })
+
+  it("repeats instead of guessing on non-cardinals", () => {
+    expect(wordsToNumber("")).toBeNull()
+    expect(wordsToNumber("banana")).toBeNull()
+    expect(wordsToNumber("point")).toBeNull()
+    expect(wordsToNumber("hundred")).toBeNull()
+    expect(wordsToNumber("negative")).toBeNull()
+    expect(wordsToNumber("five six")).toBeNull()
+    expect(wordsToNumber("five twenty")).toBeNull()
+    expect(wordsToNumber("twenty thirty")).toBeNull()
+    expect(wordsToNumber("forty-two-ish")).toBeNull()
+    expect(numberFromTranscript("forty-two-ish")).toBeNull()
   })
 })
 

@@ -201,10 +201,13 @@ export function rowTableHtml(schema, rows) {
   return `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr><th style="padding:6px 8px;">#</th>${head}<th></th></tr></thead><tbody>${body}</tbody></table></div>`
 }
 
-// --- Stimulus controller ------------------------------------------------------
+// --- Stimulus controller: voice-only session -----------------------------------
+// One Start button, one Done button. The system speaks each question in schema
+// order, listens, and advances automatically from what the user says.
 export default class extends Controller {
-  static targets = ["question", "answer", "micButton", "status", "progress",
-    "rowsTable", "inspector", "voiceStatus", "apiKey", "stepHint"]
+  static targets = ["question", "status", "progress",
+    "rowsTable", "inspector", "voiceStatus", "apiKey", "stepHint",
+    "startButton", "doneButton"]
 
   connect() {
     this.schema = loadSchema()
@@ -213,7 +216,8 @@ export default class extends Controller {
     this.fieldIndex = 0
     this.group = []
     this.recognition = null
-    this.listening = false
+    this.active = false
+    this.awaiting = false
     if (this.hasApiKeyTarget) {
       this.apiKeyTarget.value = localStorage.getItem("syft_jev_key") || ""
       this.apiKeyTarget.addEventListener("input", () => {
@@ -221,31 +225,145 @@ export default class extends Controller {
       })
     }
     this.render()
-    this.nextGroup()
+    this.setQuestion("Tap Start, then speak — I'll ask each question in order.")
+    this.setStatus("Idle. Tap Start to begin.")
+    this.updateButtons()
   }
 
   disconnect() {
+    this.stopSession()
+  }
+
+  stopSession() {
+    this.active = false
+    this.awaiting = false
+    try { this.recognition?.abort?.() } catch { /* ignore */ }
     try { this.recognition?.stop() } catch { /* ignore */ }
     try { window.speechSynthesis?.cancel() } catch { /* ignore */ }
   }
 
-  speak(text) {
+  start() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) {
+      this.setStatus("Voice not supported here — try Chrome or Edge.")
+      return
+    }
+    if (this.active) return
+    this.schema = loadSchema()
+    if (!this.schema.length) {
+      this.setQuestion("Design fields first — then come back to fill records.")
+      return
+    }
+    this.active = true
+    this.draft = {}
+    this.fieldIndex = 0
+    this.updateButtons()
+    this.nextGroup()
+  }
+
+  done() {
+    if (!this.active) return
+    // Save a non-empty draft as a record, then end the session.
+    const row = {}
+    for (const f of this.schema) {
+      const v = this.draft[f.id]
+      row[f.name] = Array.isArray(v) ? v : (v ?? "")
+    }
+    const empty = Object.values(row).every((v) => (Array.isArray(v) ? !v.length : !String(v).trim()))
+    if (!empty) {
+      this.rows.push(row)
+      saveRows(this.rows)
+      this.render()
+    }
+    this.stopSession()
+    this.draft = {}
+    this.fieldIndex = 0
+    this.group = []
+    this.setQuestion("Done.")
+    this.setStatus(empty ? "Session ended — no answers to save." : `Session ended — saved record ${this.rows.length}.`)
+    this.updateButtons()
+  }
+
+  updateButtons() {
+    if (this.hasStartButtonTarget) this.startButtonTarget.disabled = this.active
+    if (this.hasDoneButtonTarget) this.doneButtonTarget.disabled = !this.active
+  }
+
+  speak(text, onDone = null) {
     try {
-      if (!window.speechSynthesis || !text) return
+      if (!window.speechSynthesis || !text) { onDone?.(); return }
       window.speechSynthesis.cancel()
       const u = new SpeechSynthesisUtterance(text)
       u.lang = "en-US"
+      let finished = false
+      const finish = () => { if (!finished) { finished = true; onDone?.() } }
+      u.onend = finish
+      u.onerror = finish
       window.speechSynthesis.speak(u)
-    } catch { /* nice-to-have only */ }
+      setTimeout(() => { if (this.active && this.awaiting) finish() }, 8000)
+    } catch { onDone?.() }
+  }
+
+  sayThenListen(text) {
+    if (this.hasQuestionTarget) this.questionTarget.textContent = text
+    this.awaiting = true
+    this.speak(text, () => { if (this.active && this.awaiting) this.listen() })
   }
 
   setQuestion(text) {
     if (this.hasQuestionTarget) this.questionTarget.textContent = text
-    this.speak(text)
   }
 
   setStatus(text) {
     if (this.hasStatusTarget) this.statusTarget.textContent = text
+  }
+
+  listen() {
+    if (!this.active || !this.awaiting) return
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) { this.setStatus("Voice not supported here — try Chrome or Edge."); return }
+    try { this.recognition?.abort?.() } catch { /* ignore */ }
+    this.recognition = new SR()
+    this.recognition.continuous = false
+    this.recognition.interimResults = true
+    this.recognition.lang = "en-US"
+    let finalText = ""
+    this.recognition.onresult = (event) => {
+      let interim = ""
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) finalText += event.results[i][0].transcript + " "
+        else interim += event.results[i][0].transcript
+      }
+      if (this.hasVoiceStatusTarget) {
+        this.voiceStatusTarget.textContent = (finalText + interim).trim()
+          ? `Heard: “${(finalText + interim).trim()}”` : "Listening…"
+      }
+    }
+    this.recognition.onerror = (event) => {
+      if (!this.active) return
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        this.awaiting = false
+        this.setStatus("Mic blocked — allow microphone access, then tap Start again.")
+        this.stopSession()
+        this.updateButtons()
+      }
+    }
+    this.recognition.onend = () => {
+      if (!this.active || !this.awaiting) return
+      const heard = finalText.trim()
+      if (heard) {
+        this.awaiting = false
+        this.handleAnswer(heard)
+      } else {
+        this.listen()
+      }
+    }
+    try {
+      this.recognition.start()
+      if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = "Listening…"
+    } catch {
+      setTimeout(() => { if (this.active && this.awaiting) this.listen() }, 300)
+    }
   }
 
   remaining() {
@@ -253,6 +371,7 @@ export default class extends Controller {
   }
 
   async nextGroup() {
+    if (!this.active) return
     this.schema = loadSchema()
     if (!this.schema.length) {
       this.setQuestion("Design fields first — then come back to fill records.")
@@ -264,18 +383,18 @@ export default class extends Controller {
     let group = candidate.slice(0, 1)
     if (candidate.length === 2) {
       const together = await this.planGroup(candidate[0], candidate[1])
+      if (!this.active) return
       if (together) group = candidate
     }
     this.group = group
     const q = promptFor(group)
-    this.setQuestion(q)
     if (this.hasStepHintTarget) {
       this.stepHintTarget.textContent = group.length === 2
-        ? `Answering ${group.map((f) => f.name).join(" + ")} together (${this.fieldIndex + 1}–${this.fieldIndex + 2} of ${this.schema.length}). Say “skip” to skip, “go back” to edit.`
-        : `Field ${this.fieldIndex + 1} of ${this.schema.length}${group[0].required ? " · required" : ""}. Say “skip” to skip, “go back” to edit.`
+        ? `Answering ${group.map((f) => f.name).join(" + ")} together. Say “skip” to skip, “go back” to edit.`
+        : `${group[0].required ? "Required. " : ""}Say “skip” to skip, “go back” to edit.`
     }
     if (this.hasProgressTarget) this.progressTarget.textContent = `Record ${this.rows.length + 1} · field ${this.fieldIndex + 1} of ${this.schema.length}`
-    if (this.hasAnswerTarget) { this.answerTarget.value = ""; this.answerTarget.focus?.() }
+    this.sayThenListen(q)
   }
 
   async planGroup(a, b) {
@@ -298,10 +417,9 @@ export default class extends Controller {
     }
   }
 
-  async submit() {
-    const text = this.hasAnswerTarget ? this.answerTarget.value.trim() : ""
+  async handleAnswer(text) {
+    if (!this.active) return
     if (!this.schema.length) { this.setStatus("Design fields first."); return }
-    if (!text) { this.setStatus("Speak or type an answer first."); return }
     if (!this.group.length) { this.setStatus("Nothing to answer."); return }
     this.setStatus("Checking with Jev…")
     const key = localStorage.getItem("syft_jev_key") || ""
@@ -325,21 +443,30 @@ export default class extends Controller {
     const { control, usedFallback: cfb } = controlFromAnswers(answers, text)
     const { values, usedFallback: vfb } = valuesFromAnswers(answers, this.group, text)
     this.logInspector(`control=${control} values=${JSON.stringify(values)}${[...cfb, ...vfb].length || fbNote ? ` · fallback(${[...cfb, ...vfb].join(",")}${fbNote ? `,${fbNote}` : ""})` : ""}`)
+    if (!this.active) return
 
-    if (control === "repeat") { this.setQuestion(promptFor(this.group)); return }
+    if (control === "repeat") { this.sayThenListen(promptFor(this.group)); return }
     if (control === "skip") { this.advance(values, true); return }
     if (control === "edit_previous") { this.goBack(); return }
     if (control === "finish_row") {
       if (key) { // confirm the unfinished tail verbatim only if it validates
         const tail = this.validateGroup(this.group, values)
-        if (!tail.ok) { this.setStatus(tail.reason); return }
+        if (!tail.ok) {
+          this.setStatus(tail.reason)
+          this.sayThenListen(`${tail.reason} ${promptFor(this.group)}`)
+          return
+        }
         Object.assign(this.draft, values)
       }
       return this.finishRow()
     }
     // control === answer: validate, block + retry on failure
     const check = this.validateGroup(this.group, values)
-    if (!check.ok) { this.setStatus(`${check.reason} Try again — or say “skip”.`); return }
+    if (!check.ok) {
+      this.setStatus(check.reason)
+      this.sayThenListen(`${check.reason} ${promptFor(this.group)}`)
+      return
+    }
     this.advance(values, false)
   }
 
@@ -357,9 +484,9 @@ export default class extends Controller {
   }
 
   advance(values, skipped) {
+    if (!this.active) return
     if (!skipped) Object.assign(this.draft, values)
     this.fieldIndex += this.group.length
-    if (this.hasAnswerTarget) this.answerTarget.value = ""
     if (this.fieldIndex >= this.schema.length) this.finishRow()
     else { this.setStatus(skipped ? "Skipped." : "Saved."); this.nextGroup() }
   }
@@ -386,8 +513,9 @@ export default class extends Controller {
     }
     this.draft = {}
     this.fieldIndex = 0
-    this.setStatus(empty ? "Record discarded (empty)." : `Saved record ${this.rows.length}. Starting the next.`)
     this.render()
+    if (!this.active) return
+    this.setStatus(empty ? "Record discarded (empty)." : `Saved record ${this.rows.length}.`)
     this.nextGroup()
   }
 
@@ -413,51 +541,5 @@ export default class extends Controller {
     const div = document.createElement("div")
     div.textContent = line
     this.inspectorTarget.prepend(div)
-  }
-
-  toggleVoice() {
-    if (this.listening) { try { this.recognition?.stop() } catch { /* ignore */ } return }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) {
-      if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = "Voice not supported here — type instead."
-      return
-    }
-    this.recognition = new SR()
-    this.recognition.continuous = false
-    this.recognition.interimResults = true
-    this.recognition.lang = "en-US"
-    let finalText = ""
-    this.recognition.onresult = (event) => {
-      let interim = ""
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) finalText += event.results[i][0].transcript + " "
-        else interim += event.results[i][0].transcript
-      }
-      if (this.hasAnswerTarget) this.answerTarget.value = (finalText + interim).trim()
-      if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = interim ? `Hearing: “${interim}…”` : `Heard: “${finalText.trim()}”`
-    }
-    this.recognition.onerror = (event) => {
-      this.listening = false
-      if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = `Mic error: ${event.error} — type instead.`
-    }
-    this.recognition.onend = () => {
-      this.listening = false
-      if (this.hasMicButtonTarget) this.micButtonTarget.style.background = ""
-      const heard = this.hasAnswerTarget ? this.answerTarget.value.trim() : ""
-      if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = heard ? `Heard: “${heard}”` : "Didn't catch that — try again or type."
-      if (heard) this.submit()
-    }
-    try {
-      this.recognition.start()
-      this.listening = true
-      if (this.hasMicButtonTarget) this.micButtonTarget.style.background = "#dc2626"
-      if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = "Listening…"
-    } catch (e) {
-      if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = `Could not start mic: ${e.message}`
-    }
-  }
-
-  answerKeydown(event) {
-    if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); this.submit() }
   }
 }

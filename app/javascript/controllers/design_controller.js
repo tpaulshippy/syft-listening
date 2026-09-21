@@ -136,17 +136,21 @@ export function fieldCardHtml(field, index) {
     `</div></div>`
 }
 
-// --- Stimulus controller: interview driver ---------------------------------
+// --- Stimulus controller: voice-only session ---------------------------------
+// One Start button, one Done button. The system speaks each question, listens,
+// and advances automatically from what the user says. No typing anywhere.
 export default class extends Controller {
-  static targets = ["question", "fieldName", "answer", "micButton", "askButton",
-    "fieldList", "status", "inspector", "voiceStatus", "apiKey", "keyStatus", "stepHint"]
+  static targets = ["question",
+    "fieldList", "status", "inspector", "voiceStatus", "apiKey", "stepHint",
+    "startButton", "doneButton"]
 
   connect() {
     this.fields = loadSchema()
-    this.phase = "name" // name -> options -> required -> done
+    this.phase = "idle" // idle -> name -> options -> required
     this.pending = null // field under construction
     this.recognition = null
-    this.listening = false
+    this.active = false
+    this.awaiting = false
     const stored = localStorage.getItem("syft_jev_key") || ""
     if (this.hasApiKeyTarget) {
       this.apiKeyTarget.value = stored
@@ -155,55 +159,100 @@ export default class extends Controller {
       })
     }
     this.render()
-    this.askName()
+    this.setQuestion("Tap Start, then speak — I'll ask for each field.")
+    this.setStatus("Idle. Tap Start to begin.")
+    this.updateButtons()
   }
 
   disconnect() {
+    this.stopSession()
+  }
+
+  stopSession() {
+    this.active = false
+    this.awaiting = false
+    try { this.recognition?.abort?.() } catch { /* ignore */ }
     try { this.recognition?.stop() } catch { /* ignore */ }
     try { window.speechSynthesis?.cancel() } catch { /* ignore */ }
   }
 
-  speak(text) {
+  // --- session ------------------------------------------------------------------
+  start() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) {
+      this.setStatus("Voice not supported here — try Chrome or Edge.")
+      return
+    }
+    if (this.active) return
+    this.active = true
+    this.updateButtons()
+    this.askName()
+  }
+
+  done() {
+    if (!this.active && this.phase === "idle") return
+    this.stopSession()
+    this.phase = "idle"
+    this.pending = null
+    this.setQuestion("Done.")
+    this.setStatus(`Session ended — ${this.fields.length} field${this.fields.length === 1 ? "" : "s"}. Tap Start to add more.`)
+    this.updateButtons()
+  }
+
+  updateButtons() {
+    if (this.hasStartButtonTarget) this.startButtonTarget.disabled = this.active
+    if (this.hasDoneButtonTarget) this.doneButtonTarget.disabled = !this.active
+  }
+
+  speak(text, onDone = null) {
     try {
-      if (!window.speechSynthesis || !text) return
+      if (!window.speechSynthesis || !text) { onDone?.(); return }
       window.speechSynthesis.cancel()
       const u = new SpeechSynthesisUtterance(text)
       u.lang = "en-US"
+      let finished = false
+      const finish = () => { if (!finished) { finished = true; onDone?.() } }
+      u.onend = finish
+      u.onerror = finish
       window.speechSynthesis.speak(u)
-    } catch { /* nice-to-have only */ }
+      // Safety net: if TTS events never fire, keep going after a pause.
+      setTimeout(() => { if (this.active && this.awaiting) finish() }, 8000)
+    } catch { onDone?.() }
   }
 
-  // --- interview steps ------------------------------------------------------
+  // --- interview steps (each speaks, then listens) ------------------------------
   askName() {
+    if (!this.active) return
     this.phase = "name"
     this.pending = null
     const n = this.fields.length + 1
-    this.setQuestion(`What should field ${n} be called?`)
-    this.setHint("Speak or type the field name, then Add field.")
-    if (this.hasFieldNameTarget) {
-      this.fieldNameTarget.value = ""
-      this.fieldNameTarget.focus?.()
-    }
+    this.setHint("Say the field name — or say “finished” when done.")
+    this.sayThenListen(`What should field ${n} be called?`)
   }
 
   askOptions() {
+    if (!this.active) return
     this.phase = "options"
     const count = (this.pending.options || []).length + 1
-    this.setQuestion(`“${this.pending.name}” — dictate option ${count}, or say “done”.`)
-    this.setHint("Each option is added verbatim. Say “done” when finished, “remove last” to undo.")
-    if (this.hasAnswerTarget) this.answerTarget.value = ""
+    this.setHint("Each option is added as heard. Say “done” when finished, “remove last” to undo.")
+    this.sayThenListen(`“${this.pending.name}” — tell me option ${count}, or say “done”.`)
   }
 
   askRequired() {
+    if (!this.active) return
     this.phase = "required"
-    this.setQuestion(`Is “${this.pending.name}” required?`)
-    this.setHint("Say “yes, required” or “no, optional”.")
-    if (this.hasAnswerTarget) this.answerTarget.value = ""
+    this.setHint("Say “yes” or “no”.")
+    this.sayThenListen(`Is “${this.pending.name}” required?`)
+  }
+
+  sayThenListen(text) {
+    if (this.hasQuestionTarget) this.questionTarget.textContent = text
+    this.awaiting = true
+    this.speak(text, () => { if (this.active && this.awaiting) this.listen() })
   }
 
   setQuestion(text) {
     if (this.hasQuestionTarget) this.questionTarget.textContent = text
-    this.speak(text)
   }
 
   setHint(text) {
@@ -214,23 +263,93 @@ export default class extends Controller {
     if (this.hasStatusTarget) this.statusTarget.textContent = text
   }
 
-  // --- main submit: routes by interview phase --------------------------------
-  async submit() {
-    if (this.phase === "name") return this.submitName()
-    const text = this.hasAnswerTarget ? this.answerTarget.value.trim() : ""
-    if (!text) { this.setStatus("Speak or type an answer first."); return }
+  // --- listening: one shot per question, auto-submits what is heard -------------
+  listen() {
+    if (!this.active || !this.awaiting) return
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) { this.setStatus("Voice not supported here — try Chrome or Edge."); return }
+    try { this.recognition?.abort?.() } catch { /* ignore */ }
+    this.recognition = new SR()
+    this.recognition.continuous = false
+    this.recognition.interimResults = true
+    this.recognition.lang = "en-US"
+    let finalText = ""
+    this.recognition.onresult = (event) => {
+      let interim = ""
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) finalText += event.results[i][0].transcript + " "
+        else interim += event.results[i][0].transcript
+      }
+      if (this.hasVoiceStatusTarget) {
+        this.voiceStatusTarget.textContent = (finalText + interim).trim()
+          ? `Heard: “${(finalText + interim).trim()}”` : "Listening…"
+      }
+    }
+    this.recognition.onerror = (event) => {
+      if (!this.active) return
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        this.awaiting = false
+        this.setStatus("Mic blocked — allow microphone access, then tap Start again.")
+        this.stopSession()
+        this.updateButtons()
+      }
+      // other errors fall through to onend, which retries while awaiting
+    }
+    this.recognition.onend = () => {
+      if (!this.active || !this.awaiting) return
+      const heard = finalText.trim()
+      if (heard) {
+        this.awaiting = false
+        this.handleTranscript(heard)
+      } else {
+        // silence — keep listening for the same question
+        this.listen()
+      }
+    }
+    try {
+      this.recognition.start()
+      if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = "Listening…"
+    } catch {
+      // start raced a stop; retry shortly while still awaiting
+      setTimeout(() => { if (this.active && this.awaiting) this.listen() }, 300)
+    }
+  }
+
+  // --- main router: what the user said drives the next step ---------------------
+  async handleTranscript(text) {
+    if (!this.active) return
+    if (this.phase === "name") {
+      if (/^(finished|done|that'?s all|no more|stop)$/i.test(text.trim())) { this.done(); return }
+      return this.submitName(text)
+    }
     if (this.phase === "options") return this.submitOption(text)
     if (this.phase === "required") return this.submitRequired(text)
   }
 
-  async submitName() {
-    const name = this.hasFieldNameTarget ? this.fieldNameTarget.value.trim() : ""
-    const err = validateFieldName(name, this.fields)
-    if (err) { this.setStatus(err); return }
-    if (this.fields.length >= MAX_FIELDS) { this.setStatus(`Field cap reached (${MAX_FIELDS}). Remove one to add more.`); return }
-    this.pending = { id: `f${Date.now().toString(36)}`, name, type: "text", required: false, options: [] }
+  repeatQuestion() {
+    // re-speak the current question and listen again
+    if (this.phase === "name") return this.askName()
+    if (this.phase === "options") return this.askOptions()
+    if (this.phase === "required") return this.askRequired()
+  }
+
+  async submitName(name) {
+    const clean = String(name ?? "").trim()
+    const err = validateFieldName(clean, this.fields)
+    if (err) {
+      this.setStatus(err)
+      this.sayThenListen(`I didn't catch a usable name. ${err} What should the field be called?`)
+      return
+    }
+    if (this.fields.length >= MAX_FIELDS) {
+      this.setStatus(`Field cap reached (${MAX_FIELDS}).`)
+      this.sayThenListen(`Field cap reached. Say “finished” to end, or remove a field first.`)
+      return
+    }
+    this.pending = { id: `f${Date.now().toString(36)}`, name: clean, type: "text", required: false, options: [] }
     this.setStatus("Classifying type with Jev…")
-    const { type, usedFallback } = await this.classifyType(name)
+    const { type, usedFallback } = await this.classifyType(clean)
+    if (!this.active) return
     this.pending.type = type
     this.logInspector(`field_type = ${type}${usedFallback.length ? " · fallback" : ""}`)
     if (CHOICE_TYPES.includes(type)) this.askOptions()
@@ -283,8 +402,13 @@ export default class extends Controller {
       intent = optionIntentFromAnswers({}, text).intent
     }
     this.logInspector(`option intent = ${intent}${fb.length ? " · fallback" : ""}`)
+    if (!this.active) return
     if (intent === "done_options") {
-      if (!(this.pending.options || []).length) { this.setStatus("Add at least one option, or remove the field."); return }
+      if (!(this.pending.options || []).length) {
+        this.setStatus("I need at least one option.")
+        this.sayThenListen(`I need at least one option for “${this.pending.name}”. Tell me the first option.`)
+        return
+      }
       this.askRequired()
     } else if (intent === "remove_last") {
       this.pending.options.pop()
@@ -294,8 +418,8 @@ export default class extends Controller {
       const r = addOption(this.pending, text)
       this.setStatus(r.ok ? `Added “${text}”.` : r.reason === "duplicate" ? "Already have that option — try another." : r.reason === "capped" ? `Option cap (${MAX_OPTIONS}) reached — say “done”.` : "Could not add that option.")
       if (r.ok || r.reason === "duplicate") this.askOptions()
+      else this.repeatQuestion()
     }
-    if (this.hasAnswerTarget) this.answerTarget.value = ""
   }
 
   async submitRequired(text) {
@@ -324,22 +448,21 @@ export default class extends Controller {
       required = requiredFromAnswers({}, text).required
     }
     this.logInspector(`required = ${required}${fb.length ? " · fallback" : ""}`)
+    if (!this.active) return
     this.pending.required = required
     this.fields.push(this.pending)
     saveSchema(this.fields)
     this.setStatus(`Added “${this.pending.name}” (${this.pending.type}).`)
     this.render()
     this.askName()
-    if (this.hasAnswerTarget) this.answerTarget.value = ""
   }
 
-  // --- field list management --------------------------------------------------
+  // --- field list management (tap to fix; voice session keeps going) ---------------
   removeField(event) {
     const id = event.currentTarget.dataset.id
     this.fields = this.fields.filter((f) => f.id !== id)
     saveSchema(this.fields)
     this.render()
-    this.askName()
   }
 
   toggleRequired(event) {
@@ -352,73 +475,19 @@ export default class extends Controller {
     this.fields = []
     saveSchema(this.fields)
     this.render()
-    this.askName()
   }
 
   render() {
     if (!this.hasFieldListTarget) return
     this.fieldListTarget.innerHTML = this.fields.length
       ? this.fields.map((f, i) => fieldCardHtml(f, i)).join("")
-      : `<p style="font-size:12px;color:#a1a1aa;">No fields yet — answer above to add the first.</p>`
-    if (this.hasStatusTarget && !this.hasPendingGuard()) {
-      // keep current status; just update counts in hint
-    }
+      : `<p style="font-size:12px;color:#a1a1aa;">No fields yet — tap Start and speak.</p>`
   }
-
-  hasPendingGuard() { return false }
 
   logInspector(line) {
     if (!this.hasInspectorTarget) return
     const div = document.createElement("div")
     div.textContent = line
     this.inspectorTarget.prepend(div)
-  }
-
-  // --- voice (Web Speech API in, speechSynthesis out) --------------------------
-  toggleVoice() {
-    if (this.listening) { try { this.recognition?.stop() } catch { /* ignore */ } return }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) {
-      if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = "Voice not supported here — type instead."
-      return
-    }
-    const target = this.phase === "name" && this.hasFieldNameTarget ? this.fieldNameTarget : this.hasAnswerTarget ? this.answerTarget : null
-    this.recognition = new SR()
-    this.recognition.continuous = false
-    this.recognition.interimResults = true
-    this.recognition.lang = "en-US"
-    let finalText = ""
-    this.recognition.onresult = (event) => {
-      let interim = ""
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) finalText += event.results[i][0].transcript + " "
-        else interim += event.results[i][0].transcript
-      }
-      if (target) target.value = (finalText + interim).trim()
-      if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = interim ? `Hearing: “${interim}…”` : `Heard: “${finalText.trim()}”`
-    }
-    this.recognition.onerror = (event) => {
-      this.listening = false
-      if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = `Mic error: ${event.error} — type instead.`
-    }
-    this.recognition.onend = () => {
-      this.listening = false
-      if (this.hasMicButtonTarget) this.micButtonTarget.style.background = ""
-      const heard = target?.value.trim()
-      if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = heard ? `Heard: “${heard}”` : "Didn't catch that — try again or type."
-      if (heard) this.submit()
-    }
-    try {
-      this.recognition.start()
-      this.listening = true
-      if (this.hasMicButtonTarget) this.micButtonTarget.style.background = "#dc2626"
-      if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = "Listening…"
-    } catch (e) {
-      if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = `Could not start mic: ${e.message}`
-    }
-  }
-
-  answerKeydown(event) {
-    if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); this.submit() }
   }
 }

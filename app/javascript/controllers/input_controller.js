@@ -384,7 +384,7 @@ export function rowTableHtml(schema, rows, selectedIndex = null) {
     `<tr data-action="click->input#selectRow" data-index="${i}" style="border-top:1px solid #f4f4f5;cursor:pointer;${i === selectedIndex ? "outline:2px solid #2563eb;outline-offset:-2px;" : ""}"><td style="padding:6px 8px;color:#a1a1aa;">${i + 1}</td>` +
     schema.map((f) => `<td style="padding:6px 8px;">${escapeHtml(Array.isArray(row[f.name]) ? row[f.name].join(", ") : row[f.name] ?? "")}</td>`).join("") + `</tr>`).join("")
   return `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr><th style="padding:6px 8px;">#</th>${head}</tr></thead><tbody>${body}</tbody></table></div>` +
-    `<p style="font-size:11px;color:#a1a1aa;margin-top:4px;">Tap a row, or say “edit the … row”, to change or delete it by voice.</p>`
+    `<p style="font-size:11px;color:#a1a1aa;margin-top:4px;">Tap a row to change or delete it.</p>`
 }
 
 // The guided-edit prompt for one field: bare name only — the current

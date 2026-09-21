@@ -5,8 +5,10 @@
 <% end %>
 <div class="w-full">
   <!-- Frozen voice bar: the only mic, the current prompt above it, and the
-       single listening/heard status. Tabs publish here, never locally. -->
-  <div class="sticky top-0 z-30 mt-2 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900" data-controller="studio-command">
+       single listening/heard status. Tabs publish here, never locally.
+       Positioning is inline (not only Tailwind) so a stale CSS bundle can
+       never unstick it again. -->
+  <div style="position:sticky;top:0;z-index:30;" class="sticky top-0 z-30 mt-2 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900" data-controller="studio-command">
     <p class="text-base font-semibold" data-studio-command-target="prompt">Say what to do — “create a new field”, “add a new row”, “visualize …”.</p>
     <div class="mt-1 flex items-center gap-2">
       <button data-studio-command-target="micButton" data-action="click->studio-command#toggleVoice" aria-label="Voice command for every tab"
@@ -49,7 +51,7 @@
           <h3 class="text-sm font-semibold">Fields</h3>
           <button data-action="click->design#clearAll" class="text-xs text-zinc-500 hover:text-red-600 dark:text-zinc-400">Clear all</button>
         </div>
-        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Tap a field, or say “edit the … field”, to change or remove it by voice.</p>
+        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Tap a field to change or remove it.</p>
         <div data-design-target="fieldList" class="mt-2 grid gap-2"></div>
       </div>
     </div>
@@ -59,10 +61,7 @@
   <section data-panel="input">
     <h2 class="mt-4 text-sm font-bold tracking-tight">Input</h2>
     <div class="w-full" data-controller="input">
-      <div class="mt-1 flex items-baseline justify-between">
-        <p class="text-sm text-zinc-600 dark:text-zinc-300">Answer by voice — “skip” skips, “done” saves the row, “that's all” ends.</p>
-        <p class="text-xs text-zinc-500 dark:text-zinc-400" data-input-target="progress"></p>
-      </div>
+      <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-input-target="progress"></p>
       <div class="mt-3 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900">
         <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-input-target="stepHint"></p>
         <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-input-target="status" aria-live="polite"></p>
@@ -74,7 +73,6 @@
           <button data-action="click->input#clearRows" class="text-xs text-zinc-500 hover:text-red-600 dark:text-zinc-400">Clear all</button>
         </div>
         <div data-input-target="rowsTable" class="mt-2"></div>
-        <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Saved in this browser — Visualize picks them up automatically.</p>
       </div>
     </div>
   </section>
@@ -83,10 +81,6 @@
   <section data-panel="visualize">
     <h2 class="mt-4 text-sm font-bold tracking-tight">Visualize</h2>
     <div class="w-full" data-controller="studio">
-  <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-300" data-studio-target="headline">
-    Say what to render — “visualize totals by day”.
-  </p>
-
   <!-- Dataset: filled automatically from the Input section, editable here. -->
   <div class="mt-3 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900">
     <div class="flex flex-wrap items-center gap-2 text-xs">

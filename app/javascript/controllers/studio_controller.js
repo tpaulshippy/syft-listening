@@ -606,8 +606,14 @@ export function resolveChartClass(root) {
 export default class extends Controller {
   static targets = [
     "dataset", "schemaLine", "canvas",
-    "status", "headline", "inputShare",
+    "status", "inputShare",
   ]
+
+  // The request prompt lives in the frozen bar — publish it on the voice
+  // bus instead of showing it in this section.
+  voice(detail) {
+    try { window.dispatchEvent(new CustomEvent("syft:voice", { detail })) } catch { /* non-browser */ }
+  }
 
   connect() {
     this.charts = []
@@ -625,7 +631,7 @@ export default class extends Controller {
       const prompt = event?.detail?.prompt
       if (typeof prompt !== "string" || !prompt.trim()) return
       this.request = prompt
-      this.headlineTarget.textContent = prompt
+      this.voice({ prompt })
       this.ask()
     }
     window.addEventListener("syft:input-rows-changed", this.handleInputRowsChanged)
@@ -707,7 +713,6 @@ export default class extends Controller {
     const parsed = this.parseDataset()
     if (parsed.error) { this.statusTarget.textContent = parsed.error; return }
     const rows = parsed.rows
-    this.headlineTarget.textContent = prompt
     this.statusTarget.textContent = "Asking Jev the schema-driven questions in parallel…"
     try {
       const key = localStorage.getItem("syft_jev_key") || ""

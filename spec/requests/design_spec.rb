@@ -1,0 +1,94 @@
+require 'rails_helper'
+require 'net/http'
+
+RSpec.describe "Design", type: :request do
+  def stub_jev(body = { answers: {} })
+    http = instance_double(Net::HTTP)
+    upstream = instance_double(Net::HTTPResponse, code: "200", body: body.to_json)
+    allow(Net::HTTP).to receive(:new).and_return(http)
+    allow(http).to receive(:use_ssl=)
+    allow(http).to receive(:open_timeout=)
+    allow(http).to receive(:read_timeout=)
+    allow(http).to receive(:request).and_return(upstream)
+    http
+  end
+
+  describe "POST /jev_design" do
+    it "rejects missing api key" do
+      post "/jev_design", params: { step: "classify", field_name: "Birthday", api_key: "" }
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it "rejects unknown steps" do
+      post "/jev_design", params: { step: "nope", api_key: "ts_test" }
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    it "rejects empty field name on classify" do
+      post "/jev_design", params: { step: "classify", field_name: "", api_key: "ts_test" }
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    it "rejects overlong field names" do
+      post "/jev_design", params: { step: "classify", field_name: "x" * 61, api_key: "ts_test" }
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    it "builds classify questions over the 8-type registry" do
+      http = stub_jev
+      allow(http).to receive(:request) do |req|
+        body = JSON.parse(req.body)
+        expect(body["state"]["field_name"]).to eq("Birthday")
+        criteria = body["questions"]["field_type"]["criteria"]
+        expect(criteria.keys.sort).to eq(%w[choice_multiple choice_single date email number text time yes_no])
+        expect(body["questions"]["needs_options"]["type"]).to eq("noul")
+        instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
+      end
+
+      post "/jev_design", params: { step: "classify", field_name: "Birthday", api_key: "ts_test" }
+      expect(response).to have_http_status(:success)
+      parsed = JSON.parse(response.body)
+      expect(parsed["question_count"]).to eq(2)
+      expect(parsed["step"]).to eq("classify")
+    end
+
+    it "builds option intent questions" do
+      http = stub_jev
+      allow(http).to receive(:request) do |req|
+        body = JSON.parse(req.body)
+        expect(body["state"]["transcript"]).to eq("done")
+        expect(body["questions"]["intent"]["criteria"]).to include("add_option", "done_options", "remove_last")
+        instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
+      end
+
+      post "/jev_design", params: { step: "option_intent", transcript: "done", field_name: "Genre", api_key: "ts_test" }
+      expect(response).to have_http_status(:success)
+    end
+
+    it "builds required + session intent questions" do
+      stub_jev
+      post "/jev_design", params: { step: "required", transcript: "yes required", field_name: "Email", api_key: "ts_test" }
+      expect(response).to have_http_status(:success)
+
+      post "/jev_design", params: { step: "session_intent", transcript: "finished", field_count: 3, api_key: "ts_test" }
+      expect(response).to have_http_status(:success)
+    end
+
+    it "rejects empty transcripts on intent steps" do
+      post "/jev_design", params: { step: "required", transcript: "", api_key: "ts_test" }
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    it "returns bad gateway on Jev timeout" do
+      http = instance_double(Net::HTTP)
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:use_ssl=)
+      allow(http).to receive(:open_timeout=)
+      allow(http).to receive(:read_timeout=)
+      allow(http).to receive(:request).and_raise(Net::ReadTimeout)
+
+      post "/jev_design", params: { step: "classify", field_name: "Birthday", api_key: "ts_test" }
+      expect(response).to have_http_status(:bad_gateway)
+    end
+  end
+end

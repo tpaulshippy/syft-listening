@@ -52,7 +52,8 @@ Optional: set `TYPESAFE_API_KEY` in the environment as a fallback server-side ke
 | GET | `/` | `speech#show` (the app) |
 | GET | `/listen` | redirect to `/` |
 | POST | `/jev_analyze` | proxy to Jev (`{ text, metrics, api_key }`) |
-| GET | `/studio` | `studio#show` (generalized data studio: any JSON dataset + voice render prompt → Chart.js) |
+| GET | `/studio` | `studio#show` (Design → Input → Visualize tabs; Visualize is the Chart.js renderer) |
+| POST | `/jev_design` | proxy to Jev (`{ step, field_name|transcript, api_key }`; design interview classification) |
 | POST | `/jev_studio` | proxy to Jev (`{ prompt, dataset|sample, api_key }`; questions generated from the dataset schema) |
 | GET | `/up` | health check |
 

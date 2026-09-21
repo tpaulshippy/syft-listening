@@ -7,6 +7,9 @@ Rails.application.routes.draw do
   get "/listen", to: redirect("/")
   post "/jev_analyze", to: "speech#analyze", as: "jev_analyze"
 
+  # Data design interview (voice-driven field builder, Jev classifies only)
+  post "/jev_design", to: "design#classify", as: "jev_design"
+
   # Generalized voice UI studio (schema-driven questions, Chart.js render)
   get "/studio", to: "studio#show", as: "studio"
   post "/jev_studio", to: "studio#analyze", as: "jev_studio"

@@ -87,11 +87,28 @@ RSpec.describe "Input", type: :request do
       allow(http).to receive(:request) do |req|
         body = JSON.parse(req.body)
         expect(body["questions"]["valid"]["type"]).to eq("noul")
+        expect(body["questions"]["valid"]["instructions"]).to include("Email")
+        expect(body["questions"]["valid"]["instructions"]).not_to include("`field`")
         instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
       end
 
       fields = [ { "name" => "Email", "type" => "email", "required" => true, "options" => [] } ]
       post "/jev_input", params: { step: "answer", transcript: "a@b.co", fields: fields, api_key: "ts_test" }
+      expect(response).to have_http_status(:success)
+    end
+
+    it "names the field literally in closed-type prompts (no unresolved `field` ref)" do
+      http = stub_jev
+      allow(http).to receive(:request) do |req|
+        body = JSON.parse(req.body)
+        expect(body["questions"]["value"]["instructions"]).to include("Subscribe")
+        expect(body["questions"]["value"]["instructions"]).not_to include("`field`")
+        expect(body["questions"]["value_2"]["instructions"]).to include("Genre")
+        expect(body["questions"]["value_2"]["instructions"]).not_to include("`field`")
+        instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
+      end
+
+      post "/jev_input", params: { step: "answer", transcript: "yes, scifi", fields: pair, api_key: "ts_test" }
       expect(response).to have_http_status(:success)
     end
 

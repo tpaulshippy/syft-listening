@@ -219,7 +219,7 @@ class InputController < ApplicationController
   end
 
   def answer_questions(field, suffix)
-    name = "`field` ##{suffix.empty? ? 1 : 2}"
+    label = field[:name]
     case field[:type]
     when "date"
       date_questions(field, suffix)
@@ -227,7 +227,7 @@ class InputController < ApplicationController
       {
         "value#{suffix}" => {
           type: "choice",
-          instructions: "Which option of #{name} (`options#{suffix}`) does `transcript` pick?",
+          instructions: "Which option of #{label} (`options#{suffix}`) does `transcript` pick?",
           criteria: field[:options].each_with_object({}) { |o, h| h[o] = "`transcript` picks #{o}" }
         }
       }
@@ -235,21 +235,21 @@ class InputController < ApplicationController
       field[:options].each_with_object({}) do |opt, qs|
         qs["pick#{suffix}_#{opt}"] = {
           type: "noul",
-          instructions: "Does `transcript` select the option #{opt} for #{name}?"
+          instructions: "Does `transcript` select the option #{opt} for #{label}?"
         }
       end
     when "yes_no"
       {
         "value#{suffix}" => {
           type: "noul",
-          instructions: "Does `transcript` answer yes (rather than no) for #{name}?"
+          instructions: "Does `transcript` answer yes (rather than no) for #{label}?"
         }
       }
     else
       {
         "valid#{suffix}" => {
           type: "noul",
-          instructions: "Does `transcript` contain #{validity_check(field[:type])} for #{name} (not empty, not asking to skip)?"
+          instructions: "Does `transcript` contain #{validity_check(field[:type])} for #{label} (not empty, not asking to skip)?"
         }
       }
     end

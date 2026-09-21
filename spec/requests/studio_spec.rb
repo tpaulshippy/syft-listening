@@ -19,9 +19,11 @@ RSpec.describe "Studio", type: :request do
       get "/studio"
       body = response.body
       expect(body).to include('data-controller="studio"')
+      expect(body).to include('data-controller="studio-command"')
+      expect(body).to include('data-studio-command-target="micButton"')
       expect(body).to include('data-studio-target="dataset"')
       expect(body).to include('data-studio-target="prompt"')
-      expect(body).to include('data-studio-target="micButton"')
+      expect(body).not_to include('data-studio-target="micButton"')
       expect(body).to include('data-studio-target="canvas"')
       expect(body).to include('data-studio-target="apiKey"')
     end

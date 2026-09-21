@@ -204,8 +204,8 @@ export default class extends Controller {
       })
     }
     this.render()
-    this.setQuestion("Tap Start, then speak — I'll ask for each field.")
-    this.setStatus("Idle. Tap Start to begin.")
+    this.setQuestion("Tap 🎙 above, then speak — I'll ask for each field.")
+    this.setStatus("Idle. Tap 🎙 above to begin.")
     this.updateButtons()
     // Global voice commands (Jev-routed): create a field or edit one by id.
     // The action and field id are Jev decisions — never parsed here.
@@ -264,14 +264,14 @@ export default class extends Controller {
   done() {
     if (!this.active) return
     if (!this.fields.length) {
-      this.endSession("Session ended — no fields. Tap Start to begin.")
+      this.endSession("Session ended — no fields. Tap 🎙 above to begin.")
       return
     }
     // Fields are all there — one closing question, only about fields whose
     // required status was never decided (new since the last session).
     this.pending = null
     if (!fieldsNeedingRequired(this.fields).length) {
-      this.endSession(`Session ended — ${this.fields.length} field${this.fields.length === 1 ? "" : "s"}, required already set. Tap Start to add more.`)
+      this.endSession(`Session ended — ${this.fields.length} field${this.fields.length === 1 ? "" : "s"}, required already set. Tap 🎙 above to add more.`)
       return
     }
     this.askRequiredFields()
@@ -286,7 +286,7 @@ export default class extends Controller {
     this.render()
     this.setQuestion("Done.")
     this.setChoices("")
-    this.setStatus(status || `Session ended — ${this.fields.length} field${this.fields.length === 1 ? "" : "s"}. Tap Start to add more.`)
+    this.setStatus(status || `Session ended — ${this.fields.length} field${this.fields.length === 1 ? "" : "s"}. Tap 🎙 above to add more.`)
     this.updateButtons()
   }
 
@@ -397,7 +397,7 @@ export default class extends Controller {
       if (!this.active) return
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         this.awaiting = false
-        this.setStatus("Mic blocked — allow microphone access, then tap Start again.")
+        this.setStatus("Mic blocked — allow microphone access, then try your voice command again.")
         this.stopSession()
         this.updateButtons()
       }
@@ -651,7 +651,7 @@ export default class extends Controller {
       this.selectedId = null
       saveSchema(this.fields)
       this.render()
-      this.speak(`Removed ${field.name}.`, () => this.endSession(`Removed “${field.name}”. Tap Start to add more.`))
+      this.speak(`Removed ${field.name}.`, () => this.endSession(`Removed “${field.name}”. Tap 🎙 above to add more.`))
       return
     }
     if (aspect === "done") {
@@ -790,7 +790,7 @@ export default class extends Controller {
     if (!this.hasFieldListTarget) return
     this.fieldListTarget.innerHTML = this.fields.length
       ? this.fields.map((f, i) => fieldCardHtml(f, i, f.id === this.selectedId)).join("")
-      : `<p style="font-size:12px;color:#a1a1aa;">No fields yet — tap Start and speak.</p>`
+      : `<p style="font-size:12px;color:#a1a1aa;">No fields yet — tap 🎙 above and speak.</p>`
   }
 
   logInspector(line) {

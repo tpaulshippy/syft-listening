@@ -572,14 +572,12 @@ export function resolveChartClass(root) {
 // --- Stimulus controller (dataset + voice + Jev call + Chart.js mount) --------
 export default class extends Controller {
   static targets = [
-    "dataset", "schemaLine", "prompt", "micButton", "askButton", "canvas",
-    "latency", "questionCount", "inspector", "status", "voiceStatus",
-    "supportWarning", "headline", "apiKey", "keyStatus", "testButton", "inputShare",
+    "dataset", "schemaLine", "prompt", "askButton", "canvas",
+    "latency", "questionCount", "inspector", "status",
+    "headline", "apiKey", "keyStatus", "testButton", "inputShare",
   ]
 
   connect() {
-    this.recognition = null
-    this.listening = false
     this.charts = []
     this.ChartClass = null
     this.apiKeyTarget.value = localStorage.getItem("syft_jev_key") || ""
@@ -610,12 +608,9 @@ export default class extends Controller {
     window.addEventListener("syft:tab-shown", this.handleTabShown)
     window.addEventListener("syft:visualize-command", this.handleVoiceCommand)
     this.refreshInputShare()
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) this.supportWarningTarget.classList.remove("hidden")
   }
 
   disconnect() {
-    try { this.recognition?.stop() } catch { /* ignore */ }
     try { window.removeEventListener("syft:input-rows-changed", this.handleInputRowsChanged) } catch { /* ignore */ }
     try { window.removeEventListener("syft:tab-shown", this.handleTabShown) } catch { /* ignore */ }
     try { window.removeEventListener("syft:visualize-command", this.handleVoiceCommand) } catch { /* ignore */ }
@@ -718,53 +713,7 @@ export default class extends Controller {
     }
   }
 
-  // --- voice -----------------------------------------------------------------------
-  toggleVoice() {
-    if (this.listening) { try { this.recognition?.stop() } catch { /* ignore */ } return }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) {
-      this.voiceStatusTarget.textContent = "Voice not supported here — type your request instead."
-      return
-    }
-    this.recognition = new SR()
-    this.recognition.continuous = false
-    this.recognition.interimResults = true
-    this.recognition.lang = "en-US"
-    let finalText = ""
-    this.recognition.onresult = (event) => {
-      let interim = ""
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) finalText += event.results[i][0].transcript + " "
-        else interim += event.results[i][0].transcript
-      }
-      this.promptTarget.value = (finalText + interim).trim()
-      this.voiceStatusTarget.textContent = interim ? `Hearing: “${interim}…”` : `Heard: “${finalText.trim()}”`
-    }
-    this.recognition.onerror = (event) => {
-      this.listening = false
-      this.voiceStatusTarget.textContent = `Mic error: ${event.error} — you can type instead.`
-    }
-    this.recognition.onend = () => {
-      this.listening = false
-      this.micButtonTarget.style.background = ""
-      const heard = this.promptTarget.value.trim()
-      if (heard) {
-        this.voiceStatusTarget.textContent = `Heard: “${heard}” — building…`
-        this.ask()
-      } else {
-        this.voiceStatusTarget.textContent = "Didn't catch that — try again or type."
-      }
-    }
-    try {
-      this.recognition.start()
-      this.listening = true
-      this.micButtonTarget.style.background = "#dc2626"
-      this.voiceStatusTarget.textContent = "Listening… say how to render it (“Bar chart of revenue by genre”)."
-    } catch (e) {
-      this.voiceStatusTarget.textContent = `Could not start mic: ${e.message}`
-    }
-  }
-
+  // --- prompt ----------------------------------------------------------------------
   promptKeydown(event) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault()

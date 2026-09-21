@@ -418,8 +418,8 @@ export default class extends Controller {
       })
     }
     this.render()
-    this.setQuestion("Tap Start, then speak — I'll ask each question in order.")
-    this.setStatus("Idle. Tap Start to begin.")
+    this.setQuestion("Tap 🎙 above, then speak — I'll ask each question in order.")
+    this.setStatus("Idle. Tap 🎙 above to begin.")
     this.updateButtons()
     // Global voice commands (Jev-routed): add a row or edit one by index.
     // The action and row index are Jev decisions — never parsed here.
@@ -581,7 +581,7 @@ export default class extends Controller {
       if (!this.active) return
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         this.awaiting = false
-        this.setStatus("Mic blocked — allow microphone access, then tap Start again.")
+        this.setStatus("Mic blocked — allow microphone access, then try your voice command again.")
         this.stopSession()
         this.updateButtons()
       }

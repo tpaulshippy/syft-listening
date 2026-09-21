@@ -225,7 +225,7 @@ export default class extends Controller {
         this.setStatus(`Heard: “${transcript}” — Design: editing that field.`)
         this.dispatch("syft:design-command", { action: "edit", fieldId })
       } else {
-        this.setStatus(`Heard: “${transcript}” — on Design. Tap Start and speak.`)
+        this.setStatus(`Heard: “${transcript}” — on Design. Tap 🎙 and speak.`)
       }
       return
     }
@@ -237,7 +237,7 @@ export default class extends Controller {
         this.setStatus(`Heard: “${transcript}” — Input: editing row ${rowIndex + 1}.`)
         this.dispatch("syft:input-command", { action: "edit", rowIndex })
       } else {
-        this.setStatus(`Heard: “${transcript}” — on Input. Tap Start and speak.`)
+        this.setStatus(`Heard: “${transcript}” — on Input. Tap 🎙 and speak.`)
       }
       return
     }

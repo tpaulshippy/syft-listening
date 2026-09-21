@@ -3,7 +3,7 @@
   <%# Self-contained UMD build: single file, no module graph to 404 %>
   <script src="<%= asset_path("chart.umd.js") %>" defer></script>
 <% end %>
-<div class="w-full" data-controller="studio-tabs">
+<div class="w-full">
   <div class="flex items-baseline justify-between">
     <h1 class="text-xl font-bold tracking-tight">Data studio</h1>
     <span class="text-xs text-zinc-500 dark:text-zinc-400">design → input → visualize · voice + Jev, no LLM</span>
@@ -20,13 +20,8 @@
     <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-studio-command-target="status" aria-live="polite">Tap 🎙 once — it stays on until you tap again.</p>
   </div>
 
-  <div class="mt-2 flex gap-2" role="tablist" aria-label="Data workflow">
-    <button role="tab" data-studio-tabs-target="tab" data-action="click->studio-tabs#show" data-tab="design">Design</button>
-    <button role="tab" data-studio-tabs-target="tab" data-action="click->studio-tabs#show" data-tab="input">Input</button>
-    <button role="tab" data-studio-tabs-target="tab" data-action="click->studio-tabs#show" data-tab="visualize">Visualize</button>
-  </div>
-
-  <!-- The studio's only key input — every tab reads it from this browser. -->
+  <!-- The studio's only key input — every tab reads it from this browser.
+       It tucks itself to the bottom slot once a key is stored. -->
   <div class="mt-2 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900" data-controller="api-key">
     <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
       <span class="text-[11px] font-medium tracking-[0.2em] text-zinc-400 dark:text-zinc-500">JEV API KEY</span>
@@ -43,7 +38,8 @@
   </div>
 
   <!-- Design: voice interview that builds the field list. Jev classifies only. -->
-  <section data-studio-tabs-target="panel" data-panel="design" role="tabpanel">
+  <section data-panel="design">
+    <h2 class="mt-4 text-sm font-bold tracking-tight">Design</h2>
     <div class="w-full" data-controller="design">
       <div class="mt-3 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900">
         <h2 class="text-base font-semibold" data-design-target="question">Say “create a new field” to begin.</h2>
@@ -65,7 +61,8 @@
   </section>
 
   <!-- Input: voice row filling in schema order. Jev maps + validates only. -->
-  <section data-studio-tabs-target="panel" data-panel="input" role="tabpanel">
+  <section data-panel="input">
+    <h2 class="mt-4 text-sm font-bold tracking-tight">Input</h2>
     <div class="w-full" data-controller="input">
       <div class="mt-1 flex items-baseline justify-between">
         <p class="text-sm text-zinc-600 dark:text-zinc-300">Answer by voice — “skip” skips, “done” saves the row, “that's all” ends.</p>
@@ -90,8 +87,9 @@
   </section>
 
   <!-- Visualize: existing generalized renderer, unchanged. -->
-  <section data-studio-tabs-target="panel" data-panel="visualize" role="tabpanel">
-<div class="w-full" data-controller="studio">
+  <section data-panel="visualize">
+    <h2 class="mt-4 text-sm font-bold tracking-tight">Visualize</h2>
+    <div class="w-full" data-controller="studio">
   <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-300" data-studio-target="headline">
     Say what to render — “visualize totals by day”.
   </p>
@@ -116,7 +114,9 @@
        class="mt-2 min-h-64 rounded-2xl border border-black/5 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
     <p class="text-sm text-zinc-400">Rows from the Input tab appear here — then say how to render them.</p>
   </div>
-
 </div>
   </section>
+
+  <!-- Stored keys tuck the card down here, out of the workflow. -->
+  <div id="api-key-bottom" class="mt-2"></div>
 </div>

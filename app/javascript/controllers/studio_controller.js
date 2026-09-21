@@ -598,7 +598,7 @@ export default class extends Controller {
     window.addEventListener("syft:input-rows-changed", this.handleInputRowsChanged)
     window.addEventListener("syft:tab-shown", this.handleTabShown)
     window.addEventListener("syft:visualize-command", this.handleVoiceCommand)
-    this.refreshInputShare()
+    this.autoLoadFromInput()
   }
 
   disconnect() {

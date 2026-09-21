@@ -19,6 +19,16 @@ export default class extends Controller {
       }, 0)
     })
     this.updateStatus()
+    // Stored keys tuck the card to the bottom of the page, out of the
+    // workflow; first-time entry stays up top where it can't be missed.
+    if ((localStorage.getItem("syft_jev_key") || "").trim()) this.tuckToBottom()
+  }
+
+  tuckToBottom() {
+    try {
+      const slot = document.getElementById("api-key-bottom")
+      if (slot && this.element.parentElement !== slot) slot.appendChild(this.element)
+    } catch { /* non-browser */ }
   }
 
   updateStatus() {
@@ -47,6 +57,7 @@ export default class extends Controller {
       if (res.ok) {
         localStorage.setItem("syft_jev_key_ok", key)
         this.updateStatus()
+        this.tuckToBottom()
       } else {
         localStorage.removeItem("syft_jev_key_ok")
         this.statusTarget.textContent = "✗ Key rejected — check it and try again."

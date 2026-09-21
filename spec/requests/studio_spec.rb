@@ -27,6 +27,10 @@ RSpec.describe "Studio", type: :request do
       expect(body).to include('data-studio-target="canvas"')
       expect(body).to include('data-api-key-target="input"')
       expect(body).not_to include('data-studio-target="apiKey"')
+      expect(body).not_to include('role="tablist"')
+      expect(body).to include('data-panel="design"')
+      expect(body).to include('data-panel="visualize"')
+      expect(body).to include('id="api-key-bottom"')
     end
   end
 

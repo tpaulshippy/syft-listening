@@ -115,19 +115,18 @@ export default class extends Controller {
     try { window.removeEventListener("syft:session-active", this.handleSessionActive) } catch { /* ignore */ }
   }
 
-  currentTab() {
-    try {
-      const active = document.querySelector('[data-studio-tabs-target="tab"][aria-selected="true"]')
-      const name = active?.dataset?.tab
-      if (DESTINATIONS.includes(name)) return name
-    } catch { /* ignore */ }
-    return "design"
-  }
+  // The page is one scrolling column — "going to" a section means
+  // scrolling it into view. Tracks the last destination for Jev context.
+  currentTabName = "design"
 
   showTab(name) {
     if (!DESTINATIONS.includes(name)) return
-    const btn = document.querySelector(`[data-studio-tabs-target="tab"][data-tab="${name}"]`)
-    if (btn) btn.click()
+    this.currentTabName = name
+    try {
+      document.querySelector(`[data-panel="${name}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })
+    } catch { /* non-browser */ }
+    // Lets the shown section refresh itself (Visualize reloads Input rows).
+    this.dispatch("syft:tab-shown", name)
   }
 
   dispatch(name, detail) {
@@ -257,7 +256,7 @@ export default class extends Controller {
         headers: { "Content-Type": "application/json", "X-CSRF-Token": document.querySelector('meta[name="csrf-token"]')?.content },
         body: JSON.stringify({
           transcript,
-          current_tab: this.currentTab(),
+          current_tab: this.currentTabName,
           fields: schema.map((f) => ({ id: f.id, name: f.name })),
           row_count: rowCount,
           columns,

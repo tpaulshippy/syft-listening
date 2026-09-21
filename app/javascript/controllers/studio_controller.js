@@ -284,6 +284,28 @@ function sharedFlags(m, fb) {
   }
 }
 
+// Flags with safe visual defaults (include -> show the column, display
+// flags -> off): Jev being lukewarm about them never blocks a render — the
+// spec carries the fallback and the UI notes it. Broad prompts like "table
+// of all data" land include nouls near 0.7, straddling the confidence cliff,
+// so gating on them breaks visualization. Anything else (view, bindings,
+// filter) still repeats the question.
+export function isBlockingFallback(key) {
+  if (typeof key === "string" && key.slice(0, 8) === "include_") return false
+  if (key === "show_legend" || key === "show_totals" || key === "horizontal") return false
+  return true
+}
+
+export function partitionFallbacks(usedFallback) {
+  const blocking = []
+  const nonBlocking = []
+  for (const key of usedFallback || []) {
+    if (isBlockingFallback(key)) blocking.push(key)
+    else nonBlocking.push(key)
+  }
+  return { blocking, nonBlocking }
+}
+
 export function specFromAnswers(answers, schema, prompt, rows = null) {
   const fb = { ...constantSpec(schema, prompt), schemaColumns: schema?.columns || [], allRows: rows }
   const usedFallback = []
@@ -762,15 +784,16 @@ export default class extends Controller {
       }
       const serverSchema = data.schema || schema
       const { dashboard, usedFallback } = dashboardFromAnswers(data.answers || {}, serverSchema, prompt, rows)
-      if (usedFallback.length) {
-        this.statusTarget.textContent = `Jev wasn't sure about ${usedFallback.slice(0, 4).join(", ")} — rephrase and Ask again.`
+      const { blocking, nonBlocking } = partitionFallbacks(usedFallback)
+      if (blocking.length) {
+        this.statusTarget.textContent = `Jev wasn't sure about ${blocking.slice(0, 4).join(", ")} — rephrase and Ask again.`
         return
       }
       this.renderResult(dashboard, rows, serverSchema, prompt, t0, {
         count: data.question_count ?? Object.keys(data.answers).length,
         model: data.model || "jev-latest",
         answers: data.answers,
-        usedFallback,
+        usedFallback: nonBlocking,
       })
     } catch {
       this.statusTarget.textContent = "Could not reach Jev — try again."
@@ -797,10 +820,13 @@ export default class extends Controller {
     })
     this.inspectorTarget.innerHTML = rows_out.join("")
     const n = dashboard.panels.length
+    const defaultsNote = (meta.usedFallback || []).length
+      ? ` Showed defaults for ${meta.usedFallback.slice(0, 4).join(", ")}.`
+      : ""
     this.statusTarget.textContent = `Rendered “${prompt}” as ${n} panel${n === 1 ? "" : "s"} (${dashboard.layout}). All answers from Jev.` +
       (n === 1 && dashboard.panels[0].filter
         ? ` Filter ${filterLabel(dashboard.panels[0].filter, schema)} — ${applyFilter(rows, schema, dashboard.panels[0].filter).length} of ${(rows || []).length} rows.`
-        : "")
+        : "") + defaultsNote
   }
 
   // Chart.js ships as a classic UMD script (see the <script> tag in the

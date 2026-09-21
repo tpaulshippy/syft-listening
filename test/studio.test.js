@@ -17,6 +17,8 @@ import {
   panelTitle,
   dashboardContainerStyle,
   panelSectionHtml,
+  isBlockingFallback,
+  partitionFallbacks,
   parseDatasetText,
   applyFilter,
   filterLabel,
@@ -476,6 +478,59 @@ describe("row filter (Jev-native)", () => {
     expect(html).toContain("2 of 5 rows")
     expect(html).toContain("INC-102")
     expect(html).not.toContain("INC-101")
+  })
+})
+
+describe("fallback partition (safe display defaults never block)", () => {
+  it("treats include/display flags as non-blocking", () => {
+    expect(isBlockingFallback("include_col0")).toBe(false)
+    expect(isBlockingFallback("include_col4")).toBe(false)
+    expect(isBlockingFallback("show_legend")).toBe(false)
+    expect(isBlockingFallback("show_totals")).toBe(false)
+    expect(isBlockingFallback("horizontal")).toBe(false)
+    expect(isBlockingFallback("view")).toBe(true)
+    expect(isBlockingFallback("x_field")).toBe(true)
+    expect(isBlockingFallback("filter_negate")).toBe(true)
+    expect(isBlockingFallback("panel_count")).toBe(true)
+  })
+
+  it("renders table-of-all-data when Jev is lukewarm on includes (live replay)", () => {
+    const spaced = [
+      { "Did you brush your teeth": "no", "Did you read a story": "yes", "Did you kiss mommy": "yes", "What's your name": "Roman" },
+      { "Did you brush your teeth": "yes", "Did you read a story": "yes", "Did you kiss mommy": "yes", "What's your name": "Renée" },
+      { "Did you brush your teeth": "yes", "Did you read a story": "yes", "Did you kiss mommy": "yes", "What's your name": "Mercy", "How old are you": "Nine" },
+    ]
+    const schema = inferSchema(spaced)
+    // Exact Jev nouls from the live replay: includes hover near the cliff.
+    const answers = {
+      panel_count: { choice: "one", confidence: 1.0 },
+      layout: { choice: "single", confidence: 0.96 },
+      view: { choice: "table", confidence: 1.0 },
+      x_field: { choice: "col3", confidence: 0.54 },
+      y_field: { choice: "col4", confidence: 0.95 },
+      color_field: { choice: "col3", confidence: 0.7 },
+      size_field: { choice: "col4", confidence: 0.71 },
+      aggregation: { choice: "count", confidence: 0.9 },
+      sort_by: { choice: "label_asc", confidence: 0.84 },
+      show_legend: { noul: 0.29 },
+      show_totals: { noul: 0.26 },
+      horizontal: { noul: 0.54 },
+      filter_column: { choice: "none", confidence: 0.94 },
+      include_col0: { noul: 0.77 },
+      include_col1: { noul: 0.77 },
+      include_col2: { noul: 0.71 },
+      include_col3: { noul: 0.76 },
+      include_col4: { noul: 0.53 },
+    }
+    const { dashboard, usedFallback } = dashboardFromAnswers(answers, schema, "table of all data", spaced)
+    expect(usedFallback).toContain("include_col2")
+    expect(usedFallback).toContain("include_col4")
+    const { blocking, nonBlocking } = partitionFallbacks(usedFallback)
+    expect(blocking).toEqual([])
+    expect(nonBlocking).toContain("include_col2")
+    const html = dashboard.panels.map((p, i) => panelSectionHtml(p, spaced, schema, i)).join("")
+    expect(html).toContain("Did you brush your teeth")
+    expect(html).toContain("Roman")
   })
 })
 

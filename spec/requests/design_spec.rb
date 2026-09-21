@@ -102,7 +102,12 @@ RSpec.describe "Design", type: :request do
       allow(http).to receive(:request) do |req|
         body = JSON.parse(req.body)
         expect(body["state"]["transcript"]).to eq("change the name")
-        expect(body["questions"]["intent"]["criteria"]).to include("name", "type", "options", "required", "remove", "done")
+        criteria = body["questions"]["intent"]["criteria"]
+        expect(criteria).to include("name", "type", "options", "required", "remove", "done")
+        # Bare "type" must route to retype, and cancel/stop must exit —
+        # never delete the field.
+        expect(criteria["type"]).to include("type")
+        expect(criteria["done"]).to include("cancel")
         instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
       end
 

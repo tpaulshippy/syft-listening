@@ -194,11 +194,11 @@ class DesignController < ApplicationController
           instructions: "Which part of `field_name` does the speaker want to change in `transcript`?",
           criteria: {
             name: "Rename the field (its name or title)",
-            type: "Change the data type",
+            type: "Change the data type (saying \"type\" means this)",
             options: "Change the fixed list of options",
             required: "Change whether the field is required",
             remove: "Delete or remove the whole field",
-            done: "Nothing more (done, finished)"
+            done: "Nothing more, stop, or cancel (done, finished, cancel, stop, never mind)"
           }
         }
       }

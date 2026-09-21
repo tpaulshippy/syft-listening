@@ -64,11 +64,51 @@
     </div>
   </section>
 
-  <!-- Input: stubbed until the design schema settles. -->
+  <!-- Input: voice record filling in schema order. Jev maps + validates only. -->
   <section data-studio-tabs-target="panel" data-panel="input" role="tabpanel">
-    <div class="mt-3 rounded-2xl border border-black/5 bg-white px-4 py-8 text-center shadow-sm dark:border-white/10 dark:bg-zinc-900">
-      <p class="text-sm font-semibold">Input comes next</p>
-      <p class="mx-auto mt-1 max-w-md text-xs text-zinc-500 dark:text-zinc-400">This tab will ask the designed questions one by one and fill in the fields — same voice + Jev pattern. Design your fields first; nothing to lose: the schema stays in this browser.</p>
+    <div class="w-full" data-controller="input">
+      <div class="mt-1 flex items-baseline justify-between">
+        <p class="text-sm text-zinc-600 dark:text-zinc-300">Answer in order — values are yours verbatim, Jev only maps and checks them.</p>
+        <p class="text-xs text-zinc-500 dark:text-zinc-400" data-input-target="progress"></p>
+      </div>
+      <div class="mt-3 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900">
+        <h2 class="text-base font-semibold" data-input-target="question">Loading fields…</h2>
+        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-input-target="stepHint"></p>
+        <div class="mt-2 flex items-end gap-2">
+          <input data-input-target="answer" placeholder="Speak or type the answer" autocomplete="off" spellcheck="false"
+                 data-action="keydown->input#answerKeydown"
+                 class="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-transparent px-3 py-2 text-base focus:outline-none dark:border-zinc-800" />
+          <button data-input-target="micButton" data-action="click->input#toggleVoice" aria-label="Dictate your answer"
+                  class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-white transition-transform hover:scale-105 active:scale-95 dark:bg-zinc-50 dark:text-zinc-950">
+            <span aria-hidden="true">🎙</span>
+          </button>
+          <button data-action="click->input#submit"
+                  class="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500">Answer</button>
+        </div>
+        <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400" data-input-target="voiceStatus">Mic: tap 🎙 and speak (Chrome/Edge), or type.</p>
+        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-input-target="status" aria-live="polite"></p>
+      </div>
+
+      <div class="mt-2 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900">
+        <div class="flex items-baseline justify-between">
+          <h3 class="text-sm font-semibold">Records</h3>
+          <button data-action="click->input#clearRows" class="text-xs text-zinc-500 hover:text-red-600 dark:text-zinc-400">Clear all</button>
+        </div>
+        <div data-input-target="rowsTable" class="mt-2"></div>
+        <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Saved in this browser — Visualize picks them up automatically.</p>
+      </div>
+
+      <details class="mt-2 rounded-2xl border border-black/5 bg-white/60 px-4 py-2 text-xs text-zinc-600 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-300">
+        <summary class="cursor-pointer py-1 font-medium">How this was built — Jev maps, you speak</summary>
+        <div data-input-target="inspector" class="mt-2 space-y-1 font-mono"></div>
+      </details>
+
+      <div class="mb-3 mt-3 rounded-2xl border border-black/5 bg-white px-5 py-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
+        <h2 class="text-[11px] font-medium tracking-[0.2em] text-zinc-400 dark:text-zinc-500">JEV API KEY</h2>
+        <input data-input-target="apiKey" type="password" placeholder="ts_..." autocomplete="off" spellcheck="false"
+               class="mt-2 w-full rounded-xl border border-zinc-200 bg-transparent px-3 py-2 font-mono text-base placeholder:text-zinc-400 focus:outline-none dark:border-zinc-800 dark:placeholder:text-zinc-600" />
+        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Same key everywhere (stored only in this browser). Without a key, the offline check maps and validates instead — still blocking on invalid answers.</p>
+      </div>
     </div>
   </section>
 
@@ -86,7 +126,9 @@
       <button data-action="click->studio#useSample" data-sample="bookstore" class="rounded-full border border-zinc-300 px-3 py-1 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">📚 Bookstore sales</button>
       <button data-action="click->studio#useSample" data-sample="workouts" class="rounded-full border border-zinc-300 px-3 py-1 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">🏃 Workouts</button>
       <button data-action="click->studio#useSample" data-sample="incidents" class="rounded-full border border-zinc-300 px-3 py-1 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">🚨 Incidents</button>
+      <button data-action="click->studio#loadFromInput" class="rounded-full border border-blue-300 px-3 py-1 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950">📥 From Input</button>
     </div>
+    <p class="mt-1 font-mono text-[11px] text-zinc-500 dark:text-zinc-400" data-studio-target="inputShare"></p>
     <textarea data-studio-target="dataset" rows="6" spellcheck="false"
               data-action="input->studio#datasetInput"
               placeholder='[{"genre":"fiction","units":42}, …] or CSV: genre,units&#10;fiction,42 — or pick a sample above'

@@ -1,4 +1,5 @@
 import { Controller } from "@hotwired/stimulus"
+import { rowsToDataset } from "./input_controller.js"
 
 // Generalized voice UI studio: data-agnostic parallel fan-out + generic render.
 //
@@ -609,7 +610,7 @@ export default class extends Controller {
   static targets = [
     "dataset", "schemaLine", "prompt", "micButton", "askButton", "canvas",
     "latency", "questionCount", "inspector", "status", "voiceStatus",
-    "supportWarning", "headline", "apiKey", "keyStatus", "testButton",
+    "supportWarning", "headline", "apiKey", "keyStatus", "testButton", "inputShare",
   ]
 
   connect() {
@@ -629,6 +630,7 @@ export default class extends Controller {
       }, 0)
     })
     this.updateKeyStatus()
+    this.refreshInputShare()
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) this.supportWarningTarget.classList.remove("hidden")
   }
@@ -666,6 +668,40 @@ export default class extends Controller {
     this.datasetTarget.value = JSON.stringify(SAMPLES[key] || [], null, 1)
     this.datasetInput()
     this.statusTarget.textContent = `Loaded ${key} sample — now speak or type how to render it.`
+  }
+
+  // --- input auto-share -----------------------------------------------------------
+  // Rows collected in the Input tab live in localStorage; one tap loads them
+  // as this tab's dataset. The share line refreshes on connect.
+  readInputShare() {
+    try {
+      const rows = JSON.parse(localStorage.getItem("syft_input_rows") || "[]")
+      const schema = JSON.parse(localStorage.getItem("syft_design_schema") || "[]")
+      if (!Array.isArray(rows) || !rows.length) return { rows: [], fields: [] }
+      return { rows, fields: Array.isArray(schema) ? schema : [] }
+    } catch {
+      return { rows: [], fields: [] }
+    }
+  }
+
+  refreshInputShare() {
+    if (!this.hasInputShareTarget) return
+    const { rows } = this.readInputShare()
+    this.inputShareTarget.textContent = rows.length
+      ? `${rows.length} input record${rows.length === 1 ? "" : "s"} available — 📥 From Input loads them.`
+      : "No input records yet — fill some in the Input tab."
+  }
+
+  loadFromInput() {
+    const { rows } = this.readInputShare()
+    if (!rows.length) {
+      this.statusTarget.textContent = "No input records yet — fill some in the Input tab first."
+      return
+    }
+    this.datasetTarget.value = JSON.stringify(rowsToDataset(rows), null, 1)
+    this.datasetInput()
+    this.refreshInputShare()
+    this.statusTarget.textContent = `Loaded ${rows.length} input record${rows.length === 1 ? "" : "s"} — now speak or type how to render it.`
   }
 
   // --- key (shared) ---------------------------------------------------------------

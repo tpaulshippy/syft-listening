@@ -10,6 +10,9 @@ Rails.application.routes.draw do
   # Data design interview (voice-driven field builder, Jev classifies only)
   post "/jev_design", to: "design#classify", as: "jev_design"
 
+  # Data input (voice-driven record filling, Jev maps + validates only)
+  post "/jev_input", to: "input#resolve", as: "jev_input"
+
   # Generalized voice UI studio (schema-driven questions, Chart.js render)
   get "/studio", to: "studio#show", as: "studio"
   post "/jev_studio", to: "studio#analyze", as: "jev_studio"

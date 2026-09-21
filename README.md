@@ -54,6 +54,7 @@ Optional: set `TYPESAFE_API_KEY` in the environment as a fallback server-side ke
 | POST | `/jev_analyze` | proxy to Jev (`{ text, metrics, api_key }`) |
 | GET | `/studio` | `studio#show` (Design → Input → Visualize tabs; Visualize is the Chart.js renderer) |
 | POST | `/jev_design` | proxy to Jev (`{ step, field_name|transcript, api_key }`; design interview classification) |
+| POST | `/jev_input` | proxy to Jev (`{ step, transcript, fields, api_key }`; input mapping + validation, Jev decides closed-type groupings) |
 | POST | `/jev_studio` | proxy to Jev (`{ prompt, dataset|sample, api_key }`; questions generated from the dataset schema) |
 | GET | `/up` | health check |
 

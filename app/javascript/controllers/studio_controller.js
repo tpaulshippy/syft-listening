@@ -572,7 +572,7 @@ export function resolveChartClass(root) {
 // --- Stimulus controller (dataset + voice + Jev call + Chart.js mount) --------
 export default class extends Controller {
   static targets = [
-    "dataset", "schemaLine", "prompt", "askButton", "canvas",
+    "dataset", "schemaLine", "canvas",
     "latency", "questionCount", "inspector", "status",
     "headline", "apiKey", "keyStatus", "testButton", "inputShare",
   ]
@@ -595,13 +595,15 @@ export default class extends Controller {
     this.lastAutoLoaded = null
     this.handleInputRowsChanged = () => this.autoLoadFromInput()
     this.handleTabShown = (event) => { if (event?.detail === "visualize") this.autoLoadFromInput() }
-    // Global voice commands (Jev-routed): the prompt is the transcript
+    // Global voice commands (Jev-routed): the request is the transcript
     // verbatim — carried, never parsed — rendered through the normal ask().
+    // There is no typed prompt: voice is the only input.
+    this.request = ""
     this.handleVoiceCommand = (event) => {
       const prompt = event?.detail?.prompt
       if (typeof prompt !== "string" || !prompt.trim()) return
-      this.promptTarget.value = prompt
-      this.promptInput()
+      this.request = prompt
+      this.headlineTarget.textContent = prompt
       this.ask()
     }
     window.addEventListener("syft:input-rows-changed", this.handleInputRowsChanged)
@@ -713,34 +715,15 @@ export default class extends Controller {
     }
   }
 
-  // --- prompt ----------------------------------------------------------------------
-  promptKeydown(event) {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault()
-      this.ask()
-    }
-  }
-
-  promptInput() {
-    this.headlineTarget.textContent = this.promptTarget.value.trim() || "Paste any dataset, then speak or type how to render it."
-  }
-
-  usePrompt(event) {
-    this.promptTarget.value = event.currentTarget.dataset.prompt
-    this.promptInput()
-    this.ask()
-  }
-
   // --- build (Jev only — no key or unsure answers repeat, never render) ---------
   async ask() {
-    const prompt = this.promptTarget.value.trim()
-    if (!prompt) { this.statusTarget.textContent = "Say or type how to render the data first."; return }
+    const prompt = String(this.request || "").trim()
+    if (!prompt) { this.statusTarget.textContent = "Say how to render the data first."; return }
     const parsed = this.parseDataset()
     if (parsed.error) { this.statusTarget.textContent = parsed.error; return }
     const rows = parsed.rows
     const t0 = performance.now()
     this.headlineTarget.textContent = prompt
-    this.askButtonTarget.disabled = true
     this.statusTarget.textContent = "Asking Jev the schema-driven questions in parallel…"
     try {
       const key = this.apiKeyTarget.value.trim()
@@ -770,7 +753,7 @@ export default class extends Controller {
       const { blocking, nonBlocking: soft } = partitionFallbacks(usedFallback)
       const notes = [...soft, ...nonBlocking]
       if (blocking.length) {
-        this.statusTarget.textContent = `Jev wasn't sure about ${blocking.slice(0, 4).join(", ")} — rephrase and Ask again.`
+        this.statusTarget.textContent = `Jev wasn't sure about ${blocking.slice(0, 4).join(", ")} — rephrase and say it again.`
         return
       }
       this.renderResult(dashboard, rows, serverSchema, prompt, t0, {
@@ -781,8 +764,6 @@ export default class extends Controller {
       })
     } catch {
       this.statusTarget.textContent = "Could not reach Jev — try again."
-    } finally {
-      this.askButtonTarget.disabled = false
     }
   }
 

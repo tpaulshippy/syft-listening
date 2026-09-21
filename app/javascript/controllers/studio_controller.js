@@ -1,5 +1,19 @@
 import { Controller } from "@hotwired/stimulus"
-import { rowsToDataset } from "./input_controller.js"
+
+// NOTE: never import across controller files — Propshaft serves each file as
+// a standalone fingerprinted asset, so relative ESM imports 404 and the
+// whole controller fails to register (this broke Visualize's input share).
+// Shared bits are duplicated in a few lines instead.
+function rowsToDataset(rows) {
+  return (rows || []).map((row) => {
+    const out = {}
+    for (const [k, v] of Object.entries(row || {})) {
+      if (k === "_index") continue
+      out[k] = v
+    }
+    return out
+  })
+}
 
 // Generalized voice UI studio: data-agnostic parallel fan-out + generic render.
 //
@@ -643,7 +657,9 @@ export default class extends Controller {
     this.updateKeyStatus()
     this.lastAutoLoaded = null
     this.handleInputRowsChanged = () => this.autoLoadFromInput()
+    this.handleTabShown = (event) => { if (event?.detail === "visualize") this.autoLoadFromInput() }
     window.addEventListener("syft:input-rows-changed", this.handleInputRowsChanged)
+    window.addEventListener("syft:tab-shown", this.handleTabShown)
     this.refreshInputShare()
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) this.supportWarningTarget.classList.remove("hidden")
@@ -652,6 +668,7 @@ export default class extends Controller {
   disconnect() {
     try { this.recognition?.stop() } catch { /* ignore */ }
     try { window.removeEventListener("syft:input-rows-changed", this.handleInputRowsChanged) } catch { /* ignore */ }
+    try { window.removeEventListener("syft:tab-shown", this.handleTabShown) } catch { /* ignore */ }
     this.destroyCharts()
   }
 
@@ -678,16 +695,10 @@ export default class extends Controller {
       `${parsed.rows.length} rows · ` + schema.columns.map((c) => `${c.name}:${c.type}`).join(", ")
   }
 
-  useSample(event) {
-    const key = event.currentTarget.dataset.sample
-    this.datasetTarget.value = JSON.stringify(SAMPLES[key] || [], null, 1)
-    this.datasetInput()
-    this.statusTarget.textContent = `Loaded ${key} sample — now speak or type how to render it.`
-  }
-
   // --- input auto-share -----------------------------------------------------------
-  // Rows collected in the Input tab live in localStorage; one tap loads them
-  // as this tab's dataset. The share line refreshes on connect.
+  // Rows collected in the Input tab flow here on their own: on every save
+  // and whenever this tab is shown. Never clobbers text the user typed or
+  // pasted themselves (see shouldAutoLoadDataset).
   readInputShare() {
     try {
       const rows = JSON.parse(localStorage.getItem("syft_input_rows") || "[]")
@@ -717,20 +728,6 @@ export default class extends Controller {
     this.lastAutoLoaded = nextJson
     this.datasetInput()
     this.refreshInputShare()
-  }
-
-  loadFromInput() {
-    const { rows } = this.readInputShare()
-    if (!rows.length) {
-      this.statusTarget.textContent = "No input records yet — fill some in the Input tab first."
-      return
-    }
-    const nextJson = JSON.stringify(rowsToDataset(rows), null, 1)
-    this.datasetTarget.value = nextJson
-    this.lastAutoLoaded = nextJson
-    this.datasetInput()
-    this.refreshInputShare()
-    this.statusTarget.textContent = "Loaded input records — now speak or type how to render them."
   }
 
   // --- key (shared) ---------------------------------------------------------------

@@ -18,5 +18,7 @@ export default class extends Controller {
         : "border border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800")
     }
     for (const p of this.panelTargets) p.classList.toggle("hidden", p.dataset.panel !== target)
+    // Lets the shown tab refresh itself (Visualize reloads Input rows).
+    try { window.dispatchEvent(new CustomEvent("syft:tab-shown", { detail: target })) } catch { /* non-browser */ }
   }
 }

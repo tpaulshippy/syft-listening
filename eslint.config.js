@@ -20,4 +20,13 @@ export default [
       globals: { ...globals.browser, ...globals.node },
     },
   },
+  {
+    // Propshaft serves each controller file as a standalone fingerprinted
+    // asset, so relative ESM imports 404 and the whole controller silently
+    // fails to register. Keep controllers self-contained instead.
+    files: ["app/javascript/controllers/*.js"],
+    rules: {
+      "no-restricted-imports": ["error", { patterns: ["./*", "../*"] }],
+    },
+  },
 ]

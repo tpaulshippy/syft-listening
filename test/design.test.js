@@ -10,6 +10,7 @@ import {
   fieldCardHtml,
   editIntentFromAnswers,
   editMenuPrompt,
+  retypeField,
   addOption,
   validateFieldName,
   loadSchema,
@@ -136,5 +137,25 @@ describe("voice edit menu (Jev first)", () => {
   it("hears retypes through the change_type merger", () => {
     expect(typeFromAnswers({ field_type: { choice: "number", confidence: 0.9 } }).type).toBe("number")
     expect(typeFromAnswers({}).type).toBeNull()
+  })
+
+  it("retypes in place, dropping options when leaving choice types", () => {
+    const field = { id: "f1", name: "Genre", type: "choice_single", options: ["a"] }
+    expect(retypeField(field, "text")).toEqual({ ok: true, changed: true })
+    expect(field.type).toBe("text")
+    expect(field.options).toEqual([])
+  })
+
+  it("keeps options when retyping between choice types", () => {
+    const field = { id: "f1", name: "Genre", type: "choice_single", options: ["a"] }
+    expect(retypeField(field, "choice_multiple")).toEqual({ ok: true, changed: true })
+    expect(field.options).toEqual(["a"])
+  })
+
+  it("rejects unknown types and no-ops on the same type", () => {
+    const field = { id: "f1", name: "Genre", type: "text", options: [] }
+    expect(retypeField(field, "mystery").ok).toBe(false)
+    expect(field.type).toBe("text")
+    expect(retypeField(field, "text")).toEqual({ ok: true, changed: false })
   })
 })

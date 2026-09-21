@@ -125,6 +125,22 @@ export function addOption(field, option) {
   return { ok: true }
 }
 
+// Voice retype: applies Jev's confident new type to the field in place.
+// Leaving a choice type drops its options (they no longer apply);
+// entering one keeps (or inits) the list — the caller asks for options
+// when it's empty.
+export function retypeField(field, newType) {
+  if (!field || !FIELD_TYPES.includes(newType)) return { ok: false, changed: false }
+  if (field.type === newType) return { ok: true, changed: false }
+  field.type = newType
+  if (CHOICE_TYPES.includes(newType)) {
+    if (!Array.isArray(field.options)) field.options = []
+  } else {
+    field.options = []
+  }
+  return { ok: true, changed: true }
+}
+
 // No regex anywhere in this app: plain string replacements only.
 export function escapeHtml(s) {
   return String(s ?? "").split("&").join("&amp;").split("<").join("&lt;")
@@ -726,7 +742,7 @@ export default class extends Controller {
       this.sayThenListen(`Sorry, I didn't catch the type. Text, number, date, time, email, yes or no, single choice, or multiple choice?`)
       return
     }
-    field.type = type
+    retypeField(field, type)
     saveSchema(this.fields)
     this.render()
     if (CHOICE_TYPES.includes(type) && !(field.options || []).length) {

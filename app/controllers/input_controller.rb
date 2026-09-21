@@ -204,9 +204,21 @@ class InputController < ApplicationController
       {
         "valid#{suffix}" => {
           type: "noul",
-          instructions: "Does `transcript` contain a plausible #{field[:type]} answer for #{name} (not empty, not asking to skip)?"
+          instructions: "Does `transcript` contain #{validity_check(field[:type])} for #{name} (not empty, not asking to skip)?"
         }
       }
+    end
+  end
+
+  # What Jev checks for each open type. Dates: a real month, a real day, and
+  # a year in a reasonable range — Jev judges all three from the words.
+  def validity_check(type)
+    case type
+    when "date" then "a real calendar date — a month (January–December), a day (1–31), and a year between 2020 and 2035"
+    when "time" then "a real time of day — an hour (0–23) and minutes (0–59)"
+    when "number" then "a real number — digits, optionally negative or decimal"
+    when "email" then "a real email address — a name, an @ sign, and a domain"
+    else "a non-empty answer"
     end
   end
 

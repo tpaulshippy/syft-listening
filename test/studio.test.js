@@ -2,8 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   SAMPLES,
   inferSchema,
-  slugify,
-  columnType,
+  refToName,
   constantSpec,
   specFromAnswers,
   aggregateCategory,
@@ -25,11 +24,12 @@ import {
   shouldAutoLoadDataset,
 } from "../app/javascript/controllers/studio_controller.js"
 
-describe("inferSchema (arbitrary data)", () => {
-  it("types bookstore columns", () => {
+describe("inferSchema (names in order, no types)", () => {
+  it("lists bookstore columns with positional refs", () => {
     const schema = inferSchema(SAMPLES.bookstore)
-    const byName = Object.fromEntries(schema.columns.map((c) => [c.name, c.type]))
-    expect(byName).toMatchObject({ genre: "categorical", units: "numeric", revenue: "numeric", month: "temporal", title: "categorical" })
+    expect(schema.columns.map((c) => c.name)).toEqual(["title", "genre", "units", "revenue", "month"])
+    expect(refToName(schema, "col3")).toBe("revenue")
+    expect(refToName(schema, "col9")).toBe("col9")
     expect(schema.row_count).toBe(SAMPLES.bookstore.length)
   })
 
@@ -40,19 +40,7 @@ describe("inferSchema (arbitrary data)", () => {
       { name: "Titan (moon of Saturn)", type: "moon", moons: 1, distance_au: 9.5, discovered: "1655-03-25" },
     ]
     const schema = inferSchema(planets)
-    const byName = Object.fromEntries(schema.columns.map((c) => [c.name, c.type]))
-    expect(byName).toMatchObject({ type: "categorical", moons: "numeric", distance_au: "numeric", discovered: "temporal" })
-  })
-
-  it("slugifies odd names uniquely", () => {
-    const taken = {}
-    expect(slugify("Minutes Open", taken)).toBe("minutes_open")
-    expect(slugify("minutes-open!", taken)).toBe("minutes_open_2")
-    expect(slugify("!!!", taken)).toBe("col")
-  })
-
-  it("treats long strings as text", () => {
-    expect(columnType(["short", "x".repeat(80)])).toBe("text")
+    expect(schema.columns.map((c) => c.name)).toEqual(["name", "type", "moons", "distance_au", "discovered"])
   })
 })
 
@@ -62,7 +50,7 @@ describe("constantSpec (schema-derived starting point, Jev fills the rest)", () 
   it("starts from a fixed table spec, never prompt words", () => {
     const spec = constantSpec(schema, "Bar chart of revenue by genre")
     expect(spec.view).toBe("table")
-    expect(spec.xField).toBe("title") // first non-numeric column
+    expect(spec.xField).toBe("col0") // first column, positional
     expect(spec.yField).toBe("count_rows")
     expect(spec.filter).toBeNull()
   })
@@ -70,13 +58,13 @@ describe("constantSpec (schema-derived starting point, Jev fills the rest)", () 
   it("merges a confident Jev bar spec over the constants", () => {
     const { spec, usedFallback } = specFromAnswers({
       view: { choice: "bar", confidence: 0.94 },
-      x_field: { choice: "genre", confidence: 0.9 },
-      y_field: { choice: "revenue", confidence: 0.88 },
+      x_field: { choice: "col1", confidence: 0.9 },
+      y_field: { choice: "col3", confidence: 0.88 },
       aggregation: { choice: "sum", confidence: 0.8 },
       show_legend: { noul: 0.95 },
     }, schema, "Bar chart of revenue by genre")
     expect(spec.view).toBe("bar")
-    expect(spec.xField).toBe("genre")
+    expect(spec.xField).toBe("col1")
     expect(usedFallback).not.toContain("view")
   })
 })
@@ -87,13 +75,13 @@ describe("specFromAnswers (parallel-answer merge)", () => {
   it("trusts confident Jev answers", () => {
     const { spec, usedFallback } = specFromAnswers({
       view: { choice: "bar", confidence: 0.94 },
-      x_field: { choice: "genre", confidence: 0.9 },
-      y_field: { choice: "revenue", confidence: 0.88 },
+      x_field: { choice: "col1", confidence: 0.9 },
+      y_field: { choice: "col3", confidence: 0.88 },
       aggregation: { choice: "sum", confidence: 0.8 },
       show_legend: { noul: 0.95 },
     }, schema, "Bar chart of revenue by genre")
     expect(spec.view).toBe("bar")
-    expect(spec.xField).toBe("genre")
+    expect(spec.xField).toBe("col1")
     expect(spec.showLegend).toBe(true)
     expect(usedFallback).not.toContain("view")
   })
@@ -101,10 +89,10 @@ describe("specFromAnswers (parallel-answer merge)", () => {
   it("marks unsure and out-of-schema answers for repeat", () => {
     const { spec, usedFallback } = specFromAnswers({
       view: { choice: "bar", confidence: 0.9 },
-      x_field: { choice: "owner", confidence: 0.9 }, // not a bookstore column
-      y_field: { choice: "revenue", confidence: 0.2 }, // unsure
+      x_field: { choice: "col9", confidence: 0.9 }, // past the last column
+      y_field: { choice: "col3", confidence: 0.2 }, // unsure
     }, schema, "Bar chart of revenue by genre")
-    expect(spec.xField).toBe("title") // constant default, not a guess
+    expect(spec.xField).toBe("col0") // constant default, not a guess
     expect(usedFallback).toContain("x_field")
     expect(usedFallback).toContain("y_field")
   })
@@ -115,14 +103,14 @@ describe("aggregation + Chart.js config", () => {
 
   it("sums revenue by genre", () => {
     const agg = aggregateCategory(SAMPLES.bookstore,
-      { xField: "genre", yField: "revenue", aggregation: "sum", sortBy: "label_asc" }, schema)
+      { xField: "col1", yField: "col3", aggregation: "sum", sortBy: "label_asc" }, schema)
     expect(agg.labels).toEqual(["fiction", "nonfiction", "scifi"])
     expect(agg.values).toEqual([1674, 2772, 2242])
   })
 
   it("counts rows per month", () => {
     const agg = aggregateCategory(SAMPLES.bookstore,
-      { xField: "month", yField: "count_rows", aggregation: "count", sortBy: "label_asc" }, schema)
+      { xField: "col4", yField: "count_rows", aggregation: "count", sortBy: "label_asc" }, schema)
     expect(agg.labels).toEqual(["2026-06", "2026-07"])
     expect(agg.values).toEqual([3, 5])
   })
@@ -130,8 +118,8 @@ describe("aggregation + Chart.js config", () => {
   it("builds a bar config Chart.js can consume", () => {
     const { spec } = specFromAnswers({
       view: { choice: "bar", confidence: 0.9 },
-      x_field: { choice: "genre", confidence: 0.9 },
-      y_field: { choice: "revenue", confidence: 0.9 },
+      x_field: { choice: "col1", confidence: 0.9 },
+      y_field: { choice: "col3", confidence: 0.9 },
       aggregation: { choice: "sum", confidence: 0.9 },
       sort_by: { choice: "label_asc", confidence: 0.9 },
     }, schema, "Bar chart of revenue by genre")
@@ -144,8 +132,8 @@ describe("aggregation + Chart.js config", () => {
   it("builds a pie config for share requests", () => {
     const { spec } = specFromAnswers({
       view: { choice: "pie", confidence: 0.9 },
-      x_field: { choice: "genre", confidence: 0.9 },
-      y_field: { choice: "units", confidence: 0.9 },
+      x_field: { choice: "col1", confidence: 0.9 },
+      y_field: { choice: "col2", confidence: 0.9 },
       aggregation: { choice: "sum", confidence: 0.9 },
       sort_by: { choice: "label_asc", confidence: 0.9 },
     }, schema, "Pie chart share of units by genre")
@@ -158,8 +146,8 @@ describe("aggregation + Chart.js config", () => {
     const wschema = inferSchema(SAMPLES.workouts)
     const { spec } = specFromAnswers({
       view: { choice: "scatter", confidence: 0.9 },
-      x_field: { choice: "minutes", confidence: 0.9 },
-      y_field: { choice: "km", confidence: 0.9 },
+      x_field: { choice: "col2", confidence: 0.9 },
+      y_field: { choice: "col3", confidence: 0.9 },
     }, wschema, "Scatter of km vs minutes")
     const series = scatterSeries(SAMPLES.workouts, spec, wschema)
     expect(series.length).toBe(1)
@@ -190,7 +178,7 @@ describe("DOM renderers", () => {
   it("renders a table with schema headers, biggest first", () => {
     const { spec } = specFromAnswers({
       view: { choice: "table", confidence: 0.9 },
-      y_field: { choice: "minutes_open", confidence: 0.9 },
+      y_field: { choice: "col3", confidence: 0.9 },
       sort_by: { choice: "value_desc", confidence: 0.9 },
     }, schema, "Table of all incidents, biggest minutes_open first")
     const html = renderTableHtml(SAMPLES.incidents, spec, schema)
@@ -198,10 +186,22 @@ describe("DOM renderers", () => {
     expect(html.indexOf("INC-102")).toBeLessThan(html.indexOf("INC-105"))
   })
 
-  it("renders KPI sums for numeric columns", () => {
-    const { spec } = specFromAnswers({ view: { choice: "kpi", confidence: 0.9 } }, schema, "KPI totals")
+  it("renders the Jev-chosen metric", () => {
+    const { spec } = specFromAnswers({
+      view: { choice: "kpi", confidence: 0.9 },
+      y_field: { choice: "col3", confidence: 0.9 },
+    }, schema, "KPI totals")
     const html = renderKpiHtml(SAMPLES.incidents, spec, schema)
     expect(html).toContain("270") // 47+120+25+63+15
+  })
+
+  it("renders a count card when Jev picks count_rows", () => {
+    const { spec } = specFromAnswers({
+      view: { choice: "kpi", confidence: 0.9 },
+      y_field: { choice: "count_rows", confidence: 0.9 },
+    }, schema, "KPI totals")
+    const html = renderKpiHtml(SAMPLES.incidents, spec, schema)
+    expect(html).toContain("5")
   })
 
   it("renders one card per record", () => {
@@ -224,8 +224,8 @@ describe("end-to-end on a never-before-seen dataset (Jev answers, no task code)"
     const schema = inferSchema(planets)
     const { spec, usedFallback } = specFromAnswers({
       view: { choice: "bar", confidence: 0.9 },
-      x_field: { choice: "type", confidence: 0.9 },
-      y_field: { choice: "moons", confidence: 0.9 },
+      x_field: { choice: "col1", confidence: 0.9 },
+      y_field: { choice: "col2", confidence: 0.9 },
       aggregation: { choice: "sum", confidence: 0.9 },
       sort_by: { choice: "label_asc", confidence: 0.9 },
     }, schema, "Bar chart of moons by type")
@@ -248,8 +248,8 @@ describe("dashboard (Jev-driven multi-panel)", () => {
       panel_count: { choice: "two", confidence: 0.92 },
       layout: { choice: "stack", confidence: 0.9 },
       view: { choice: "bar", confidence: 0.9 },
-      x_field: { choice: "genre", confidence: 0.9 },
-      y_field: { choice: "revenue", confidence: 0.9 },
+      x_field: { choice: "col1", confidence: 0.9 },
+      y_field: { choice: "col3", confidence: 0.9 },
       view_2: { choice: "kpi", confidence: 0.9 },
     }, schema, "Bar chart of revenue by genre with KPI totals")
     expect(dashboard.panels).toHaveLength(2)
@@ -269,10 +269,10 @@ describe("dashboard (Jev-driven multi-panel)", () => {
       layout: { choice: "side-by-side", confidence: 0.9 },
       panel_count: { choice: "two", confidence: 0.92 },
       view: { choice: "bar", confidence: 0.94 },
-      x_field: { choice: "genre", confidence: 0.9 },
-      y_field: { choice: "revenue", confidence: 0.88 },
+      x_field: { choice: "col1", confidence: 0.9 },
+      y_field: { choice: "col3", confidence: 0.88 },
       view_2: { choice: "kpi", confidence: 0.85 },
-      y_field_2: { choice: "owner", confidence: 0.9 }, // not a column -> fallback
+      y_field_2: { choice: "col9", confidence: 0.9 }, // past the last column -> fallback
     }, schema, "Bar chart of revenue by genre with KPI totals")
     expect(dashboard.layout).toBe("side-by-side")
     expect(dashboard.panels).toHaveLength(2)
@@ -294,8 +294,8 @@ describe("dashboard (Jev-driven multi-panel)", () => {
   it("derives deterministic panel titles", () => {
     const { dashboard } = dashboardFromAnswers({
       view: { choice: "bar", confidence: 0.9 },
-      x_field: { choice: "genre", confidence: 0.9 },
-      y_field: { choice: "revenue", confidence: 0.9 },
+      x_field: { choice: "col1", confidence: 0.9 },
+      y_field: { choice: "col3", confidence: 0.9 },
     }, schema, "Bar chart of revenue by genre")
     expect(panelTitle(dashboard.panels[0], schema)).toBe("revenue by genre · bar")
   })
@@ -304,9 +304,10 @@ describe("dashboard (Jev-driven multi-panel)", () => {
     const { dashboard } = dashboardFromAnswers({
       panel_count: { choice: "two", confidence: 0.9 },
       view: { choice: "bar", confidence: 0.9 },
-      x_field: { choice: "genre", confidence: 0.9 },
-      y_field: { choice: "revenue", confidence: 0.9 },
+      x_field: { choice: "col1", confidence: 0.9 },
+      y_field: { choice: "col3", confidence: 0.9 },
       view_2: { choice: "kpi", confidence: 0.9 },
+      y_field_2: { choice: "col3", confidence: 0.9 },
     }, schema, "Bar chart of revenue by genre with KPI totals")
     const html = dashboard.panels.map((p, i) => panelSectionHtml(p, SAMPLES.bookstore, schema, i)).join("")
     expect(html).toContain('data-chart-slot="0"')
@@ -317,42 +318,30 @@ describe("dashboard (Jev-driven multi-panel)", () => {
   })
 })
 
-describe("CSV dataset input", () => {
-  it("parses a simple table", () => {
-    const { rows, error } = parseDatasetText("genre,units,revenue\nscifi,35,665\nfiction,42,756\n")
+describe("dataset input (JSON only — no CSV parsing)", () => {
+  it("parses a JSON array of objects", () => {
+    const { rows, error } = parseDatasetText('[{"genre":"scifi","units":35},{"genre":"fiction","units":42}]')
     expect(error).toBeUndefined()
     expect(rows).toEqual([
-      { genre: "scifi", units: "35", revenue: "665" },
-      { genre: "fiction", units: "42", revenue: "756" },
-    ])
-    const schema = inferSchema(rows)
-    const byName = Object.fromEntries(schema.columns.map((c) => [c.name, c.type]))
-    expect(byName).toMatchObject({ genre: "categorical", units: "numeric", revenue: "numeric" })
-  })
-
-  it("handles quoted commas, escaped quotes, and CRLF", () => {
-    const { rows, error } = parseDatasetText('title,units\r\n"The Midnight, Library",42\r\n"Say ""hi""",7\r\n')
-    expect(error).toBeUndefined()
-    expect(rows).toEqual([
-      { title: "The Midnight, Library", units: "42" },
-      { title: 'Say "hi"', units: "7" },
+      { genre: "scifi", units: 35 },
+      { genre: "fiction", units: 42 },
     ])
   })
 
-  it("aggregates numeric strings end to end", () => {
-    const { rows } = parseDatasetText("genre,units\nscifi,35\nscifi,44\nfiction,42\n")
+  it("aggregates numbers end to end with Number conversion", () => {
+    const { rows } = parseDatasetText('[{"genre":"scifi","units":"35"},{"genre":"scifi","units":"44"},{"genre":"fiction","units":"42"}]')
     const schema = inferSchema(rows)
     const agg = aggregateCategory(rows,
-      { xField: "genre", yField: "units", aggregation: "sum", sortBy: "label_asc" }, schema)
+      { xField: "col0", yField: "col1", aggregation: "sum", sortBy: "label_asc" }, schema)
     expect(agg.labels).toEqual(["fiction", "scifi"])
     expect(agg.values).toEqual([42, 79])
   })
 
-  it("rejects header-only, blank-header, and duplicate-header CSV", () => {
-    expect(parseDatasetText("a,b,c\n").error).toMatch(/no data rows/)
-    expect(parseDatasetText("a,,c\n1,2,3\n").error).toMatch(/blank/)
-    expect(parseDatasetText("a,b,a\n1,2,3\n").error).toMatch(/duplicate/)
-    expect(parseDatasetText("   ").error).toMatch(/Paste/)
+  it("rejects non-JSON, non-arrays, and empties", () => {
+    expect(parseDatasetText("genre,units\nscifi,35\n").error).toContain('JSON')
+    expect(parseDatasetText('{"a":1}').error).toContain('array')
+    expect(parseDatasetText("[]").error).toContain('non-empty')
+    expect(parseDatasetText("   ").error).toContain('Paste')
   })
 
   it("still parses JSON arrays", () => {
@@ -414,25 +403,25 @@ describe("row filter (Jev-native)", () => {
   it("merges confident Jev filter answers", () => {
     const { spec, usedFallback } = specFromAnswers({
       view: { choice: "table", confidence: 0.9 },
-      filter_column: { choice: "status", confidence: 0.9 },
+      filter_column: { choice: "col4", confidence: 0.9 },
       filter_op: { choice: "equals", confidence: 0.85 },
       filter_negate: { noul: 0.05 },
-      filter_value_status: { choice: "open", confidence: 0.9 },
+      filter_value_col4: { choice: "open", confidence: 0.9 },
     }, schema, "Table of open incidents", SAMPLES.incidents)
-    expect(spec.filter).toEqual({ column: "status", op: "equals", value: "open", negate: false })
+    expect(spec.filter).toEqual({ column: "col4", op: "equals", value: "open", negate: false })
     expect(usedFallback).not.toContain("filter_column")
-    expect(usedFallback).not.toContain("filter_value_status")
+    expect(usedFallback).not.toContain("filter_value_col4")
     expect(usedFallback).not.toContain("filter_negate")
   })
 
   it("merges a negated Jev filter", () => {
     const { spec } = specFromAnswers({
-      filter_column: { choice: "status", confidence: 0.9 },
+      filter_column: { choice: "col4", confidence: 0.9 },
       filter_op: { choice: "equals", confidence: 0.9 },
       filter_negate: { noul: 0.95 },
-      filter_value_status: { choice: "open", confidence: 0.9 },
+      filter_value_col4: { choice: "open", confidence: 0.9 },
     }, schema, "Books that are not open", SAMPLES.incidents)
-    expect(spec.filter).toEqual({ column: "status", op: "equals", value: "open", negate: true })
+    expect(spec.filter).toEqual({ column: "col4", op: "equals", value: "open", negate: true })
   })
 
   it("drops the filter when Jev says none or is unsure", () => {
@@ -440,19 +429,19 @@ describe("row filter (Jev-native)", () => {
       { filter_column: { choice: "none", confidence: 0.95 } }, schema, "Table", SAMPLES.incidents)
     expect(none.spec.filter).toBeNull()
     const unsure = specFromAnswers(
-      { filter_column: { choice: "status", confidence: 0.2 } }, schema, "Table", SAMPLES.incidents)
+      { filter_column: { choice: "col4", confidence: 0.2 } }, schema, "Table", SAMPLES.incidents)
     expect(unsure.spec.filter).toBeNull()
     expect(unsure.usedFallback).toContain("filter_column")
   })
 
   it("rejects a hallucinated value and records fallback", () => {
     const { spec, usedFallback } = specFromAnswers({
-      filter_column: { choice: "status", confidence: 0.9 },
+      filter_column: { choice: "col4", confidence: 0.9 },
       filter_op: { choice: "equals", confidence: 0.9 },
-      filter_value_status: { choice: "purple", confidence: 0.9 },
+      filter_value_col4: { choice: "purple", confidence: 0.9 },
     }, schema, "Table", SAMPLES.incidents)
     expect(spec.filter).toBeNull()
-    expect(usedFallback).toContain("filter_value_status")
+    expect(usedFallback).toContain("filter_value_col4")
   })
 
   it("shares one filter across dashboard panels", () => {
@@ -460,14 +449,14 @@ describe("row filter (Jev-native)", () => {
       panel_count: { choice: "two", confidence: 0.92 },
       view: { choice: "bar", confidence: 0.9 },
       view_2: { choice: "table", confidence: 0.9 },
-      filter_column: { choice: "service", confidence: 0.9 },
+      filter_column: { choice: "col1", confidence: 0.9 },
       filter_op: { choice: "equals", confidence: 0.9 },
-      filter_value_service: { choice: "checkout", confidence: 0.9 },
+      filter_value_col1: { choice: "checkout", confidence: 0.9 },
     }
     const { dashboard } = dashboardFromAnswers(answers, schema, "Bars and a table for checkout", SAMPLES.incidents)
     expect(dashboard.panels).toHaveLength(2)
     for (const p of dashboard.panels) {
-      expect(p.filter).toEqual({ column: "service", op: "equals", value: "checkout", negate: false })
+      expect(p.filter).toEqual({ column: "col1", op: "equals", value: "checkout", negate: false })
     }
   })
 

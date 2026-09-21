@@ -1,21 +1,21 @@
 require "net/http"
 require "uri"
 require "json"
-require "csv"
 
 # Generalized voice UI studio — the same parallel fan-out pattern as Builder,
 # but data-agnostic: the question set is generated from the dataset's own
 # schema instead of being hardcoded for tasks/calendar.
 #
-# State = { request, schema: { columns: [{name, slug, type}] }, rows }.
+# State = { request, schema: { columns: [{name}] }, rows }.
 # Questions = one fixed `view` choice over the component registry + dynamic
 # field-binding choices whose options are the dataset's actual columns
-# (slugged; Choice supports up to 255 options) + feature nouls + one
-# include_<slug> noul per column (the fan-out that scales with data width)
-# + Jev-native row filter: `filter_column` / `filter_op` choices plus one
-# `filter_value_<slug>` choice per low-cardinality column (Jev can't emit
-# free text, so values are enumerated) plus a `filter_negate` noul for
-# exclusions ("not", "except").
+# (positional col0, col1, … with real names plus sample values in the
+# criteria text, so Jev judges fit from evidence; Choice supports up to 255
+# options) + feature nouls + one include_col<i> noul per column (the fan-out
+# that scales with data width) + Jev-native row filter: `filter_column` /
+# `filter_op` choices plus one `filter_value_col<i>` choice per
+# low-cardinality column (Jev can't emit free text, so values are enumerated)
+# plus a `filter_negate` noul for exclusions ("not", "except").
 # The frontend (`studio_controller.js`) is a generic interpreter: it maps the
 # winning spec onto Chart.js (bar/line/pie/scatter/bubbles) or hand-rendered
 # table/cards/kpi DOM. Jev selects parameters; it never invents components.
@@ -106,7 +106,6 @@ class StudioController < ApplicationController
     # already; the String branch covers form-encoded posts and specs.
     parsed = raw.is_a?(Array) ? raw : parse_dataset_json(raw.to_s.strip)
     return parsed if parsed.is_a?(Hash) && parsed[:error]
-    parsed = parsed[:csv_rows] if parsed.is_a?(Hash) && parsed[:csv_rows]
     return { error: "Dataset must be an array of objects" } unless parsed.is_a?(Array) && parsed.all? { |r| hash_like?(r) }
     return { error: "Dataset is empty" } if parsed.empty?
     return { error: "Dataset too large (max 500 rows)" } if parsed.size > 500
@@ -119,8 +118,7 @@ class StudioController < ApplicationController
   end
 
   def parse_dataset_json(raw)
-    return { error: "No dataset provided (paste JSON or CSV, or pick a sample)" } if raw.blank?
-    return parse_dataset_csv(raw) unless raw.lstrip.start_with?("[")
+    return { error: "No dataset provided (paste a JSON array of objects)" } if raw.blank?
 
     begin
       JSON.parse(raw)
@@ -129,109 +127,52 @@ class StudioController < ApplicationController
     end
   end
 
-  # CSV alternative to the JSON array: first row is the header. Values stay
-  # strings — column_type already recognizes numeric/temporal strings.
-  def parse_dataset_csv(raw)
-    begin
-      table = CSV.parse(raw.strip, headers: true, skip_blanks: true)
-    rescue CSV::MalformedCSVError
-      return { error: "Dataset is not valid CSV (check quoting)." }
-    end
-    headers = table.headers.map { |h| h.to_s.strip }
-    return { error: "CSV is empty." } if headers.empty?
-    return { error: "CSV header row has a blank column name." } if headers.any?(&:empty?)
-    return { error: "CSV header row has duplicate column names." } if headers.uniq.size != headers.size
-    return { error: "CSV has a header but no data rows." } if table.empty?
-
-    { csv_rows: table.map { |row| row.to_h.transform_keys { |k| k.to_s.strip }.transform_values { |v| v.to_s.strip } } }
-  end
-
-  # Column inference shared by question-building and the response meta.
-  # Types: numeric | temporal | text | categorical.
+  # Column names in order. There are no inferred types and no slug transform:
+  # bindings are positional (col0, col1, …) with the real name — plus sample
+  # values — in the criteria text, so Jev judges from evidence.
   def infer_schema(rows)
     names = rows.each_with_object([]) { |row, acc| row.each_key { |k| acc << k.to_s unless acc.include?(k.to_s) } }
     names = names.first(MAX_COLUMNS)
-    slugs = {}
-    columns = names.map do |name|
-      slug = slugify(name, slugs)
-      slugs[slug] = true
-      values = rows.map { |r| r[name].nil? ? r[name.to_sym] : r[name] }.compact
-      { name: name, slug: slug, type: column_type(values) }
-    end
+    columns = names.map { |name| { name: name } }
     { columns: columns, row_count: rows.size }
-  end
-
-  # No regex anywhere in this app: slugify is a char loop, type checks read
-  # parts and digits directly.
-  def slugify(name, taken)
-    base = ""
-    last_was_gap = true
-    name.to_s.downcase.each_char do |ch|
-      if (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9")
-        base += ch
-        last_was_gap = false
-      elsif !last_was_gap
-        base += "_"
-        last_was_gap = true
-      end
-    end
-    base = base.chomp("_")
-    base = "col" if base.empty?
-    slug = base
-    i = 2
-    while taken[slug]
-      slug = "#{base}_#{i}"
-      i += 1
-    end
-    slug
-  end
-
-  def column_type(values)
-    return "categorical" if values.empty?
-    return "numeric" if values.all? { |v| numeric_value?(v) }
-    return "temporal" if values.all? { |v| temporal_value?(v) }
-    return "text" if values.any? { |v| v.to_s.length > 60 }
-
-    "categorical"
-  end
-
-  def digit_string?(str)
-    !str.empty? && str.each_char.all? { |c| c >= "0" && c <= "9" }
-  end
-
-  def decimal_string?(str)
-    s = str.start_with?("-") ? str[1..] : str
-    return false if s.nil? || s.empty?
-
-    parts = s.split(".")
-    parts.size <= 2 && parts.all? { |part| digit_string?(part) }
-  end
-
-  def numeric_value?(v)
-    return true if v.is_a?(Numeric)
-
-    v.is_a?(String) && decimal_string?(v.strip)
-  end
-
-  def temporal_value?(v)
-    return false unless v.is_a?(String)
-
-    parts = v.strip.split("-")
-    (parts.size == 2 && digit_string?(parts[0]) && parts[0].size == 4 && digit_string?(parts[1]) && parts[1].size == 2) ||
-      (parts.size == 3 && digit_string?(parts[0]) && parts[0].size == 4 && digit_string?(parts[1]) && parts[1].size == 2 &&
-        digit_string?(parts[2]) && parts[2].size == 2)
   end
 
   def truncate_rows(rows)
     rows.first(10)
   end
 
+  # Positional bindings (col0, col1, …): the real name plus sample values go
+  # in the criteria text, so Jev judges numeric-ness and fit from evidence.
+  # Nothing here inspects characters — values are read, never parsed.
+  def column_ref(index)
+    "col#{index}"
+  end
+
+  def sample_values(name, rows)
+    seen = []
+    rows.each do |row|
+      v = row[name].nil? ? row[name.to_sym] : row[name]
+      next if v.nil?
+      s = v.to_s
+      next if s.strip.empty? || seen.include?(s)
+      seen << s
+      break if seen.size >= 3
+    end
+    seen
+  end
+
+  def option_map(columns, rows)
+    columns.each_with_index.each_with_object({}) do |(col, i), h|
+      samples = sample_values(col[:name], rows)
+      label = "`#{col[:name]}`"
+      label += " e.g. #{samples.join(', ')}" if samples.any?
+      h[column_ref(i)] = label
+    end
+  end
+
   def build_questions(schema, rows)
     columns = schema[:columns]
-    by_type = ->(types) { columns.select { |c| types.include?(c[:type]) } }
-    option_map = ->(cols) { cols.each_with_object({}) { |c, h| h[c[:slug]] = "`#{c[:name]}` (#{c[:type]})" } }
-
-    numeric = by_type.call(%w[numeric])
+    options = option_map(columns, rows)
 
     questions = {
       "layout" => {
@@ -261,22 +202,22 @@ class StudioController < ApplicationController
       "x_field" => {
         type: "choice",
         instructions: "Which column goes on the category axis, timeline, card title, or scatter x-axis for `request`?",
-        criteria: option_map.call(columns).merge("none" => "No axis / auto")
+        criteria: options.merge("none" => "No axis / auto")
       },
       "y_field" => {
         type: "choice",
-        instructions: "Which numeric column supplies the values for `request`?",
-        criteria: option_map.call(numeric).merge("count_rows" => "Just count rows per category")
+        instructions: "Which column supplies the numbers for `request`? Judge from the sample values — pick a column whose values are numbers.",
+        criteria: options.merge("count_rows" => "Just count rows per category")
       },
       "color_field" => {
         type: "choice",
         instructions: "Which column drives colour/series splits for `request`?",
-        criteria: option_map.call(columns).merge("none" => "Single colour, no split")
+        criteria: options.merge("none" => "Single colour, no split")
       },
       "size_field" => {
         type: "choice",
-        instructions: "Which numeric column drives bubble size (bubbles view) for `request`?",
-        criteria: option_map.call(numeric).merge("none" => "Uniform size")
+        instructions: "Which column drives bubble size (bubbles view) for `request`? Judge from the sample values — pick a column whose values are numbers.",
+        criteria: options.merge("none" => "Uniform size")
       },
       "aggregation" => {
         type: "choice",
@@ -294,7 +235,7 @@ class StudioController < ApplicationController
       "filter_column" => {
         type: "choice",
         instructions: "If `request` keeps only some rows, which column does it filter on?",
-        criteria: option_map.call(columns).merge("none" => "No filtering — show all rows")
+        criteria: options.merge("none" => "No filtering — show all rows")
       },
       "filter_op" => {
         type: "choice",
@@ -308,11 +249,11 @@ class StudioController < ApplicationController
       },
       "filter_negate" => noul("Does `request` exclude the matching rows instead of keeping them (e.g. \"not\", \"except\", \"excluding\", \"other than\")?")
     }
-    (2..MAX_PANELS).each { |i| questions.merge!(panel_questions(i, columns, numeric, option_map)) }
+    (2..MAX_PANELS).each { |i| questions.merge!(panel_questions(i, options)) }
     questions.merge!(filter_value_questions(columns, rows))
     # Per-column include flags — the width-driven fan-out.
-    columns.each do |col|
-      questions["include_#{col[:slug]}"] = noul("Is the column `#{col[:name]}` (#{col[:type]}) needed for `request`?")
+    columns.each_with_index do |col, i|
+      questions["include_#{column_ref(i)}"] = noul("Is the column `#{col[:name]}` needed for `request`?")
     end
     questions
   end
@@ -326,13 +267,12 @@ class StudioController < ApplicationController
 
   def filter_value_questions(columns, rows)
     questions = {}
-    columns.each do |col|
-      next unless %w[categorical temporal numeric].include?(col[:type])
+    columns.each_with_index do |col, i|
       distinct = rows.map { |r| r[col[:name]].nil? ? r[col[:name].to_sym] : r[col[:name]] }
         .compact.map(&:to_s).map(&:strip).reject(&:empty?).uniq
       next if distinct.size < 2 || distinct.size > FILTER_VALUE_MAX_OPTIONS
       next if distinct.any? { |v| v.length > 60 }
-      questions["filter_value_#{col[:slug]}"] = {
+      questions["filter_value_#{column_ref(i)}"] = {
         type: "choice",
         instructions: "Which `#{col[:name]}` value does `request` name — either to keep or to exclude? (used only when the filter targets `#{col[:name]}`)",
         criteria: distinct.each_with_object({}) { |v, h| h[v] = "`request` names #{v} (to keep or to exclude)" }
@@ -370,7 +310,7 @@ class StudioController < ApplicationController
     }
   end
 
-  def panel_questions(i, columns, numeric, option_map)
+  def panel_questions(i, options)
     ord = ORDINALS.fetch(i)
     {
       "view_#{i}" => {
@@ -381,17 +321,17 @@ class StudioController < ApplicationController
       "x_field_#{i}" => {
         type: "choice",
         instructions: "If `request` asks for several panels, which column goes on the axis/title of the #{ord} panel?",
-        criteria: option_map.call(columns).merge("none" => "No axis / auto")
+        criteria: options.merge("none" => "No axis / auto")
       },
       "y_field_#{i}" => {
         type: "choice",
-        instructions: "If `request` asks for several panels, which numeric column supplies the values of the #{ord} panel?",
-        criteria: option_map.call(numeric).merge("count_rows" => "Just count rows per category")
+        instructions: "If `request` asks for several panels, which column supplies the numbers of the #{ord} panel? Judge from the sample values.",
+        criteria: options.merge("count_rows" => "Just count rows per category")
       },
       "color_field_#{i}" => {
         type: "choice",
         instructions: "If `request` asks for several panels, which column drives colour splits of the #{ord} panel?",
-        criteria: option_map.call(columns).merge("none" => "Single colour, no split")
+        criteria: options.merge("none" => "Single colour, no split")
       },
       "aggregation_#{i}" => {
         type: "choice",

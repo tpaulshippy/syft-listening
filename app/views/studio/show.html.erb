@@ -113,7 +113,7 @@
     <p class="mt-1 font-mono text-[11px] text-zinc-500 dark:text-zinc-400" data-studio-target="inputShare"></p>
     <textarea data-studio-target="dataset" rows="6" spellcheck="false"
               data-action="input->studio#datasetInput"
-              placeholder='[{"genre":"fiction","units":42}, …] or CSV: genre,units&#10;fiction,42 — or pick a sample above'
+              placeholder='[{"genre":"fiction","units":42}, …]'
               class="mt-2 max-h-64 w-full resize-y overflow-y-auto rounded-xl border border-zinc-200 bg-transparent px-3 py-2 font-mono text-base focus:outline-none dark:border-zinc-800"></textarea>
     <p class="mt-1 font-mono text-[11px] text-zinc-500 dark:text-zinc-400" data-studio-target="schemaLine">No dataset yet.</p>
   </div>
@@ -165,9 +165,9 @@
   <details class="mt-2 rounded-2xl border border-black/5 bg-white/60 px-4 py-2 text-xs text-zinc-600 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-300">
     <summary class="cursor-pointer py-1 font-medium">How this was built — schema-driven questions</summary>
     <p class="mt-1 leading-relaxed">
-      The server infers your dataset's schema (column names + numeric/temporal/categorical/text types)
-      and generates the question set from it: field-binding <code>choice</code> options are your actual
-      columns, plus one <code>include_*</code> flag per column. Jev answers them all in parallel and this
+      The server reads your dataset's column names and generates the question set
+      from them: field-binding <code>choice</code> options are your actual
+      columns (with sample values as evidence), plus one <code>include_*</code> flag per column. Jev answers them all in parallel and this
       generic interpreter maps the winning spec onto Chart.js or table/cards/KPI DOM. Anything
       Jev is unsure of (&lt; 0.5) repeats the question instead of rendering.
     </p>

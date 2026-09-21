@@ -69,125 +69,31 @@ export function shouldAutoLoadDataset(currentText, lastLoadedJson, nextJson) {
   return current === String(lastLoadedJson ?? "").trim()
 }
 
-// Dataset input: a JSON array of objects, or CSV with a header row.
-// Detects by first non-whitespace character ("[" -> JSON, else CSV).
+// Dataset input: a JSON array of objects. JSON.parse decides validity —
+ // no character inspection in our code.
 export function parseDatasetText(raw) {
   const text = String(raw ?? "").trim()
-  if (!text) return { error: "Paste a JSON array or CSV table, or pick a sample." }
-  if (text.startsWith("[")) {
-    try {
-      const parsed = JSON.parse(text)
-      if (!Array.isArray(parsed) || !parsed.length || !parsed.every((r) => r && typeof r === "object")) {
-        return { error: "Dataset must be a non-empty array of objects." }
-      }
-      return { rows: parsed }
-    } catch {
-      return { error: "Dataset is not valid JSON." }
-    }
+  if (!text) return { error: "Paste a JSON array of objects." }
+  let parsed
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return { error: "Dataset is not valid JSON (expected an array of objects)." }
   }
-  return parseCsv(text)
-}
-
-// Minimal RFC-4180 reader: quoted fields, "" escapes, CRLF/newlines in quotes.
-export function parseCsv(text) {
-  const rows = []
-  let row = []
-  let field = ""
-  let quoted = false
-  let i = 0
-  const pushField = () => { row.push(field); field = "" }
-  const pushRow = () => { rows.push(row); row = [] }
-  while (i < text.length) {
-    const c = text[i]
-    if (quoted) {
-      if (c === '"') {
-        if (text[i + 1] === '"') { field += '"'; i += 2 }
-        else { quoted = false; i += 1 }
-      } else { field += c; i += 1 }
-    } else if (c === '"') {
-      quoted = true; i += 1
-    } else if (c === ",") {
-      pushField(); i += 1
-    } else if (c === "\n" || c === "\r") {
-      pushField(); pushRow()
-      i += (c === "\r" && text[i + 1] === "\n") ? 2 : 1
-    } else {
-      field += c; i += 1
-    }
+  if (!Array.isArray(parsed) || !parsed.length || !parsed.every((r) => r && typeof r === "object")) {
+    return { error: "Dataset must be a non-empty array of objects." }
   }
-  pushField(); pushRow()
-  const nonEmpty = rows.filter((r) => r.some((v) => String(v).trim() !== ""))
-  if (!nonEmpty.length) return { error: "CSV is empty." }
-  const headers = nonEmpty[0].map((h) => String(h).trim())
-  if (headers.some((h) => h === "")) return { error: "CSV header row has a blank column name." }
-  if (new Set(headers).size !== headers.length) return { error: "CSV header row has duplicate column names." }
-  const data = nonEmpty.slice(1)
-  if (!data.length) return { error: "CSV has a header but no data rows." }
-  return {
-    rows: data.map((r) => Object.fromEntries(headers.map((h, j) => [h, (r[j] ?? "").trim()]))),
-  }
+  return { rows: parsed }
 }
 
 export function escapeHtml(s) {
-  // No regex anywhere in this app: plain string replacements only.
-  return String(s ?? "").split("&").join("&amp;").split("<").join("&lt;")
-    .split(">").join("&gt;").split('"').join("&quot;").split("'").join("&#39;")
-}
-
-export function slugify(name, taken = {}) {
-  // Char loop: lowercase alphanumerics, runs of anything else become one "_".
-  const lower = String(name ?? "").toLowerCase()
-  let base = ""
-  let lastWasGap = true
-  for (const ch of lower) {
-    if (ch >= "a" && ch <= "z" || ch >= "0" && ch <= "9") { base += ch; lastWasGap = false }
-    else if (!lastWasGap) { base += "_"; lastWasGap = true }
+  // Browser-native escaping: the platform encodes, our code inspects nothing.
+  if (typeof document !== "undefined" && typeof document.createElement === "function") {
+    const div = document.createElement("div")
+    div.textContent = String(s ?? "")
+    return div.innerHTML
   }
-  if (!base) base = "col"
-  if (base.endsWith("_")) base = base.slice(0, -1)
-  let slug = base
-  let i = 2
-  while (taken[slug]) { slug = `${base}_${i}`; i += 1 }
-  taken[slug] = true
-  return slug
-}
-
-function isDigit(ch) {
-  return ch >= "0" && ch <= "9"
-}
-
-function isDecimalString(t) {
-  let s = t
-  if (s.startsWith("-")) s = s.slice(1)
-  if (!s) return false
-  const parts = s.split(".")
-  if (parts.length > 2) return false
-  return parts.every((part) => part.length > 0 && [...part].every(isDigit))
-}
-
-export function isNumericValue(v) {
-  if (typeof v === "number" && Number.isFinite(v)) return true
-  return typeof v === "string" && isDecimalString(v.trim())
-}
-
-function isDateParts(parts, lens) {
-  return parts.length === lens.length &&
-    parts.every((part, i) => part.length === lens[i] && [...part].every(isDigit))
-}
-
-export function isTemporalValue(v) {
-  if (typeof v !== "string") return false
-  const parts = v.trim().split("-")
-  return isDateParts(parts, [4, 2]) || isDateParts(parts, [4, 2, 2])
-}
-
-export function columnType(values) {
-  const present = (values || []).filter((v) => v !== null && v !== undefined && v !== "")
-  if (!present.length) return "categorical"
-  if (present.every(isNumericValue)) return "numeric"
-  if (present.every(isTemporalValue)) return "temporal"
-  if (present.some((v) => String(v).length > 60)) return "text"
-  return "categorical"
+  return String(s ?? "")
 }
 
 export function cellOf(row, name) {
@@ -196,37 +102,40 @@ export function cellOf(row, name) {
   return undefined
 }
 
+// Number conversion only — never character inspection. Non-coercible values
+// become null and are skipped by aggregations.
 export function coerceNumber(v) {
   if (typeof v === "number") return Number.isFinite(v) ? v : null
-  if (typeof v === "string" && v.trim() !== "" && isNumericValue(v)) return Number(v)
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v)
+    return Number.isFinite(n) ? n : null
+  }
   return null
 }
 
-// Client mirror of StudioController#infer_schema (schema preview + fallback).
+// Client mirror of StudioController#infer_schema: column names in order.
+// Types are gone — Jev judges numeric-ness per question from sample values.
 export function inferSchema(rows) {
   const names = []
   for (const row of rows || []) {
     for (const k of Object.keys(row || {})) if (!names.includes(k)) names.push(k)
   }
-  const taken = {}
-  const columns = names.slice(0, 60).map((name) => ({
-    name,
-    slug: slugify(name, taken),
-    type: columnType((rows || []).map((r) => cellOf(r, name))),
-  }))
-  return { columns, row_count: (rows || []).length }
+  return { columns: names.slice(0, 60).map((name) => ({ name })), row_count: (rows || []).length }
 }
 
 export function noulConfidence(p) {
   return Math.abs(Number(p) - 0.5) * 2
 }
 
-function colsByType(schema, types) {
-  return (schema?.columns || []).filter((c) => types.includes(c.type))
-}
-
-function findColumn(schema, slug) {
-  return (schema?.columns || []).find((c) => c.slug === slug)
+// Field bindings are positional (col0, col1, …) with the real name only in
+// the criteria text — no slug transform, nothing to inspect.
+export function refToName(schema, ref) {
+  const cols = schema?.columns || []
+  if (typeof ref === "string" && ref.length > 3 && ref.slice(0, 3) === "col") {
+    const i = Number(ref.slice(3))
+    if (Number.isInteger(i) && cols[i]) return cols[i].name
+  }
+  return ref
 }
 
 // Row filter — Jev-native only. The backend asks Jev `filter_column`
@@ -245,7 +154,7 @@ function filterTest(op, want) {
 
 export function applyFilter(rows, schema, filter) {
   if (!filter?.column || filter?.value == null || String(filter.value).trim() === "") return rows || []
-  const name = findColumn(schema, filter.column)?.name ?? filter.column
+  const name = refToName(schema, filter.column)
   const want = String(filter.value).trim().toLowerCase()
   const test = filterTest(filter.op || "equals", want)
   const negate = !!filter.negate
@@ -259,7 +168,7 @@ export function applyFilter(rows, schema, filter) {
 
 export function filterLabel(filter, schema) {
   if (!filter) return ""
-  const name = findColumn(schema, filter.column)?.name ?? filter.column
+  const name = refToName(schema, filter.column)
   const value = filter.value
   const negate = !!filter.negate
   const op = filter.op || "equals"
@@ -281,7 +190,7 @@ function sharedFilter(m, fb, answers, usedFallback) {
   const a = answers?.[key]
   const conf = Number(a?.confidence ?? NaN)
   const value = typeof a?.choice === "string" ? a.choice.trim() : ""
-  const colName = (fb.schemaColumns || []).find((c) => c.slug === column)?.name ?? column
+  const colName = refToName({ columns: fb.schemaColumns || [] }, column)
   const want = value.toLowerCase()
   const test = filterTest(op, want)
   const ok = value !== "" && conf >= 0.5 && (fb.allRows || []).some((r) => {
@@ -296,10 +205,9 @@ function sharedFilter(m, fb, answers, usedFallback) {
 // Jev fills every slot; anything it leaves unsure repeats the question.
 export function constantSpec(schema, prompt) {
   const cols = schema?.columns || []
-  const nonNumeric = cols.find((c) => c.type !== "numeric")
   return {
     view: "table",
-    xField: nonNumeric?.slug || cols[0]?.slug || "none",
+    xField: cols.length ? "col0" : "none",
     yField: "count_rows",
     colorField: "none",
     sizeField: "none",
@@ -314,13 +222,13 @@ export function constantSpec(schema, prompt) {
   }
 }
 
-// Merge Jev answers over the constant spec; slugs validated vs schema.
+// Merge Jev answers over the constant spec; refs validated vs schema.
 function makeMergers(answers, schema, usedFallback) {
-  const validSlugs = new Set((schema?.columns || []).map((c) => c.slug))
+  const validRefs = new Set((schema?.columns || []).map((_, i) => `col${i}`))
   const fieldChoice = (key, fallback) => {
     const a = answers?.[key]
     const conf = Number(a?.confidence ?? NaN)
-    if (a?.choice && (a.choice === "none" || a.choice === "count_rows" || validSlugs.has(a.choice)) && conf >= 0.5) {
+    if (a?.choice && (a.choice === "none" || a.choice === "count_rows" || validRefs.has(a.choice)) && conf >= 0.5) {
       return a.choice
     }
     usedFallback.push(key)
@@ -365,8 +273,8 @@ function panelSpec(m, suffix, fb, shared) {
 
 function sharedFlags(m, fb) {
   const include = {}
-  for (const col of fb.schemaColumns || []) {
-    include[col.slug] = m.noul(`include_${col.slug}`, true)
+  for (let i = 0; i < (fb.schemaColumns || []).length; i++) {
+    include[`col${i}`] = m.noul(`include_col${i}`, true)
   }
   return {
     showLegend: m.noul("show_legend", fb.showLegend),
@@ -407,8 +315,8 @@ export function dashboardFromAnswers(answers, schema, prompt, rows = null) {
 // Deterministic panel title — Jev can't generate text, so derive it.
 export function panelTitle(panel, schema) {
   if (panel.view === "kpi") return "totals · kpi"
-  const y = panel.yField === "count_rows" ? "count" : colName(schema, panel.yField)
-  const x = panel.xField === "none" ? "" : ` by ${colName(schema, panel.xField)}`
+  const y = panel.yField === "count_rows" ? "count" : refToName(schema, panel.yField)
+  const x = panel.xField === "none" ? "" : ` by ${refToName(schema, panel.xField)}`
   return `${y}${x} · ${panel.view}`
 }
 
@@ -441,14 +349,10 @@ export function panelSectionHtml(panel, rows, schema, slot) {
     `<h4 style="font-size:12px;font-weight:700;margin-bottom:6px;">${escapeHtml(panelTitle(panel, schema))}</h4>${caption}${body}</section>`
 }
 
-function colName(schema, slug) {
-  return findColumn(schema, slug)?.name ?? slug
-}
-
 export function visibleColumns(schema, include) {
-  const cols = schema?.columns || []
+  const cols = (schema?.columns || []).map((c, i) => ({ ...c, ref: `col${i}` }))
   if (!include) return cols
-  const kept = cols.filter((c) => include[c.slug] !== false)
+  const kept = cols.filter((c) => include[c.ref] !== false)
   return kept.length ? kept : cols
 }
 
@@ -456,7 +360,7 @@ export function visibleColumns(schema, include) {
 export function aggregateCategory(rows, spec, schema) {
   const groups = new Map()
   for (const row of applyFilter(rows, schema, spec.filter)) {
-    const xRaw = spec.xField === "none" ? "all" : cellOf(row, colName(schema, spec.xField))
+    const xRaw = spec.xField === "none" ? "all" : cellOf(row, refToName(schema, spec.xField))
     const key = xRaw === null || xRaw === undefined || xRaw === "" ? "(blank)" : String(xRaw)
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key).push(row)
@@ -465,7 +369,7 @@ export function aggregateCategory(rows, spec, schema) {
   let values = labels.map((label) => {
     const items = groups.get(label)
     if (spec.yField === "count_rows" || spec.aggregation === "count") return items.length
-    const nums = items.map((r) => coerceNumber(cellOf(r, colName(schema, spec.yField)))).filter((n) => n !== null)
+    const nums = items.map((r) => coerceNumber(cellOf(r, refToName(schema, spec.yField)))).filter((n) => n !== null)
     if (!nums.length) return 0
     const sum = nums.reduce((a, b) => a + b, 0)
     return spec.aggregation === "avg" ? sum / nums.length : sum
@@ -483,10 +387,10 @@ function round2(n) {
 
 // Points for scatter/bubbles, grouped into one series per color value.
 export function scatterSeries(rows, spec, schema) {
-  const xName = colName(schema, spec.xField)
-  const yName = spec.yField === "count_rows" ? null : colName(schema, spec.yField)
-  const sName = spec.sizeField === "none" ? null : colName(schema, spec.sizeField)
-  const cName = spec.colorField === "none" ? null : colName(schema, spec.colorField)
+  const xName = refToName(schema, spec.xField)
+  const yName = spec.yField === "count_rows" ? null : refToName(schema, spec.yField)
+  const sName = spec.sizeField === "none" ? null : refToName(schema, spec.sizeField)
+  const cName = spec.colorField === "none" ? null : refToName(schema, spec.colorField)
   const byColor = new Map()
   for (const row of applyFilter(rows, schema, spec.filter)) {
     const x = coerceNumber(cellOf(row, xName))
@@ -532,7 +436,7 @@ export function buildChartConfig(spec, rows, schema) {
     data: {
       labels: agg.labels,
       datasets: [{
-        label: spec.yField === "count_rows" ? "count" : colName(schema, spec.yField),
+        label: spec.yField === "count_rows" ? "count" : refToName(schema, spec.yField),
         data: agg.values,
         backgroundColor: spec.view === "line" ? "#38bdf8" : agg.labels.map((_, i) => PALETTE[i % PALETTE.length]),
         ...(spec.view === "line" ? { fill: false, tension: 0.25 } : {}),
@@ -552,7 +456,7 @@ export function renderTableHtml(rows, spec, schema) {
   const kept = applyFilter(rows, schema, spec.filter)
   const sorted = [...kept]
   if (spec.yField !== "count_rows") {
-    const yName = colName(schema, spec.yField)
+    const yName = refToName(schema, spec.yField)
     sorted.sort((a, b) => {
       const av = coerceNumber(cellOf(a, yName)) ?? 0
       const bv = coerceNumber(cellOf(b, yName)) ?? 0
@@ -570,7 +474,7 @@ export function renderTableHtml(rows, spec, schema) {
 export function renderCardsHtml(rows, spec, schema) {
   const cols = visibleColumns(schema, spec.include)
   const kept = applyFilter(rows, schema, spec.filter)
-  const titleCol = (spec.xField !== "none" && findColumn(schema, spec.xField)) ? colName(schema, spec.xField) : cols[0]?.name
+  const titleCol = spec.xField !== "none" ? refToName(schema, spec.xField) : cols[0]?.name
   const cards = kept.map((row) => {
     const facts = cols.filter((c) => c.name !== titleCol).slice(0, 5).map((c) =>
       `<div style="font-size:11px;color:#52525b;"><span style="color:#a1a1aa;">${escapeHtml(c.name)}</span> ${escapeHtml(cellOf(row, c.name))}</div>`).join("")
@@ -580,18 +484,24 @@ export function renderCardsHtml(rows, spec, schema) {
   return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${cards}</div>` + totalsLine(kept, spec, schema)
 }
 
+// KPI renders the Jev-chosen yField metric (Jev already judged it numeric
+// from the sample values) — one metric per panel, composed via multi-panel.
 export function renderKpiHtml(rows, spec, schema) {
-  const numeric = colsByType(schema, ["numeric"])
   const kept = applyFilter(rows, schema, spec.filter)
-  const kpis = numeric.slice(0, 4).map((c) => {
-    const nums = kept.map((r) => coerceNumber(cellOf(r, c.name))).filter((n) => n !== null)
-    const sum = nums.reduce((a, b) => a + b, 0)
-    return `<div style="border:1px solid #e4e4e7;border-radius:12px;padding:12px;min-width:140px;flex:1;text-align:center;">` +
-      `<div style="font-size:11px;color:#71717a;">${escapeHtml(c.name)} · sum</div>` +
-      `<div style="font-size:28px;font-weight:700;">${fmt(round2(sum))}</div>` +
-      `<div style="font-size:11px;color:#71717a;">avg ${fmt(round2(nums.length ? sum / nums.length : 0))} · n=${kept.length}</div></div>`
-  }).join("")
-  return `<div style="display:flex;gap:8px;flex-wrap:wrap;">${kpis || "<p>No numeric columns.</p>"}</div>`
+  if (spec.yField === "count_rows") {
+    return `<div style="display:flex;gap:8px;flex-wrap:wrap;">` +
+      `<div style="border:1px solid #e4e4e7;border-radius:12px;padding:12px;min-width:140px;flex:1;text-align:center;">` +
+      `<div style="font-size:11px;color:#71717a;">records</div>` +
+      `<div style="font-size:28px;font-weight:700;">${fmt(kept.length)}</div></div></div>`
+  }
+  const name = refToName(schema, spec.yField)
+  const nums = kept.map((r) => coerceNumber(cellOf(r, name))).filter((n) => n !== null)
+  const sum = nums.reduce((a, b) => a + b, 0)
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;">` +
+    `<div style="border:1px solid #e4e4e7;border-radius:12px;padding:12px;min-width:140px;flex:1;text-align:center;">` +
+    `<div style="font-size:11px;color:#71717a;">${escapeHtml(name)} · sum</div>` +
+    `<div style="font-size:28px;font-weight:700;">${fmt(round2(sum))}</div>` +
+    `<div style="font-size:11px;color:#71717a;">avg ${fmt(round2(nums.length ? sum / nums.length : 0))} · n=${kept.length}</div></div></div>`
 }
 
 function totalsLine(rows, spec, schema) {
@@ -676,7 +586,7 @@ export default class extends Controller {
     }
     const schema = inferSchema(parsed.rows)
     this.schemaLineTarget.textContent =
-      `${parsed.rows.length} rows · ` + schema.columns.map((c) => `${c.name}:${c.type}`).join(", ")
+      `${parsed.rows.length} rows · ` + schema.columns.map((c) => c.name).join(", ")
   }
 
   // --- input auto-share -----------------------------------------------------------

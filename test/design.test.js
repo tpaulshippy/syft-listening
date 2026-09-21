@@ -93,8 +93,8 @@ describe("design options + validation", () => {
   })
 
   it("validates names", () => {
-    expect(validateFieldName("", [])).toMatch(/name/)
-    expect(validateFieldName("A", [{ name: "a" }])).toMatch(/already used/)
+    expect(validateFieldName("", [])).toContain('name')
+    expect(validateFieldName("A", [{ name: "a" }])).toContain('already used')
     expect(validateFieldName("ok", [])).toBeNull()
   })
 

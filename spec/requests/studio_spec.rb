@@ -43,34 +43,10 @@ RSpec.describe "Studio", type: :request do
       expect(response).to have_http_status(:bad_request)
     end
 
-    it "accepts a CSV string and infers numeric strings" do
-      http = instance_double(Net::HTTP)
-      upstream = instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
-      allow(Net::HTTP).to receive(:new).and_return(http)
-      allow(http).to receive(:use_ssl=)
-      allow(http).to receive(:open_timeout=)
-      allow(http).to receive(:read_timeout=)
-      allow(http).to receive(:request) do |req|
-        body = JSON.parse(req.body)
-        schema = body["state"]["schema"]
-        revenue = schema["columns"].find { |c| c["slug"] == "revenue" }
-        expect(revenue["type"]).to eq("numeric")
-        expect(body["state"]["rows"].first).to include("genre" => "scifi")
-        upstream
-      end
-
-      post "/jev_studio", params: {
-        prompt: "Bar chart of revenue by genre",
-        dataset: "genre,units,revenue\nscifi,35,665.0\nfiction,42,756.0\n",
-        api_key: "ts_test"
-      }
-      expect(response).to have_http_status(:success)
-    end
-
-    it "rejects a header-only CSV" do
-      post "/jev_studio", params: { prompt: "Bar chart", dataset: "a,b,c\n", api_key: "ts_test" }
+    it "rejects a non-JSON dataset string" do
+      post "/jev_studio", params: { prompt: "Bar chart", dataset: "genre,units\nscifi,35\n", api_key: "ts_test" }
       expect(response).to have_http_status(:bad_request)
-      expect(JSON.parse(response.body)["error"]).to match(/no data rows/)
+      expect(JSON.parse(response.body)["error"]).to include("JSON")
     end
 
     it "accepts a sample name instead of pasted JSON" do
@@ -102,23 +78,23 @@ RSpec.describe "Studio", type: :request do
         body = JSON.parse(req.body)
         expect(body["model"]).to eq("jev-latest")
         schema = body["state"]["schema"]
-        slugs = schema["columns"].map { |c| c["slug"] }
-        expect(slugs).to include("genre", "revenue", "month")
-        genre = schema["columns"].find { |c| c["slug"] == "genre" }
-        expect(genre["type"]).to eq("categorical")
-        revenue = schema["columns"].find { |c| c["slug"] == "revenue" }
-        expect(revenue["type"]).to eq("numeric")
+        names = schema["columns"].map { |c| c["name"] }
+        expect(names).to include("genre", "revenue", "month")
+        expect(schema["columns"].first.keys).to eq([ "name" ])
 
         questions = body["questions"]
         expect(questions["view"]["criteria"]).to include("bar", "table", "kpi")
-        # Field bindings offer the dataset's own columns…
-        expect(questions["y_field"]["criteria"]).to include("revenue", "units")
-        expect(questions["x_field"]["criteria"]).to include("genre", "month")
+        # Field bindings are positional refs over every column…
+        expect(questions["y_field"]["criteria"].keys).to include("col0", "col1", "col2", "col3", "col4")
+        expect(questions["x_field"]["criteria"]).to include("col1", "col4")
+        # …with real names plus sample values as evidence for Jev…
+        expect(questions["y_field"]["criteria"]["col3"]).to include("revenue", "665.0")
+        expect(questions["x_field"]["criteria"]["col1"]).to include("genre", "scifi")
         # …plus the fixed sentinels, and one include flag per column
         expect(questions["y_field"]["criteria"]).to include("count_rows")
         expect(questions["color_field"]["criteria"]).to include("none")
-        %w[title genre units revenue month].each do |slug|
-          expect(questions.keys).to include("include_#{slug}")
+        %w[col0 col1 col2 col3 col4].each do |ref|
+          expect(questions.keys).to include("include_#{ref}")
         end
         # …plus the dashboard fan-out: layout, count, per-panel bindings
         expect(questions["layout"]["criteria"]).to include("single", "stack", "side_by_side", "grid")
@@ -128,13 +104,13 @@ RSpec.describe "Studio", type: :request do
           expect(questions.keys).to include(key)
         end
         expect(questions["view_2"]["criteria"]).to include("bar", "table", "kpi")
-        expect(questions["y_field_3"]["criteria"]).to include("revenue", "count_rows")
+        expect(questions["y_field_3"]["criteria"]).to include("col3", "count_rows")
         # …plus the Jev-native row filter: column + op + value enums
-        expect(questions["filter_column"]["criteria"]).to include("genre", "revenue", "none")
+        expect(questions["filter_column"]["criteria"]).to include("col1", "col3", "none")
         expect(questions["filter_op"]["criteria"]).to include("equals", "contains", "starts_with", "ends_with")
         expect(questions["filter_negate"]["type"]).to eq("noul")
-        expect(questions["filter_value_genre"]["criteria"]).to include("scifi", "nonfiction")
-        expect(questions["filter_value_revenue"]["criteria"]).to include("665.0", "522.0")
+        expect(questions["filter_value_col1"]["criteria"]).to include("scifi", "nonfiction")
+        expect(questions["filter_value_col3"]["criteria"]).to include("665.0", "522.0")
         upstream
       end
 
@@ -148,7 +124,7 @@ RSpec.describe "Studio", type: :request do
       expect(parsed["upstream_ms"]).to be_a(Integer)
     end
 
-    it "skips filter value enums for unique and long-text columns" do
+    it "skips filter value enums for unique and long columns" do
       rows = (1..31).map { |i| { "id" => "INC-#{i}", "status" => i.even? ? "open" : "resolved", "notes" => "x" * 80 } }
       sent = nil
       http = instance_double(Net::HTTP)
@@ -164,10 +140,10 @@ RSpec.describe "Studio", type: :request do
 
       post "/jev_studio", params: { prompt: "Table of incidents", dataset: rows, api_key: "ts_test" }
       expect(response).to have_http_status(:success)
-      expect(sent["filter_value_status"]["criteria"]).to include("open", "resolved")
-      expect(sent.keys).not_to include("filter_value_id") # 31 distinct > cap
-      expect(sent.keys).not_to include("filter_value_notes") # long-text type
-      expect(sent["filter_column"]["criteria"]).to include("status", "none")
+      expect(sent["filter_value_col1"]["criteria"]).to include("open", "resolved")
+      expect(sent.keys).not_to include("filter_value_col0") # 31 distinct > cap
+      expect(sent.keys).not_to include("filter_value_col2") # long values
+      expect(sent["filter_column"]["criteria"]).to include("col1", "none")
     end
 
     it "builds one panel per voice clause for multi-view prompts" do

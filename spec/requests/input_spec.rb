@@ -95,6 +95,22 @@ RSpec.describe "Input", type: :request do
       expect(response).to have_http_status(:success)
     end
 
+    it "checks dates by month, day, and a reasonable year range" do
+      http = stub_jev
+      allow(http).to receive(:request) do |req|
+        body = JSON.parse(req.body)
+        instructions = body["questions"]["valid"]["instructions"]
+        expect(instructions).to include("month")
+        expect(instructions).to include("day")
+        expect(instructions).to include("2020 and 2035")
+        instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
+      end
+
+      fields = [ { "name" => "Birthday", "type" => "date", "required" => true, "options" => [] } ]
+      post "/jev_input", params: { step: "answer", transcript: "June 3 2026", fields: fields, api_key: "ts_test" }
+      expect(response).to have_http_status(:success)
+    end
+
     it "rejects two open fields in one prompt" do
       fields = [
         { "name" => "Name", "type" => "text", "required" => false, "options" => [] },

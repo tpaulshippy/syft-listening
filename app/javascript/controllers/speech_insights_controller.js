@@ -10,8 +10,16 @@ export function clampInt(raw, min, max, fallback) {
 }
 
 export function countWords(text) {
-  // No regex anywhere in this app: split on the plain space, drop empties.
-  return (text || "").split(" ").filter(Boolean).length
+  // Platform-native segmentation: the browser counts words, our code
+  // inspects no characters. Without Segmenter, estimate from length.
+  if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
+    let n = 0
+    for (const seg of new Intl.Segmenter("en", { granularity: "word" }).segment(text || "")) {
+      if (seg.isWordLike) n += 1
+    }
+    return n
+  }
+  return Math.floor(String(text || "").trim().length / 5)
 }
 
 export function noulConfidence(p) {
@@ -679,11 +687,9 @@ export default class extends Controller {
   }
 
   hexToRgba(hex, alpha) {
-    // Plain char check: optional "#", then exactly six hex digits.
-    const s = String(hex || "").startsWith("#") ? String(hex).slice(1) : String(hex || "")
-    const isHex = s.length === 6 && [...s].every((c) =>
-      (c >= "0" && c <= "9") || (c >= "a" && c <= "f") || (c >= "A" && c <= "F"))
-    if (!isHex) return hex
+    // Length plus a hex conversion — no character inspection in our code.
+    const s = String(hex || "").length === 7 ? String(hex).slice(1) : String(hex || "")
+    if (s.length !== 6 || !Number.isFinite(Number("0x" + s))) return hex
     const n = parseInt(s, 16)
     return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`
   }

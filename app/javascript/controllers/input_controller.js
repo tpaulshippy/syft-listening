@@ -63,7 +63,7 @@ export function proposeGroup(remaining) {
 export function promptFor(group) {
   if (!group?.length) return ""
   const parts = group.map((f) => {
-    const opts = f.type.startsWith("choice_") && f.options?.length ? ` (${f.options.join(", ")})` : ""
+    const opts = ["choice_single", "choice_multiple"].includes(f.type) && f.options?.length ? ` (${f.options.join(", ")})` : ""
     return `${f.name}${opts}`
   })
   return group.length === 1 ? `${parts[0]}?` : `${parts.join(" … ")}?`

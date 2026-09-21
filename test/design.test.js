@@ -47,6 +47,7 @@ describe("design intents (Jev only)", () => {
 
   it("marks unsure session intents for repeat", () => {
     expect(sessionIntentFromAnswers({ intent: { choice: "finished", confidence: 0.9 } }).intent).toBe("finished")
+    expect(sessionIntentFromAnswers({ intent: { choice: "content", confidence: 0.9 } }).intent).toBe("content")
     expect(sessionIntentFromAnswers({}).intent).toBeNull()
   })
 })

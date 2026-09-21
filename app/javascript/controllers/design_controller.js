@@ -67,7 +67,7 @@ export function typeFromAnswers(answers) {
 }
 
 export const OPTION_INTENTS = ["add_option", "done_options", "remove_last"]
-export const SESSION_INTENTS = ["next_field", "finished", "edit_last", "delete_last"]
+export const SESSION_INTENTS = ["content", "next_field", "finished", "edit_last", "delete_last"]
 
 export function optionIntentFromAnswers(answers) {
   const hit = confidentChoice(answers?.intent, OPTION_INTENTS)
@@ -457,9 +457,11 @@ export default class extends Controller {
     if (this.phase === "edit_menu") return this.askEditMenu()
   }
 
-  // Voice Done button: Jev decides whether the name prompt heard another
-  // field name (next_field), the end of the session (finished), or an edit
-  // of the last field — never word matching. Unsure repeats the question.
+  // Voice Done button: Jev decides whether the name prompt heard a session
+  // command (finished / edit_last / delete_last) or field content. Ending
+  // or editing stays explicit — anything else, including an unsure or
+  // missing answer, is trusted verbatim as the field name (same default as
+  // input's effectiveControl: content is safe, a wrong end is not).
   async submitNameIntent(text) {
     const key = localStorage.getItem("syft_jev_key") || ""
     let merged = { intent: null, usedFallback: ["intent", "no-key"] }
@@ -481,10 +483,6 @@ export default class extends Controller {
     }
     const intent = merged.intent
     if (!this.active) return
-    if (!intent) {
-      this.sayThenListen(`Sorry — what should field ${this.fields.length + 1} be called? Say the name, or “finished” to end.`)
-      return
-    }
     if (intent === "finished") return this.done()
     const last = this.fields[this.fields.length - 1]
     if (intent === "delete_last") {

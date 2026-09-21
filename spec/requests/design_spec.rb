@@ -74,6 +74,18 @@ RSpec.describe "Design", type: :request do
       expect(response).to have_http_status(:success)
     end
 
+    it "offers a content bucket on the session intent so names are never forced into commands" do
+      http = stub_jev
+      allow(http).to receive(:request) do |req|
+        body = JSON.parse(req.body)
+        expect(body["questions"]["intent"]["criteria"]).to include("content", "finished", "edit_last", "delete_last")
+        instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
+      end
+
+      post "/jev_design", params: { step: "session_intent", transcript: "Testing 123", field_count: 0, api_key: "ts_test" }
+      expect(response).to have_http_status(:success)
+    end
+
     it "builds one required noul per finished field" do      http = stub_jev
       allow(http).to receive(:request) do |req|
         body = JSON.parse(req.body)

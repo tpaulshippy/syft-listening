@@ -171,6 +171,7 @@ class DesignController < ApplicationController
           type: "choice",
           instructions: "What does the speaker want in `transcript` (design session with `field_count` fields so far)?",
           criteria: {
+            content: "Dictating the field name — any name, word, or phrase, not a session command",
             next_field: "Add another field next",
             finished: "Finished designing (done, finished, that's all)",
             edit_last: "Edit or rename the last field",

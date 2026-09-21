@@ -156,7 +156,8 @@ class InputController < ApplicationController
         repeat: "Didn't hear or wants the question repeated",
         skip: "Skip this question (skip, next, don't answer)",
         edit_previous: "Go back and change the previous answer",
-        finish_row: "Done with this row (finished, done, save it)"
+        finish_row: "Done with this row (done, finished, save it, next row)",
+        finish_all: "Done with everything (that's all, stop, end, no more rows)"
       }
     }
   end

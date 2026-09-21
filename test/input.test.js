@@ -49,6 +49,7 @@ describe("input grouping", () => {
 describe("input control (Jev only)", () => {
   it("trusts confident Jev control, marks unsure for repeat", () => {
     expect(controlFromAnswers({ control: { choice: "skip", confidence: 0.9 } }).control).toBe("skip")
+    expect(controlFromAnswers({ control: { choice: "finish_all", confidence: 0.9 } }).control).toBe("finish_all")
     expect(controlFromAnswers({}).control).toBeNull()
     expect(controlFromAnswers({}).usedFallback).toContain("control")
   })

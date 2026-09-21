@@ -185,7 +185,7 @@ export function editMenuChoices(field) {
 export default class extends Controller {
   static targets = ["question",
     "fieldList", "status", "inspector", "voiceStatus", "apiKey", "stepHint",
-    "choices", "startButton", "doneButton"]
+    "choices"]
 
   connect() {
     this.fields = loadSchema()
@@ -263,6 +263,8 @@ export default class extends Controller {
     else this.askName()
   }
 
+  // Voice Done (via the finished session intent): asks the closing
+  // required question when needed, then ends the session.
   done() {
     if (!this.active) return
     if (!this.fields.length) {
@@ -292,10 +294,9 @@ export default class extends Controller {
     this.updateButtons()
   }
 
-  updateButtons() {
-    if (this.hasStartButtonTarget) this.startButtonTarget.disabled = this.active
-    if (this.hasDoneButtonTarget) this.doneButtonTarget.disabled = !this.active
-  }
+  // No session buttons — the mic lives in the command bar and sessions
+  // start/end by voice. Kept because the session calls it throughout.
+  updateButtons() { /* no buttons to enable */ }
 
   speak(text, onDone = null) {
     try {
@@ -325,7 +326,7 @@ export default class extends Controller {
     this.phase = "name"
     this.pending = null
     const n = this.fields.length + 1
-    this.setHint("Say the field name. Tap Done when the list is complete.")
+    this.setHint("Say the field name, or “finished” to end.")
     this.setChoices("")
     this.sayThenListen(`What should field ${n} be called?`)
   }
@@ -428,8 +429,7 @@ export default class extends Controller {
   // --- main router: every utterance goes to Jev; unsure repeats ---------------
   async handleTranscript(text) {
     if (!this.active) return
-    // Finishing is the Done button's job — every spoken turn is content.
-    if (this.phase === "name") return this.submitName(text)
+    if (this.phase === "name") return this.submitNameIntent(text)
     if (this.phase === "options") return this.submitOption(text)
     if (this.phase === "required_fields") return this.submitRequiredFields(text)
     if (this.phase === "edit_menu") return this.submitEditMenu(text)
@@ -446,6 +446,62 @@ export default class extends Controller {
     if (this.phase === "edit_menu") return this.askEditMenu()
   }
 
+  // Voice Done button: Jev decides whether the name prompt heard another
+  // field name (next_field), the end of the session (finished), or an edit
+  // of the last field — never word matching. Unsure repeats the question.
+  async submitNameIntent(text) {
+    const key = localStorage.getItem("syft_jev_key") || ""
+    let merged = { intent: null, usedFallback: ["intent", "no-key"] }
+    if (key) {
+      try {
+        const res = await fetch("/jev_design", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": document.querySelector('meta[name="csrf-token"]')?.content },
+          body: JSON.stringify({
+            step: "session_intent", transcript: text,
+            field_count: this.fields.length, api_key: key,
+          }),
+        })
+        const data = await res.json().catch(() => ({}))
+        merged = sessionIntentFromAnswers(res.ok ? data.answers : {})
+      } catch {
+        merged = sessionIntentFromAnswers({})
+      }
+    }
+    const intent = merged.intent
+    this.logInspector(`session intent = ${intent}${merged.usedFallback.length ? " · unsure" : ""}`)
+    if (!this.active) return
+    if (!intent) {
+      this.sayThenListen(`Sorry — what should field ${this.fields.length + 1} be called? Say the name, or “finished” to end.`)
+      return
+    }
+    if (intent === "finished") return this.done()
+    const last = this.fields[this.fields.length - 1]
+    if (intent === "delete_last") {
+      if (!last) {
+        this.sayThenListen(`No fields yet. What should field 1 be called?`)
+        return
+      }
+      this.fields = this.fields.slice(0, -1)
+      saveSchema(this.fields)
+      this.render()
+      this.setStatus(`Removed “${last.name}”.`)
+      this.askName()
+      return
+    }
+    if (intent === "edit_last") {
+      if (!last) {
+        this.sayThenListen(`No fields yet. What should field 1 be called?`)
+        return
+      }
+      this.selectedId = last.id
+      this.render()
+      this.askEditMenu()
+      return
+    }
+    return this.submitName(text)
+  }
+
   async submitName(name) {
     const clean = String(name ?? "").trim()
     const err = validateFieldName(clean, this.fields)
@@ -456,7 +512,7 @@ export default class extends Controller {
     }
     if (this.fields.length >= MAX_FIELDS) {
       this.setStatus(`Field cap reached (${MAX_FIELDS}).`)
-      this.sayThenListen(`Field cap reached. Tap Done to end, or remove a field first.`)
+      this.sayThenListen(`Field cap reached. Say “finished” to end, or remove a field first.`)
       return
     }
     this.pending = { id: `f${Date.now().toString(36)}`, name: clean, type: "text", required: false, requiredDecided: false, options: [] }

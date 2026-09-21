@@ -61,7 +61,7 @@ RSpec.describe "Input", type: :request do
         expect(body["state"]["transcript"]).to eq("yes, scifi")
         expect(body["questions"]["value"]["type"]).to eq("noul") # yes_no
         expect(body["questions"]["value_2"]["criteria"]).to include("fiction", "scifi")
-        expect(body["questions"]["control"]["criteria"]).to include("answer", "skip", "finish_row")
+        expect(body["questions"]["control"]["criteria"]).to include("answer", "skip", "finish_row", "finish_all")
         instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
       end
 

@@ -19,7 +19,7 @@ export const SCHEMA_KEY = "syft_design_schema"
 export const INPUT_ROWS_KEY = "syft_input_rows"
 export const OPEN_TYPES = ["text", "number", "date", "time", "email"]
 export const CLOSED_TYPES = ["yes_no", "choice_single", "choice_multiple"]
-export const CONTROL_INTENTS = ["answer", "repeat", "skip", "edit_previous", "finish_row"]
+export const CONTROL_INTENTS = ["answer", "repeat", "skip", "edit_previous", "finish_row", "finish_all"]
 
 export function loadSchema(store = null) {
   const s = store || (typeof localStorage !== "undefined" ? localStorage : null)
@@ -395,8 +395,7 @@ export function spokenEditPromptFor(field) {
 // in schema order, listens, and advances automatically from what the user says.
 export default class extends Controller {
   static targets = ["question", "status", "progress",
-    "rowsTable", "inspector", "voiceStatus", "apiKey", "stepHint",
-    "startButton", "doneButton"]
+    "rowsTable", "inspector", "voiceStatus", "apiKey", "stepHint"]
 
   connect() {
     this.schema = loadSchema()
@@ -488,8 +487,9 @@ export default class extends Controller {
   }
 
   done() {
+    // Voice Done: saves a non-empty draft as a row (via finish_all),
+    // then ends the session.
     if (!this.active) return
-    // Save a non-empty draft as a row, then end the session.
     const row = {}
     for (const f of this.schema) {
       const v = this.draft[f.id]
@@ -513,10 +513,9 @@ export default class extends Controller {
     this.updateButtons()
   }
 
-  updateButtons() {
-    if (this.hasStartButtonTarget) this.startButtonTarget.disabled = this.active
-    if (this.hasDoneButtonTarget) this.doneButtonTarget.disabled = !this.active
-  }
+  // No session buttons — the mic lives in the command bar and sessions
+  // start/end by voice. Kept because the session calls it throughout.
+  updateButtons() { /* no buttons to enable */ }
 
   speak(text, onDone = null) {
     try {
@@ -629,8 +628,8 @@ export default class extends Controller {
     const q = promptFor(group)
     if (this.hasStepHintTarget) {
       this.stepHintTarget.textContent = group.length === 2
-        ? `Answering ${group.map((f) => f.name).join(" + ")} together. Say “skip” to skip, “go back” to edit.`
-        : `${group[0].required ? "Required. " : ""}Say “skip” to skip, “go back” to edit.`
+        ? `Answering ${group.map((f) => f.name).join(" + ")} together. “skip” skips, “go back” edits, “done” saves the row, “that's all” ends.`
+        : `${group[0].required ? "Required. " : ""}“skip” skips, “go back” edits, “done” saves the row, “that's all” ends.`
     }
     if (this.hasProgressTarget) this.progressTarget.textContent = `Row ${this.rows.length + 1} · field ${this.fieldIndex + 1} of ${this.schema.length}`
     this.sayThenListen(spokenPromptFor(group), q)
@@ -705,6 +704,18 @@ export default class extends Controller {
       }
       Object.assign(this.draft, values)
       return this.finishRow()
+    }
+    if (control === "finish_all") {
+      // Voice Done button: the draft so far is saved as a row (when
+      // non-empty) and the session ends — same as the old Done button.
+      const tail = validateGroup(this.group, values)
+      if (!tail.ok) {
+        this.setStatus(tail.reason)
+        this.sayThenListen(`${tail.reason} ${spokenPromptFor(this.group)}`, `${tail.reason} ${promptFor(this.group)}`)
+        return
+      }
+      Object.assign(this.draft, values)
+      return this.done()
     }
     // control === answer: validate, block + retry on failure
     const check = validateGroup(this.group, values)
@@ -868,7 +879,7 @@ export default class extends Controller {
     this.mode = "edit"
     const field = this.schema[this.editIdx]
     if (this.hasStepHintTarget) {
-      this.stepHintTarget.textContent = `Row ${this.selectedIndex + 1} · field ${this.editIdx + 1} of ${this.schema.length}. Say “skip” to leave it, “go back” to revisit.`
+      this.stepHintTarget.textContent = `Row ${this.selectedIndex + 1} · field ${this.editIdx + 1} of ${this.schema.length}. “skip” keeps it, “go back” revisits, “done” finishes.`
     }
     if (this.hasProgressTarget) this.progressTarget.textContent = `Editing row ${this.selectedIndex + 1} · field ${this.editIdx + 1} of ${this.schema.length}`
     this.sayThenListen(spokenEditPromptFor(field), editPromptFor(field, row[field.name]))
@@ -916,7 +927,7 @@ export default class extends Controller {
       this.sayThenListen(spokenEditPromptFor(field), editPromptFor(field, row[field.name]))
       return
     }
-    if (control === "finish_row") return this.commitEdit()
+    if (control === "finish_row" || control === "finish_all") return this.commitEdit()
     // control === answer: validate, block + retry on failure
     const check = validateGroup([field], values)
     if (!check.ok) {

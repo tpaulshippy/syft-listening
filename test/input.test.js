@@ -5,6 +5,7 @@ import {
   spokenPromptFor,
   controlFromAnswers,
   effectiveControl,
+  routeControl,
   valuesFromAnswers,
   validateGroup,
   rowsToDataset,
@@ -78,6 +79,18 @@ describe("input control (Jev only)", () => {
     expect(effectiveControl("finish_row", [], []).control).toBe("finish_row")
     expect(effectiveControl(null, ["control"], ["month", "day", "year"]).control).toBeNull()
     expect(effectiveControl(null, ["control"], ["month", "day", "year"]).usedFallback).toContain("control")
+  })
+
+  it("honors routing intents even when values are unsure (live: 'that's all' at a date prompt)", () => {
+    const dateFallback = ["month", "day", "year"]
+    expect(routeControl("finish_all", dateFallback)).toBe("finish_all")
+    expect(routeControl("finish_row", dateFallback)).toBe("finish_row")
+    expect(routeControl("skip", dateFallback)).toBe("skip")
+    expect(routeControl("edit_previous", dateFallback)).toBe("edit_previous")
+    expect(routeControl("repeat", dateFallback)).toBe("repeat")
+    expect(routeControl("answer", dateFallback)).toBe("repeat")
+    expect(routeControl("answer", [])).toBe("answer")
+    expect(routeControl(null, [])).toBe("repeat")
   })
 })
 

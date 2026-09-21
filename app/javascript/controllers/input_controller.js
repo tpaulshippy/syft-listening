@@ -114,6 +114,16 @@ export function effectiveControl(control, controlFallback, valueFallback) {
   return { control: null, usedFallback: controlFallback, assumed: false }
 }
 
+// Routing intents never need field values — "that's all" carries no date
+// parts, and must still end the session. So a confident intent always wins
+// over value fallbacks; only a bare answer requires confident values.
+// Anything unroutable repeats the question.
+export function routeControl(control, unsure) {
+  if (!control) return "repeat"
+  if (control === "answer") return unsure.length ? "repeat" : "answer"
+  return control // repeat, skip, edit_previous, finish_row, finish_all
+}
+
 export const ROW_INTENTS = ["edit", "delete"]
 
 // Voice row menu: Jev decides edit vs delete from the `row_intent` choice.
@@ -696,33 +706,23 @@ export default class extends Controller {
     const { control, usedFallback: efb } = effectiveControl(rawControl, cfb, vfb)
     const unsure = [...efb, ...vfb]
     if (!this.active) return
-    if (!control || unsure.length) {
+    const route = routeControl(control, unsure)
+    if (route === "repeat") {
       this.sayThenListen(`Sorry — ${spokenPromptFor(this.group)}`, `Sorry — ${promptFor(this.group)}`)
       return
     }
-
-    if (control === "repeat") { this.sayThenListen(spokenPromptFor(this.group), promptFor(this.group)); return }
-    if (control === "skip") { this.advance(values, true); return }
-    if (control === "edit_previous") { this.goBack(); return }
-    if (control === "finish_row") {
-      const tail = validateGroup(this.group, values)
-      if (!tail.ok) {
-        this.setStatus(tail.reason)
-        this.sayThenListen(`${tail.reason} ${spokenPromptFor(this.group)}`, `${tail.reason} ${promptFor(this.group)}`)
-        return
-      }
+    if (route === "skip") { this.advance(values, true); return }
+    if (route === "edit_previous") { this.goBack(); return }
+    if (route === "finish_row") {
+      // Row done: keep any confident partial values, save, start the next
+      // row. Never validated — the utterance is a command, not an answer,
+      // and done()/finishRow save unchecked too.
       Object.assign(this.draft, values)
       return this.finishRow()
     }
-    if (control === "finish_all") {
-      // Voice Done button: the draft so far is saved as a row (when
-      // non-empty) and the session ends — same as the old Done button.
-      const tail = validateGroup(this.group, values)
-      if (!tail.ok) {
-        this.setStatus(tail.reason)
-        this.sayThenListen(`${tail.reason} ${spokenPromptFor(this.group)}`, `${tail.reason} ${promptFor(this.group)}`)
-        return
-      }
+    if (route === "finish_all") {
+      // Voice Done: the draft so far is saved as a row (when non-empty)
+      // and the session ends — same as the old Done button.
       Object.assign(this.draft, values)
       return this.done()
     }
@@ -904,20 +904,21 @@ export default class extends Controller {
     const { control, usedFallback: efb } = effectiveControl(rawControl, cfb, vfb)
     const unsure = [...efb, ...vfb]
     if (!this.active) return
-    // The shared control choice carries keep (skip) and go-back intents.
-    if (!control || (control !== "skip" && control !== "edit_previous" && unsure.length)) {
+    // Routing intents never need values — same rule as recording.
+    const route = routeControl(control, unsure)
+    if (route === "repeat") {
       this.sayThenListen(`Sorry — ${spokenEditPromptFor(field)}`, `Sorry — ${editPromptFor(field, row[field.name])}`)
       return
     }
     // Single-question edit: answer commits, skip keeps the old value and
     // commits, go-back re-asks the same question (there is only one).
-    if (control === "skip") {
+    if (route === "skip") {
       if (this.editSingle) return this.commitEdit()
       this.editIdx += 1
       this.askEditField()
       return
     }
-    if (control === "edit_previous") {
+    if (route === "edit_previous") {
       if (this.editSingle) {
         this.setStatus("Only one question in this edit.")
         this.askEditField()
@@ -929,11 +930,7 @@ export default class extends Controller {
       this.askEditField()
       return
     }
-    if (control === "repeat") {
-      this.sayThenListen(spokenEditPromptFor(field), editPromptFor(field, row[field.name]))
-      return
-    }
-    if (control === "finish_row" || control === "finish_all") return this.commitEdit()
+    if (route === "finish_row" || route === "finish_all") return this.commitEdit()
     // control === answer: validate, block + retry on failure
     const check = validateGroup([field], values)
     if (!check.ok) {

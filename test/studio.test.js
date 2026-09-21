@@ -522,15 +522,63 @@ describe("fallback partition (safe display defaults never block)", () => {
       include_col3: { noul: 0.76 },
       include_col4: { noul: 0.53 },
     }
-    const { dashboard, usedFallback } = dashboardFromAnswers(answers, schema, "table of all data", spaced)
-    expect(usedFallback).toContain("include_col2")
-    expect(usedFallback).toContain("include_col4")
+    const { dashboard, usedFallback, nonBlocking: softFlags } = dashboardFromAnswers(answers, schema, "table of all data", spaced)
+    expect(softFlags).toContain("include_col2")
+    expect(softFlags).toContain("include_col4")
     const { blocking, nonBlocking } = partitionFallbacks(usedFallback)
     expect(blocking).toEqual([])
-    expect(nonBlocking).toContain("include_col2")
+    expect([...nonBlocking, ...softFlags]).toContain("include_col2")
     const html = dashboard.panels.map((p, i) => panelSectionHtml(p, spaced, schema, i)).join("")
     expect(html).toContain("Did you brush your teeth")
     expect(html).toContain("Roman")
+  })
+
+  it("renders unfiltered when Jev leans none but hedges (live replay)", () => {
+    const spaced = [
+      { "Did you brush your teeth": "no", "What's your name": "Roman" },
+      { "Did you brush your teeth": "yes", "What's your name": "Renée" },
+    ]
+    const schema = inferSchema(spaced)
+    // Exact live Jev values for "Teeth brushing by name on a bar chart":
+    // top pick none@0.52 but confidence 0.43.
+    const answers = {
+      panel_count: { choice: "one", confidence: 1.0 },
+      layout: { choice: "single", confidence: 0.91 },
+      view: { choice: "bar", confidence: 0.98 },
+      x_field: { choice: "col1", confidence: 0.94 },
+      y_field: { choice: "count_rows", confidence: 0.66 },
+      color_field: { choice: "none", confidence: 0.66 },
+      size_field: { choice: "none", confidence: 0.7 },
+      aggregation: { choice: "count", confidence: 0.77 },
+      sort_by: { choice: "label_asc", confidence: 0.57 },
+      show_legend: { noul: 0.23 },
+      show_totals: { noul: 0.47 },
+      horizontal: { noul: 0.42 },
+      filter_column: { choice: "none", confidence: 0.43 },
+      include_col0: { noul: 0.75 },
+      include_col1: { noul: 0.84 },
+    }
+    const { dashboard, usedFallback, nonBlocking } = dashboardFromAnswers(answers, schema, "Teeth brushing by name on a bar chart", spaced)
+    expect(usedFallback).not.toContain("filter_column")
+    expect(nonBlocking).toContain("filter_column")
+    expect(dashboard.panels[0].filter).toBeNull()
+    const { blocking } = partitionFallbacks(usedFallback)
+    expect(blocking).toEqual([])
+    expect(dashboard.panels[0].view).toBe("bar")
+  })
+
+  it("still blocks when Jev leans a real filter column but hedges", () => {
+    const schema = inferSchema([{ a: "x" }, { a: "y" }])
+    const answers = {
+      panel_count: { choice: "one", confidence: 0.95 },
+      layout: { choice: "single", confidence: 0.9 },
+      view: { choice: "table", confidence: 0.9 },
+      filter_column: { choice: "col0", confidence: 0.4 },
+    }
+    const { usedFallback } = dashboardFromAnswers(answers, schema, "Table", [{ a: "x" }])
+    expect(usedFallback).toContain("filter_column")
+    const { blocking } = partitionFallbacks(usedFallback)
+    expect(blocking).toContain("filter_column")
   })
 })
 

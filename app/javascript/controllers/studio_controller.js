@@ -181,7 +181,16 @@ export function filterLabel(filter, schema) {
 // Shared (whole-dashboard) filter from Jev answers. Column and op use the
 // standard mergers; the value must be a real cell in that column (guards
 // against a hallucinated choice) — otherwise no filter, recorded fallback.
-function sharedFilter(m, fb, answers, usedFallback) {
+// Leaning-"none" is different: Jev's top pick is unfiltered but hedged
+// (e.g. none@0.43 vs scattered columns). Showing all rows is the safe,
+// visible default, so that never blocks — it lands in nonBlocking instead.
+function sharedFilter(m, fb, answers, usedFallback, nonBlocking) {
+  const raw = answers?.filter_column
+  const rawConf = Number(raw?.confidence ?? NaN)
+  if (raw?.choice === "none" && !(rawConf >= 0.5)) {
+    nonBlocking.push("filter_column")
+    return null
+  }
   const column = m.fieldChoice("filter_column", "none")
   if (column === "none" || column === "count_rows") return null
   const op = m.choice("filter_op", "equals", FILTER_OPS)
@@ -309,9 +318,11 @@ export function partitionFallbacks(usedFallback) {
 export function specFromAnswers(answers, schema, prompt, rows = null) {
   const fb = { ...constantSpec(schema, prompt), schemaColumns: schema?.columns || [], allRows: rows }
   const usedFallback = []
+  const nonBlocking = []
   const m = makeMergers(answers, schema, usedFallback)
-  const filter = sharedFilter(m, fb, answers, usedFallback)
-  return { spec: panelSpec(m, "", { ...fb, filter }, sharedFlags(m, fb)), usedFallback }
+  const mSoft = makeMergers(answers, schema, nonBlocking)
+  const filter = sharedFilter(m, fb, answers, usedFallback, nonBlocking)
+  return { spec: panelSpec(m, "", { ...fb, filter }, sharedFlags(mSoft, fb)), usedFallback, nonBlocking }
 }
 
 export const MAX_PANELS = 3
@@ -321,17 +332,19 @@ export const PANEL_COUNT_WORDS = { one: 1, two: 2, three: 3 }
 export function dashboardFromAnswers(answers, schema, prompt, rows = null) {
   const fb = constantSpec(schema, prompt)
   const usedFallback = []
+  const nonBlocking = []
   const m = makeMergers(answers, schema, usedFallback)
+  const mSoft = makeMergers(answers, schema, nonBlocking)
   const countWord = m.choice("panel_count", "one", Object.keys(PANEL_COUNT_WORDS))
   const count = Math.min(MAX_PANELS, PANEL_COUNT_WORDS[countWord])
   const layout = m.choice("layout", "single", LAYOUTS)
   const fbBase = { schemaColumns: schema?.columns || [], allRows: rows }
-  const filter = sharedFilter(m, fbBase, answers, usedFallback)
+  const filter = sharedFilter(m, fbBase, answers, usedFallback, nonBlocking)
   const fbWithCols = (panel) => ({ ...panel, ...fbBase, filter })
-  const shared = sharedFlags(m, { ...fb, schemaColumns: schema?.columns || [] })
+  const shared = sharedFlags(mSoft, { ...fb, schemaColumns: schema?.columns || [] })
   const panels = Array.from({ length: count }, (_, i) =>
     panelSpec(m, i === 0 ? "" : `_${i + 1}`, fbWithCols(fb), shared))
-  return { dashboard: { layout: count < 2 ? "single" : layout, panels, title: prompt }, usedFallback }
+  return { dashboard: { layout: count < 2 ? "single" : layout, panels, title: prompt }, usedFallback, nonBlocking }
 }
 
 // Deterministic panel title — Jev can't generate text, so derive it.
@@ -783,8 +796,9 @@ export default class extends Controller {
         return
       }
       const serverSchema = data.schema || schema
-      const { dashboard, usedFallback } = dashboardFromAnswers(data.answers || {}, serverSchema, prompt, rows)
-      const { blocking, nonBlocking } = partitionFallbacks(usedFallback)
+      const { dashboard, usedFallback, nonBlocking = [] } = dashboardFromAnswers(data.answers || {}, serverSchema, prompt, rows)
+      const { blocking, nonBlocking: soft } = partitionFallbacks(usedFallback)
+      const notes = [...soft, ...nonBlocking]
       if (blocking.length) {
         this.statusTarget.textContent = `Jev wasn't sure about ${blocking.slice(0, 4).join(", ")} — rephrase and Ask again.`
         return
@@ -793,7 +807,7 @@ export default class extends Controller {
         count: data.question_count ?? Object.keys(data.answers).length,
         model: data.model || "jev-latest",
         answers: data.answers,
-        usedFallback: nonBlocking,
+        usedFallback: notes,
       })
     } catch {
       this.statusTarget.textContent = "Could not reach Jev — try again."

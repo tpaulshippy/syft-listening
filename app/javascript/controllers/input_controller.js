@@ -196,7 +196,7 @@ export function rowTableHtml(schema, rows, selectedIndex = null) {
   if (!rows?.length) return `<p style="font-size:12px;color:#a1a1aa;">No records yet.</p>`
   const head = schema.map((f) => `<th style="text-align:left;padding:6px 8px;color:#71717a;font-weight:600;">${escapeHtml(f.name)}</th>`).join("")
   const body = rows.map((row, i) =>
-    `<tr data-action="click->input#selectRow" data-index="${i}" style="border-top:1px solid #f4f4f5;cursor:pointer;${i === selectedIndex ? "background:#eff6ff;" : ""}"><td style="padding:6px 8px;color:#a1a1aa;">${i + 1}</td>` +
+    `<tr data-action="click->input#selectRow" data-index="${i}" style="border-top:1px solid #f4f4f5;cursor:pointer;${i === selectedIndex ? "outline:2px solid #2563eb;outline-offset:-2px;" : ""}"><td style="padding:6px 8px;color:#a1a1aa;">${i + 1}</td>` +
     schema.map((f) => `<td style="padding:6px 8px;">${escapeHtml(Array.isArray(row[f.name]) ? row[f.name].join(", ") : row[f.name] ?? "")}</td>`).join("") + `</tr>`).join("")
   return `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr><th style="padding:6px 8px;">#</th>${head}</tr></thead><tbody>${body}</tbody></table></div>` +
     `<p style="font-size:11px;color:#a1a1aa;margin-top:4px;">Tap a row, then Start, to change or delete it by voice.</p>`

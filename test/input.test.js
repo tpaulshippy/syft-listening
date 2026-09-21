@@ -6,6 +6,7 @@ import {
   valuesFromAnswers,
   offlineCheck,
   rowsToDataset,
+  rowTableHtml,
   editPromptFor,
   parseRowMenu,
 } from "../app/javascript/controllers/input_controller.js"
@@ -93,6 +94,13 @@ describe("input auto-share", () => {
 
 describe("voice row edit", () => {
   const genre = { id: "b", name: "Genre", type: "choice_single", required: true, options: ["fiction", "scifi"] }
+
+  it("highlights selection without touching text colors", () => {
+    const html = rowTableHtml([genre], [{ Genre: "scifi" }], 0)
+    expect(html).toContain("outline:2px solid #2563eb")
+    expect(html).not.toContain("#eff6ff")
+    expect(rowTableHtml([genre], [{ Genre: "scifi" }], null)).not.toContain("outline")
+  })
 
   it("prompts with the bare name plus current value", () => {
     expect(editPromptFor(genre, "scifi")).toBe("Genre (fiction, scifi)? Currently scifi. Say a new value, or keep.")

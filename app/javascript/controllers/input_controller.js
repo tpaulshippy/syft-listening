@@ -350,11 +350,11 @@ export function rowTableHtml(schema, rows, selectedIndex = null) {
     `<p style="font-size:11px;color:#a1a1aa;margin-top:4px;">Tap a row, then Start, to change or delete it by voice.</p>`
 }
 
-// The guided-edit prompt for one field: bare name, current value, skip option.
-// "Skip" is the shared control choice, so Jev routes it — no word matching.
-export function editPromptFor(field, current) {
-  const display = Array.isArray(current) ? current.join(", ") : String(current ?? "").trim()
-  return `${promptFor([field])} Currently ${display || "empty"}. Say a new value, or skip.`
+// The guided-edit prompt for one field: bare name only — the current
+// value stays visible in the table, never spoken. "Skip" is the shared
+// control choice, so Jev routes it — no word matching.
+export function editPromptFor(field) {
+  return promptFor([field])
 }
 
 // --- Stimulus controller: voice-only session -----------------------------------

@@ -233,9 +233,9 @@ describe("voice row edit", () => {
     expect(rowTableHtml([genre], [{ Genre: "scifi" }], null)).not.toContain("outline")
   })
 
-  it("prompts with the bare name plus current value", () => {
-    expect(editPromptFor(genre, "scifi")).toBe("Genre (fiction, scifi)? Currently scifi. Say a new value, or skip.")
-    expect(editPromptFor(genre, "")).toContain("Currently empty.")
+  it("prompts with the bare name only", () => {
+    expect(editPromptFor(genre, "scifi")).toBe("Genre (fiction, scifi)?")
+    expect(editPromptFor(genre, "")).toBe("Genre (fiction, scifi)?")
   })
 
   it("routes edit versus delete through Jev first", () => {

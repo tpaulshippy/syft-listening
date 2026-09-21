@@ -2,8 +2,9 @@ import { Controller } from "@hotwired/stimulus"
 
 // Data design interview: the user speaks every name and option; Jev makes
 // every decision — field type, intents, required flags. No LLM text, no
-// matchers: anything Jev leaves unsure repeats the question. A Jev key is
-// required (Start refuses without one).
+// matchers: anything Jev leaves unsure repeats the question (an unsure
+// field type defaults to text and can be retyped by voice when editing).
+// A Jev key is required (Start refuses without one).
 //
 // Schema persists in localStorage under SCHEMA_KEY so the Input and
 // Visualize tabs can read it later:
@@ -306,13 +307,6 @@ export default class extends Controller {
     this.sayThenListen(`What should field ${n} be called?`)
   }
 
-  askNameType() {
-    if (!this.active || !this.pending) return
-    this.phase = "name_type"
-    this.setHint("Jev will classify the type from your words.")
-    this.sayThenListen(`What type should ${this.pending.name} be? Text, number, date, time, email, yes or no, single choice, or multiple choice.`)
-  }
-
   askOptions() {
     if (!this.active) return
     this.phase = "options"
@@ -405,7 +399,6 @@ export default class extends Controller {
     if (!this.active) return
     // Finishing is the Done button's job — every spoken turn is content.
     if (this.phase === "name") return this.submitName(text)
-    if (this.phase === "name_type") return this.submitNameType(text)
     if (this.phase === "options") return this.submitOption(text)
     if (this.phase === "required_fields") return this.submitRequiredFields(text)
     if (this.phase === "edit_menu") return this.submitEditMenu(text)
@@ -417,7 +410,6 @@ export default class extends Controller {
   repeatQuestion() {
     // re-speak the current question and listen again
     if (this.phase === "name") return this.askName()
-    if (this.phase === "name_type") return this.askNameType()
     if (this.phase === "options") return this.askOptions()
     if (this.phase === "required_fields") return this.askRequiredFields()
     if (this.phase === "edit_menu") return this.askEditMenu()
@@ -440,46 +432,11 @@ export default class extends Controller {
     this.setStatus("Classifying type with Jev…")
     const { type } = await this.classifyType(clean)
     if (!this.active) return
-    if (!type) {
-      // Jev couldn't tell from the name — ask for the type outright.
-      this.logInspector("field_type unsure — asking outright")
-      this.askNameType()
-      return
-    }
-    this.pending.type = type
-    this.logInspector(`field_type = ${type}`)
-    if (CHOICE_TYPES.includes(type)) this.askOptions()
-    else this.commitField()
-  }
-
-  // The name didn't reveal the type, so Jev classifies the spoken type words.
-  async submitNameType(text) {
-    if (!this.active || !this.pending) return
-    this.setStatus("Checking the type with Jev…")
-    const key = localStorage.getItem("syft_jev_key") || ""
-    let typed = { type: null, usedFallback: ["field_type", "no-key"] }
-    if (key) {
-      try {
-        const res = await fetch("/jev_design", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-CSRF-Token": document.querySelector('meta[name="csrf-token"]')?.content },
-          body: JSON.stringify({ step: "change_type", transcript: text, field_name: this.pending.name, api_key: key }),
-        })
-        const data = await res.json().catch(() => ({}))
-        typed = typeFromAnswers(res.ok ? data.answers : {})
-      } catch {
-        typed = typeFromAnswers({})
-      }
-    }
-    if (!this.active) return
-    if (!typed.type) {
-      this.logInspector("field_type unsure — repeating")
-      this.sayThenListen(`Sorry, I didn't catch the type. Text, number, date, time, email, yes or no, single choice, or multiple choice?`)
-      return
-    }
-    this.pending.type = typed.type
-    this.logInspector(`field_type = ${typed.type}`)
-    if (CHOICE_TYPES.includes(typed.type)) this.askOptions()
+    // Jev decides the type from the name alone — never asked outright.
+    // Unsure defaults to text; it can be retyped by voice when editing.
+    this.pending.type = type || "text"
+    this.logInspector(`field_type = ${this.pending.type}${type ? "" : " (defaulted — Jev unsure)"}`)
+    if (CHOICE_TYPES.includes(this.pending.type)) this.askOptions()
     else this.commitField()
   }
 

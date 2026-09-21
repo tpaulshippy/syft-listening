@@ -16,6 +16,8 @@ import {
   loadSchema,
   saveSchema,
   SCHEMA_KEY,
+  migrateInputRows,
+  INPUT_ROWS_KEY,
 } from "../app/javascript/controllers/design_controller.js"
 
 describe("design field types (Jev only)", () => {
@@ -105,6 +107,31 @@ describe("design options + validation", () => {
     saveSchema([{ id: "f1", name: "Genre", type: "choice_single", required: false, options: ["a"] }], store)
     expect(store.getItem(SCHEMA_KEY)).toContain("Genre")
     expect(loadSchema(store)).toHaveLength(1)
+  })
+})
+
+describe("rename migration (no phantom keys)", () => {
+  function storeWith(rows) {
+    const m = new Map([[INPUT_ROWS_KEY, JSON.stringify(rows)]])
+    return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v), rows: () => JSON.parse(m.get(INPUT_ROWS_KEY)) }
+  }
+
+  it("moves answers from the old name to the new one", () => {
+    const store = storeWith([{ Date: "2026-09-13", "What route did you take": "Canal" }])
+    expect(migrateInputRows("What route did you take", "Which route did you take", store)).toBe(1)
+    expect(store.rows()).toEqual([{ Date: "2026-09-13", "Which route did you take": "Canal" }])
+  })
+
+  it("drops the old key when there is nothing to move, keeps an explicit new value", () => {
+    const store = storeWith([{ "What route did you take": "", "Which route did you take": "Canal" }])
+    expect(migrateInputRows("What route did you take", "Which route did you take", store)).toBe(0)
+    expect(store.rows()).toEqual([{ "Which route did you take": "Canal" }])
+  })
+
+  it("leaves rows without the old key alone", () => {
+    const store = storeWith([{ Date: "2026-09-13" }])
+    expect(migrateInputRows("What route did you take", "Which route did you take", store)).toBe(0)
+    expect(store.rows()).toEqual([{ Date: "2026-09-13" }])
   })
 })
 

@@ -15,6 +15,24 @@ function rowsToDataset(rows) {
   })
 }
 
+// Shared rows projected onto the design schema's column names: keys from
+// renamed or deleted fields stay in storage (lossless) but never reach the
+// dataset JSON or Jev's columns. With no schema (pasted data), everything
+// passes through untouched.
+export function projectToSchema(rows, names) {
+  const wanted = Array.isArray(names) ? names.filter((n) => typeof n === "string" && n) : []
+  if (!wanted.length) return rows || []
+  const keep = new Set(wanted)
+  return (rows || []).map((row) => {
+    const out = {}
+    for (const [k, v] of Object.entries(row || {})) {
+      if (k === "_index" || !keep.has(k)) continue
+      out[k] = v
+    }
+    return out
+  })
+}
+
 // Generalized voice UI studio: data-agnostic parallel fan-out + generic render.
 //
 // State = { request, schema, rows }; questions are generated from the schema
@@ -632,9 +650,9 @@ export default class extends Controller {
   }
 
   // --- input auto-share -----------------------------------------------------------
-  // Rows collected in the Input tab flow here on their own: on every save
-  // and whenever this tab is shown. Never clobbers text the user typed or
-  // pasted themselves (see shouldAutoLoadDataset).
+  // Rows collected in the Input section flow here on their own: on every
+  // save and on connect. Never clobbers text the user typed or pasted
+  // themselves (see shouldAutoLoadDataset).
   readInputShare() {
     try {
       const rows = JSON.parse(localStorage.getItem("syft_input_rows") || "[]")
@@ -650,15 +668,16 @@ export default class extends Controller {
     if (!this.hasInputShareTarget) return
     const { rows } = this.readInputShare()
     this.inputShareTarget.textContent = rows.length
-      ? `${rows.length} input row${rows.length === 1 ? "" : "s"} loaded from the Input tab.`
+      ? `${rows.length} input row${rows.length === 1 ? "" : "s"} loaded from the Input section.`
       : "No input rows yet — they appear here automatically once filled in."
   }
 
   autoLoadFromInput() {
-    const { rows } = this.readInputShare()
+    const { rows, fields } = this.readInputShare()
     this.refreshInputShare()
     if (!rows.length) return
-    const nextJson = JSON.stringify(rowsToDataset(rows), null, 1)
+    const names = fields.map((f) => f?.name).filter((n) => typeof n === "string" && n)
+    const nextJson = JSON.stringify(projectToSchema(rowsToDataset(rows), names), null, 1)
     if (!shouldAutoLoadDataset(this.datasetTarget.value, this.lastAutoLoaded, nextJson)) return
     this.datasetTarget.value = nextJson
     this.lastAutoLoaded = nextJson

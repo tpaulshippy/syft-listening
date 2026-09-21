@@ -16,6 +16,7 @@ import { Controller } from "@hotwired/stimulus"
 export const FIELD_TYPES = ["text", "number", "date", "time", "email", "yes_no", "choice_single", "choice_multiple"]
 export const CHOICE_TYPES = ["choice_single", "choice_multiple"]
 export const SCHEMA_KEY = "syft_design_schema"
+export const INPUT_ROWS_KEY = "syft_input_rows"
 export const MAX_FIELDS = 20
 export const MAX_OPTIONS = 30
 export const MAX_NAME_CHARS = 60
@@ -34,6 +35,43 @@ export function loadSchema(store = null) {
 export function saveSchema(fields, store = null) {
   const s = store || (typeof localStorage !== "undefined" ? localStorage : null)
   s?.setItem(SCHEMA_KEY, JSON.stringify(fields || []))
+}
+
+// Voice rename moves the column's answers with it. Stored rows are keyed
+// by field name, so without this the old name lingers as a phantom key in
+// every collected row (surfacing in the dataset JSON and Jev's columns).
+// Storage stays lossless: only the renamed key is touched, and an
+// explicitly set new-column value always wins over the moved one.
+export function migrateInputRows(from, to, store = null) {
+  const s = store || (typeof localStorage !== "undefined" ? localStorage : null)
+  if (!s || !from || !to || from === to) return 0
+  let rows = null
+  try {
+    rows = JSON.parse(s.getItem(INPUT_ROWS_KEY) || "[]")
+  } catch {
+    return 0
+  }
+  if (!Array.isArray(rows)) return 0
+  let moved = 0
+  for (const row of rows) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue
+    if (!Object.prototype.hasOwnProperty.call(row, from)) continue
+    if (isEmptyValue(row[to]) && !isEmptyValue(row[from])) {
+      row[to] = row[from]
+      moved += 1
+    }
+    delete row[from]
+  }
+  try {
+    s.setItem(INPUT_ROWS_KEY, JSON.stringify(rows))
+    window.dispatchEvent(new CustomEvent("syft:input-rows-changed"))
+  } catch { /* non-browser */ }
+  return moved
+}
+
+function isEmptyValue(v) {
+  return v === undefined || v === null ||
+    (Array.isArray(v) ? v.length === 0 : String(v).trim() === "")
 }
 
 export function validateFieldName(name, existing = []) {
@@ -760,10 +798,12 @@ export default class extends Controller {
       this.sayThenListen(`${err} Say the new name for ${field.name}.`)
       return
     }
+    const old = field.name
     field.name = clean
     saveSchema(this.fields)
+    const moved = migrateInputRows(old, clean, null)
     this.render()
-    this.askEditMenu(`Renamed to ${clean}.`)
+    this.askEditMenu(`Renamed to ${clean}.${moved ? ` Moved ${moved} answer${moved === 1 ? "" : "s"} over.` : ""}`)
   }
 
   async submitEditType(text) {

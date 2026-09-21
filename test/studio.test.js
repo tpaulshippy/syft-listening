@@ -24,6 +24,7 @@ import {
   filterLabel,
   FILTER_OPS,
   shouldAutoLoadDataset,
+  projectToSchema,
 } from "../app/javascript/controllers/studio_controller.js"
 
 describe("inferSchema (names in order, no types)", () => {
@@ -630,5 +631,20 @@ describe("input auto-load guard", () => {
     expect(shouldAutoLoadDataset('[{"a":1}]', '[{"a":1}]', '[{"a":1},{"a":2}]')).toBe(true)
     expect(shouldAutoLoadDataset("pasted,stuff", '[{"a":1}]', '[{"a":1},{"a":2}]')).toBe(false)
     expect(shouldAutoLoadDataset("", null, "[]")).toBe(false)
+  })
+})
+
+describe("schema projection (no phantom columns)", () => {
+  it("drops keys outside the design schema, keeps the rest", () => {
+    const rows = [{ Date: "2026-09-13", "What route did you take": "", "Which route did you take": "Canal" }]
+    expect(projectToSchema(rows, ["Date", "Which route did you take"])).toEqual([
+      { Date: "2026-09-13", "Which route did you take": "Canal" },
+    ])
+  })
+
+  it("passes everything through with no schema (pasted data)", () => {
+    const rows = [{ a: 1, b: 2 }]
+    expect(projectToSchema(rows, [])).toEqual(rows)
+    expect(projectToSchema(rows, null)).toEqual(rows)
   })
 })

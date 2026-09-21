@@ -5,6 +5,7 @@ import {
   typeFromAnswers,
   optionIntentFromAnswers,
   requiredFromAnswers,
+  requiredFieldsFromAnswers,
   sessionIntentFromAnswers,
   addOption,
   validateFieldName,
@@ -56,6 +57,28 @@ describe("design intents", () => {
     expect(sessionIntentFromAnswers({}, "finished").intent).toBe("finished")
     expect(sessionIntentFromAnswers({}, "delete last").intent).toBe("delete_last")
     expect(sessionIntentFromAnswers({}, "something else").intent).toBe("next_field")
+  })
+})
+
+describe("end-of-session required", () => {
+  const fields = [
+    { id: "f1", name: "Email" },
+    { id: "f2", name: "Birthday" },
+  ]
+
+  it("maps one noul per field", () => {
+    const { requiredIds, usedFallback } = requiredFieldsFromAnswers({
+      required_f1: { noul: 0.95 },
+      required_f2: { noul: 0.05 },
+    }, fields, "email")
+    expect(requiredIds).toEqual(["f1"])
+    expect(usedFallback).toEqual([])
+  })
+
+  it("falls back to name mentions, all, or none", () => {
+    expect(requiredFieldsFromAnswers({}, fields, "email and birthday").requiredIds).toEqual(["f1", "f2"])
+    expect(requiredFieldsFromAnswers({}, fields, "all of them").requiredIds).toEqual(["f1", "f2"])
+    expect(requiredFieldsFromAnswers({}, fields, "none").requiredIds).toEqual([])
   })
 })
 

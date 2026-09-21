@@ -46,6 +46,8 @@ export function loadRows(store = null) {
 export function saveRows(rows, store = null) {
   const s = store || (typeof localStorage !== "undefined" ? localStorage : null)
   s?.setItem(INPUT_ROWS_KEY, JSON.stringify(rows || []))
+  // Visualize listens for this and auto-loads the new rows (same document).
+  try { window.dispatchEvent(new CustomEvent("syft:input-rows-changed")) } catch { /* non-browser */ }
 }
 
 // Next candidate group: a contiguous pair of closed types, else solo.
@@ -60,12 +62,11 @@ export function proposeGroup(remaining) {
 
 export function promptFor(group) {
   if (!group?.length) return ""
-  if (group.length === 1) {
-    const f = group[0]
+  const parts = group.map((f) => {
     const opts = f.type.startsWith("choice_") && f.options?.length ? ` (${f.options.join(", ")})` : ""
-    return `What is ${f.name}${opts}?`
-  }
-  return `What is ${group.map((f) => f.name).join(" and ")}?`
+    return `${f.name}${opts}`
+  })
+  return group.length === 1 ? `${parts[0]}?` : `${parts.join(" … ")}?`
 }
 
 function confidentChoice(answer, allowed) {

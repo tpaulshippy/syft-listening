@@ -74,6 +74,25 @@ RSpec.describe "Design", type: :request do
       expect(response).to have_http_status(:success)
     end
 
+    it "builds one required noul per finished field" do
+      http = stub_jev
+      allow(http).to receive(:request) do |req|
+        body = JSON.parse(req.body)
+        expect(body["state"]["transcript"]).to eq("email and birthday")
+        expect(body["questions"]["required_f1"]["type"]).to eq("noul")
+        expect(body["questions"].keys).to include("required_f1", "required_f2")
+        instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
+      end
+
+      post "/jev_design", params: {
+        step: "required_fields", transcript: "email and birthday",
+        fields: [ { id: "f1", name: "Email" }, { id: "f2", name: "Birthday" } ],
+        api_key: "ts_test"
+      }
+      expect(response).to have_http_status(:success)
+      expect(JSON.parse(response.body)["question_count"]).to eq(2)
+    end
+
     it "rejects empty transcripts on intent steps" do
       post "/jev_design", params: { step: "required", transcript: "", api_key: "ts_test" }
       expect(response).to have_http_status(:bad_request)

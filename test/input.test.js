@@ -22,9 +22,9 @@ describe("input grouping", () => {
     expect(proposeGroup([])).toEqual([])
   })
 
-  it("prompts deterministically", () => {
-    expect(promptFor([GENRE])).toBe("What is Genre (fiction, scifi)?")
-    expect(promptFor([YES_NO, GENRE])).toBe("What is Subscribe and Genre?")
+  it("prompts with the bare field name", () => {
+    expect(promptFor([GENRE])).toBe("Genre (fiction, scifi)?")
+    expect(promptFor([YES_NO, GENRE])).toBe("Subscribe … Genre (fiction, scifi)?")
   })
 })
 

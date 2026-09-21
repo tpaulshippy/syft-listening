@@ -105,6 +105,31 @@ export function sessionIntentFromAnswers(answers, transcript) {
   return { intent: "next_field", usedFallback: ["intent"] }
 }
 
+// Merges the end-of-session "which fields are required?" answers: one noul
+// per field, falling back to name mentions ("email and birthday"), "all",
+// or "none" when Jev is unsure or there is no key.
+export function requiredFieldsFromAnswers(answers, fields, transcript) {
+  const p = String(transcript || "").toLowerCase()
+  const usedFallback = []
+  const requiredIds = []
+  for (const field of fields || []) {
+    const a = answers?.[`required_${field.id}`]
+    let req = null
+    if (a != null && a.noul != null) {
+      const n = Number(a.noul)
+      if (Math.abs(n - 0.5) * 2 >= 0.5) req = n >= 0.5
+    }
+    if (req === null) {
+      usedFallback.push(`required_${field.id}`)
+      if (/\b(none|nope|no fields|not required|all optional)\b/.test(p)) req = false
+      else if (/\b(all|every|everything|all of them)\b/.test(p)) req = true
+      else req = p.includes(String(field.name || "").toLowerCase())
+    }
+    if (req) requiredIds.push(field.id)
+  }
+  return { requiredIds, usedFallback }
+}
+
 // Adds a spoken option verbatim; dedups case-insensitively, caps length.
 export function addOption(field, option) {
   const t = String(option ?? "").trim()
@@ -146,7 +171,7 @@ export default class extends Controller {
 
   connect() {
     this.fields = loadSchema()
-    this.phase = "idle" // idle -> name -> options -> required
+    this.phase = "idle" // idle -> name -> options -> required_fields
     this.pending = null // field under construction
     this.recognition = null
     this.active = false
@@ -190,12 +215,22 @@ export default class extends Controller {
   }
 
   done() {
-    if (!this.active && this.phase === "idle") return
+    if (!this.active) return
+    if (!this.fields.length) {
+      this.endSession("Session ended — no fields. Tap Start to begin.")
+      return
+    }
+    // Fields are all there — one closing question instead of per-field nags.
+    this.pending = null
+    this.askRequiredFields()
+  }
+
+  endSession(status) {
     this.stopSession()
     this.phase = "idle"
     this.pending = null
     this.setQuestion("Done.")
-    this.setStatus(`Session ended — ${this.fields.length} field${this.fields.length === 1 ? "" : "s"}. Tap Start to add more.`)
+    this.setStatus(status || `Session ended — ${this.fields.length} field${this.fields.length === 1 ? "" : "s"}. Tap Start to add more.`)
     this.updateButtons()
   }
 
@@ -238,11 +273,12 @@ export default class extends Controller {
     this.sayThenListen(`“${this.pending.name}” — tell me option ${count}, or say “done”.`)
   }
 
-  askRequired() {
+  askRequiredFields() {
     if (!this.active) return
-    this.phase = "required"
-    this.setHint("Say “yes” or “no”.")
-    this.sayThenListen(`Is “${this.pending.name}” required?`)
+    this.phase = "required_fields"
+    const names = this.fields.map((f) => f.name).join(", ")
+    this.setHint("Name the required ones, say “all”, or say “none”.")
+    this.sayThenListen(`Which fields are required? ${names}.`)
   }
 
   sayThenListen(text) {
@@ -323,14 +359,14 @@ export default class extends Controller {
       return this.submitName(text)
     }
     if (this.phase === "options") return this.submitOption(text)
-    if (this.phase === "required") return this.submitRequired(text)
+    if (this.phase === "required_fields") return this.submitRequiredFields(text)
   }
 
   repeatQuestion() {
     // re-speak the current question and listen again
     if (this.phase === "name") return this.askName()
     if (this.phase === "options") return this.askOptions()
-    if (this.phase === "required") return this.askRequired()
+    if (this.phase === "required_fields") return this.askRequiredFields()
   }
 
   async submitName(name) {
@@ -353,7 +389,17 @@ export default class extends Controller {
     this.pending.type = type
     this.logInspector(`field_type = ${type}${usedFallback.length ? " · fallback" : ""}`)
     if (CHOICE_TYPES.includes(type)) this.askOptions()
-    else this.askRequired()
+    else this.commitField()
+  }
+
+  // A finished field goes straight onto the list — required is asked once,
+  // for all fields together, when the session ends.
+  commitField() {
+    this.fields.push(this.pending)
+    saveSchema(this.fields)
+    this.setStatus(`Added “${this.pending.name}” (${this.pending.type}).`)
+    this.render()
+    this.askName()
   }
 
   async classifyType(fieldName) {
@@ -409,7 +455,7 @@ export default class extends Controller {
         this.sayThenListen(`I need at least one option for “${this.pending.name}”. Tell me the first option.`)
         return
       }
-      this.askRequired()
+      this.askRequiredFields()
     } else if (intent === "remove_last") {
       this.pending.options.pop()
       this.setStatus("Removed the last option.")
@@ -422,39 +468,42 @@ export default class extends Controller {
     }
   }
 
-  async submitRequired(text) {
+  async submitRequiredFields(text) {
     const key = localStorage.getItem("syft_jev_key") || ""
-    let required = /required|must|mandatory/.test(text.toLowerCase()) && !/optional|not/.test(text.toLowerCase())
-    let fb = ["required", "no-key"]
+    let merged = { requiredIds: [], usedFallback: ["required_fields", "no-key"] }
     if (key) {
       try {
         const res = await fetch("/jev_design", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-CSRF-Token": document.querySelector('meta[name="csrf-token"]')?.content },
-          body: JSON.stringify({ step: "required", transcript: text, field_name: this.pending.name, api_key: key }),
+          body: JSON.stringify({
+            step: "required_fields", transcript: text,
+            fields: this.fields.map((f) => ({ id: f.id, name: f.name })),
+            api_key: key,
+          }),
         })
         const data = await res.json().catch(() => ({}))
         if (res.ok && data.answers) {
-          const m = requiredFromAnswers(data.answers, text)
-          required = m.required
-          fb = m.usedFallback
+          merged = requiredFieldsFromAnswers(data.answers, this.fields, text)
         } else {
-          required = requiredFromAnswers({}, text).required
+          merged = requiredFieldsFromAnswers({}, this.fields, text)
         }
       } catch {
-        required = requiredFromAnswers({}, text).required
+        merged = requiredFieldsFromAnswers({}, this.fields, text)
       }
     } else {
-      required = requiredFromAnswers({}, text).required
+      merged = requiredFieldsFromAnswers({}, this.fields, text)
     }
-    this.logInspector(`required = ${required}${fb.length ? " · fallback" : ""}`)
-    if (!this.active) return
-    this.pending.required = required
-    this.fields.push(this.pending)
+    const wanted = new Set(merged.requiredIds)
+    for (const f of this.fields) f.required = wanted.has(f.id)
     saveSchema(this.fields)
-    this.setStatus(`Added “${this.pending.name}” (${this.pending.type}).`)
     this.render()
-    this.askName()
+    this.logInspector(`required = ${[...wanted].join(", ") || "none"}${merged.usedFallback.length ? " · fallback" : ""}`)
+    if (!this.active) return
+    const names = this.fields.filter((f) => f.required).map((f) => f.name)
+    this.speak(names.length ? `Marked ${names.join(", ")} as required.` : "Nothing marked required.", () => {
+      this.endSession()
+    })
   }
 
   // --- field list management (tap to fix; voice session keeps going) ---------------

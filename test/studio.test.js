@@ -24,6 +24,7 @@ import {
   applyFilter,
   filterLabel,
   FILTER_OPS,
+  shouldAutoLoadDataset,
 } from "../app/javascript/controllers/studio_controller.js"
 
 describe("inferSchema (arbitrary data)", () => {
@@ -469,5 +470,14 @@ describe("row filter (Jev-native)", () => {
     expect(html).toContain("2 of 5 rows")
     expect(html).toContain("INC-102")
     expect(html).not.toContain("INC-101")
+  })
+})
+
+describe("input auto-load guard", () => {
+  it("loads into an empty box, refreshes its own snapshot, never clobbers typing", () => {
+    expect(shouldAutoLoadDataset("", null, '[{"a":1}]')).toBe(true)
+    expect(shouldAutoLoadDataset('[{"a":1}]', '[{"a":1}]', '[{"a":1},{"a":2}]')).toBe(true)
+    expect(shouldAutoLoadDataset("pasted,stuff", '[{"a":1}]', '[{"a":1},{"a":2}]')).toBe(false)
+    expect(shouldAutoLoadDataset("", null, "[]")).toBe(false)
   })
 })

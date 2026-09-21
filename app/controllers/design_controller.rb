@@ -13,6 +13,9 @@ require "json"
 # - option_intent: state = { transcript, field_name, options_so_far } ->
 #   intent choice (add_option / done_options / remove_last)
 # - required: state = { transcript, field_name } -> required noul
+#   (kept for API compatibility; the UI now asks once at the end instead)
+# - required_fields: state = { transcript, fields: [names] } -> one noul per
+#   field (the fan-out that scales with schema width)
 # - session_intent: state = { transcript, field_count } ->
 #   intent choice (next_field / finished / edit_last / delete_last)
 class DesignController < ApplicationController
@@ -43,8 +46,9 @@ class DesignController < ApplicationController
     when "classify" then build_classify
     when "option_intent" then build_option_intent
     when "required" then build_required
+    when "required_fields" then build_required_fields
     when "session_intent" then build_session_intent
-    else { error: "Unknown step (expected classify, option_intent, required, session_intent)" }
+    else { error: "Unknown step (expected classify, option_intent, required, required_fields, session_intent)" }
     end
   end
 
@@ -104,6 +108,54 @@ class DesignController < ApplicationController
         }
       }
     }
+  end
+
+  # End-of-session: which of the finished fields are required? One noul per
+  # field over the spoken answer ("email and birthday", "all of them", "none").
+  def build_required_fields
+    transcript = params[:transcript].to_s.strip
+    return { error: "No transcript provided" } if transcript.blank?
+
+    fields = required_field_list
+    return { error: fields[:error] } if fields[:error]
+
+    {
+      state: { transcript: transcript, fields: fields[:fields].map { |f| f[:name] } },
+      questions: fields[:fields].each_with_object({}) do |field, qs|
+        qs["required_#{field[:id]}"] = {
+          type: "noul",
+          instructions: "Does the speaker name #{field[:name]} in `transcript` as a required field?"
+        }
+      end
+    }
+  end
+
+  def required_field_list
+    raw = params[:fields]
+    parsed = raw.is_a?(Array) ? raw : parse_fields_json(raw.to_s)
+    return parsed if parsed.is_a?(Hash) && parsed[:error]
+
+    fields = parsed.first(MAX_FIELDS).map do |f|
+      h = f.respond_to?(:to_unsafe_h) ? f.to_unsafe_h : f.to_h
+      { id: h["id"].to_s.strip, name: h["name"].to_s.strip }
+    end
+    return { error: "No fields provided" } if fields.empty?
+    return { error: "Fields need ids and names" } if fields.any? { |f| f[:id].empty? || f[:name].empty? }
+
+    { fields: fields }
+  end
+
+  def parse_fields_json(raw)
+    return { error: "No fields provided" } if raw.strip.empty?
+
+    begin
+      parsed = JSON.parse(raw)
+    rescue JSON::ParserError
+      return { error: "Fields must be a JSON array" }
+    end
+    return { error: "Fields must be an array" } unless parsed.is_a?(Array)
+
+    parsed
   end
 
   def build_session_intent

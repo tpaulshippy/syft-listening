@@ -44,6 +44,17 @@ export const SAMPLES = {
 
 export const PALETTE = ["#38bdf8", "#f472b6", "#34d399", "#fbbf24", "#a78bfa", "#fb7185", "#22d3ee", "#f97316"]
 
+// Auto-load guard: Input rows flow into the dataset on their own, but never
+// clobber something the user pasted or edited. Loads when the box is empty
+// or still holds the previously auto-loaded snapshot — not when the user
+// has typed something of their own since.
+export function shouldAutoLoadDataset(currentText, lastLoadedJson, nextJson) {
+  if (!nextJson || nextJson === "[]") return false
+  const current = String(currentText ?? "").trim()
+  if (!current) return true
+  return current === String(lastLoadedJson ?? "").trim()
+}
+
 // Dataset input: a JSON array of objects, or CSV with a header row.
 // Detects by first non-whitespace character ("[" -> JSON, else CSV).
 export function parseDatasetText(raw) {
@@ -630,6 +641,9 @@ export default class extends Controller {
       }, 0)
     })
     this.updateKeyStatus()
+    this.lastAutoLoaded = null
+    this.handleInputRowsChanged = () => this.autoLoadFromInput()
+    window.addEventListener("syft:input-rows-changed", this.handleInputRowsChanged)
     this.refreshInputShare()
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) this.supportWarningTarget.classList.remove("hidden")
@@ -637,6 +651,7 @@ export default class extends Controller {
 
   disconnect() {
     try { this.recognition?.stop() } catch { /* ignore */ }
+    try { window.removeEventListener("syft:input-rows-changed", this.handleInputRowsChanged) } catch { /* ignore */ }
     this.destroyCharts()
   }
 
@@ -688,8 +703,20 @@ export default class extends Controller {
     if (!this.hasInputShareTarget) return
     const { rows } = this.readInputShare()
     this.inputShareTarget.textContent = rows.length
-      ? `${rows.length} input record${rows.length === 1 ? "" : "s"} available — 📥 From Input loads them.`
-      : "No input records yet — fill some in the Input tab."
+      ? `${rows.length} input record${rows.length === 1 ? "" : "s"} loaded from the Input tab.`
+      : "No input records yet — they appear here automatically once filled in."
+  }
+
+  autoLoadFromInput() {
+    const { rows } = this.readInputShare()
+    this.refreshInputShare()
+    if (!rows.length) return
+    const nextJson = JSON.stringify(rowsToDataset(rows), null, 1)
+    if (!shouldAutoLoadDataset(this.datasetTarget.value, this.lastAutoLoaded, nextJson)) return
+    this.datasetTarget.value = nextJson
+    this.lastAutoLoaded = nextJson
+    this.datasetInput()
+    this.refreshInputShare()
   }
 
   loadFromInput() {
@@ -698,10 +725,12 @@ export default class extends Controller {
       this.statusTarget.textContent = "No input records yet — fill some in the Input tab first."
       return
     }
-    this.datasetTarget.value = JSON.stringify(rowsToDataset(rows), null, 1)
+    const nextJson = JSON.stringify(rowsToDataset(rows), null, 1)
+    this.datasetTarget.value = nextJson
+    this.lastAutoLoaded = nextJson
     this.datasetInput()
     this.refreshInputShare()
-    this.statusTarget.textContent = `Loaded ${rows.length} input record${rows.length === 1 ? "" : "s"} — now speak or type how to render it.`
+    this.statusTarget.textContent = "Loaded input records — now speak or type how to render them."
   }
 
   // --- key (shared) ---------------------------------------------------------------

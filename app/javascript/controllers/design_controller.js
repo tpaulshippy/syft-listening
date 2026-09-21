@@ -590,12 +590,15 @@ export default class extends Controller {
     })
   }
 
-  // --- tap to select, voice to change ----------------------------------------------
-  // Tapping a field only selects it. Every change happens by voice after Start.
+  // --- tap a field, voice takes over -------------------------------------------------
+  // Tapping a field starts the voice edit — no Start needed. Tapping the
+  // selected field again only deselects it. While a session is already
+  // active, tapping only moves the selection.
   selectField(event) {
     const id = event.currentTarget.dataset.id
     this.selectedId = this.selectedId === id ? null : id
     this.render()
+    if (this.selectedId !== null) this.start()
   }
 
   selectedField() {

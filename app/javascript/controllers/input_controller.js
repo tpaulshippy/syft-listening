@@ -100,6 +100,15 @@ export function rowIntentFromAnswers(answers) {
   return { intent: null, usedFallback: ["intent"] }
 }
 
+// Voice field picker: Jev maps "which question" onto one field id.
+// Anything unsure repeats the picker.
+export function editFieldFromAnswers(answers, fields) {
+  const allowed = (fields || []).map((f) => f.id)
+  const hit = confidentChoice(answers?.field, allowed)
+  if (hit) return { fieldId: hit, usedFallback: [] }
+  return { fieldId: null, usedFallback: ["field"] }
+}
+
 // Guards Jev's answers without interpreting words: required fields must be
 // non-empty, and closed-type values must be members of their option sets.
 // Anything else repeats the question.
@@ -217,6 +226,7 @@ export default class extends Controller {
     this.selectedIndex = null
     this.editValues = null
     this.editIdx = 0
+    this.editSingle = false
     this.draft = {}
     this.fieldIndex = 0
     this.group = []
@@ -266,6 +276,7 @@ export default class extends Controller {
     this.active = true
     this.draft = {}
     this.fieldIndex = 0
+    this.editSingle = false
     this.updateButtons()
     // A tapped row means voice-editing it; otherwise a new row.
     if (this.selectedIndex !== null && this.rows[this.selectedIndex]) {
@@ -448,6 +459,7 @@ export default class extends Controller {
   async handleAnswer(text) {
     if (!this.active) return
     if (this.mode === "menu") return this.submitRowMenu(text)
+    if (this.mode === "edit_pick") return this.submitEditFieldChoice(text)
     if (this.mode === "edit") return this.submitEditAnswer(text)
     if (!this.schema.length) { this.setStatus("Design fields first."); return }
     if (!this.group.length) { this.setStatus("Nothing to answer."); return }
@@ -539,13 +551,15 @@ export default class extends Controller {
     this.nextGroup()
   }
 
-  // --- tap to select, voice to change ----------------------------------------------
-  // Tapping a row only selects it. Start then offers edit-or-delete by voice,
-  // and the guided edit re-asks each field ("new value, or keep").
+  // --- tap a row, voice takes over -------------------------------------------------
+  // Tapping a row starts the voice flow (edit-or-delete menu) — no Start
+  // needed. Tapping the selected row again only deselects it. While a
+  // session is already active, tapping only moves the selection.
   selectRow(event) {
     const i = Number(event.currentTarget.dataset.index)
     this.selectedIndex = this.selectedIndex === i ? null : i
     this.render()
+    if (this.selectedIndex !== null) this.start()
   }
 
   askRowMenu() {
@@ -590,11 +604,60 @@ export default class extends Controller {
     }
     if (want === "edit") {
       this.editValues = {}
-      this.editIdx = 0
-      this.askEditField()
+      this.editSingle = true
+      this.askEditFieldChoice()
       return
     }
     this.sayThenListen(`Sorry — say edit, or delete. Row ${this.selectedIndex + 1}: edit it, or delete it?`)
+  }
+
+  // Editing asks which question to change, then re-asks just that one.
+  // The field names stay on screen in the table — voice never lists them.
+  askEditFieldChoice() {
+    if (!this.active) return
+    const row = this.rows[this.selectedIndex]
+    if (!row) { this.selectedIndex = null; this.nextGroup(); return }
+    this.mode = "edit_pick"
+    if (this.hasStepHintTarget) this.stepHintTarget.textContent = "Say the field name — the columns are in the table below."
+    if (this.hasProgressTarget) this.progressTarget.textContent = `Editing row ${this.selectedIndex + 1} — pick a question`
+    this.sayThenListen(`Which question should I change?`)
+  }
+
+  async submitEditFieldChoice(text) {
+    if (!this.active) return
+    const row = this.rows[this.selectedIndex]
+    if (!row) return this.endEdit("Row is gone.")
+    this.setStatus("Checking with Jev…")
+    const key = localStorage.getItem("syft_jev_key") || ""
+    let merged = { fieldId: null, usedFallback: ["field", "no-key"] }
+    if (key) {
+      try {
+        const res = await fetch("/jev_input", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": document.querySelector('meta[name="csrf-token"]')?.content },
+          body: JSON.stringify({
+            step: "edit_field", transcript: text,
+            fields: this.schema.map((f) => ({ id: f.id, name: f.name })),
+            api_key: key,
+          }),
+        })
+        const data = await res.json().catch(() => ({}))
+        merged = editFieldFromAnswers(res.ok ? data.answers : {}, this.schema)
+      } catch {
+        merged = editFieldFromAnswers({}, this.schema)
+      }
+    } else {
+      merged = editFieldFromAnswers({}, this.schema)
+    }
+    this.logInspector(`edit field = ${merged.fieldId}${merged.usedFallback.length ? " · unsure" : ""}`)
+    if (!this.active) return
+    const picked = (this.schema || []).findIndex((f) => f.id === merged.fieldId)
+    if (picked < 0) {
+      this.sayThenListen(`Sorry — which question should I change? Say the field name.`)
+      return
+    }
+    this.editIdx = picked
+    this.askEditField()
   }
 
   askEditField() {
@@ -627,12 +690,20 @@ export default class extends Controller {
       this.sayThenListen(`Sorry — ${editPromptFor(field, row[field.name])}`)
       return
     }
+    // Single-question edit: answer commits, skip keeps the old value and
+    // commits, go-back re-asks the same question (there is only one).
     if (control === "skip") {
+      if (this.editSingle) return this.commitEdit()
       this.editIdx += 1
       this.askEditField()
       return
     }
     if (control === "edit_previous") {
+      if (this.editSingle) {
+        this.setStatus("Only one question in this edit.")
+        this.askEditField()
+        return
+      }
       this.editIdx = Math.max(0, this.editIdx - 1)
       delete this.editValues[this.schema[this.editIdx].id]
       this.setStatus("Went back one question.")
@@ -652,6 +723,7 @@ export default class extends Controller {
       return
     }
     this.editValues[field.id] = values[field.id]
+    if (this.editSingle) return this.commitEdit()
     this.editIdx += 1
     this.askEditField()
   }
@@ -700,9 +772,10 @@ export default class extends Controller {
     this.group = []
     this.selectedIndex = null
     this.editValues = null
+    this.editSingle = false
     this.render()
     this.setQuestion("Done.")
-    this.setStatus(status || "Edit ended. Tap Start for more.")
+    this.setStatus(status || "Edit ended. Tap a row for more.")
     this.updateButtons()
   }
 

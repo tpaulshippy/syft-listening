@@ -46,7 +46,8 @@ class InputController < ApplicationController
     when "plan_group" then build_plan_group
     when "answer" then build_answer
     when "row_intent" then build_row_intent
-    else { error: "Unknown step (expected plan_group, answer, row_intent)" }
+    when "edit_field" then build_edit_field
+    else { error: "Unknown step (expected plan_group, answer, row_intent, edit_field)" }
     end
   end
 
@@ -153,6 +154,43 @@ class InputController < ApplicationController
         finish_row: "Done with this row (finished, done, save it)"
       }
     }
+  end
+
+  # Voice field picker: which question does the speaker want to change?
+  # One choice over field ids (names ride in plain quotes, never backticked,
+  # so spaced names resolve). Unsure repeats the picker.
+  def build_edit_field
+    transcript = params[:transcript].to_s.strip
+    return { error: "No transcript provided" } if transcript.blank?
+
+    fields = edit_field_list
+    return { error: fields[:error] } if fields[:error]
+
+    {
+      state: { transcript: transcript, fields: fields[:fields].map { |f| f[:name] } },
+      questions: {
+        "field" => {
+          type: "choice",
+          instructions: "Which field does the speaker want to change in `transcript`?",
+          criteria: fields[:fields].each_with_object({}) { |f, h| h[f[:id]] = "`transcript` means the field \"#{f[:name]}\"" }
+        }
+      }
+    }
+  end
+
+  def edit_field_list
+    raw = params[:fields]
+    parsed = raw.is_a?(Array) ? raw : parse_fields_json(raw.to_s)
+    return parsed if parsed.is_a?(Hash) && parsed[:error]
+
+    fields = parsed.first(20).map do |f|
+      h = f.respond_to?(:to_unsafe_h) ? f.to_unsafe_h : f.to_h
+      { id: h["id"].to_s.strip, name: h["name"].to_s.strip }
+    end
+    return { error: "No fields provided" } if fields.empty?
+    return { error: "Fields need ids and names" } if fields.any? { |f| f[:id].empty? || f[:name].empty? }
+
+    { fields: fields }
   end
 
   # Voice row menu: change the tapped row or delete it?

@@ -9,6 +9,7 @@ import {
   rowTableHtml,
   editPromptFor,
   rowIntentFromAnswers,
+  editFieldFromAnswers,
 } from "../app/javascript/controllers/input_controller.js"
 
 const YES_NO = { id: "a", name: "Subscribe", type: "yes_no", required: false, options: [] }
@@ -109,5 +110,17 @@ describe("voice row edit", () => {
     expect(rowIntentFromAnswers({ intent: { choice: "delete", confidence: 0.9 } }).intent).toBe("delete")
     expect(rowIntentFromAnswers({}).intent).toBeNull()
     expect(rowIntentFromAnswers({}).usedFallback).toContain("intent")
+  })
+
+  it("maps which-question onto one field id, unsure repeats the picker", () => {
+    const fields = [
+      { id: "f1", name: "Did you brush your teeth" },
+      { id: "f2", name: "What's your name" },
+    ]
+    expect(editFieldFromAnswers({ field: { choice: "f2", confidence: 0.9 } }, fields).fieldId).toBe("f2")
+    expect(editFieldFromAnswers({}, fields).fieldId).toBeNull()
+    expect(editFieldFromAnswers({}, fields).usedFallback).toContain("field")
+    expect(editFieldFromAnswers({ field: { choice: "nope", confidence: 0.9 } }, fields).fieldId).toBeNull()
+    expect(editFieldFromAnswers({ field: { choice: "f1", confidence: 0.2 } }, fields).fieldId).toBeNull()
   })
 })

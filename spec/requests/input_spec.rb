@@ -139,6 +139,25 @@ RSpec.describe "Input", type: :request do
       expect(response).to have_http_status(:success)
     end
 
+    it "builds a field picker choice for the which-question edit" do
+      http = stub_jev
+      allow(http).to receive(:request) do |req|
+        body = JSON.parse(req.body)
+        expect(body["state"]["transcript"]).to eq("the teeth one")
+        expect(body["questions"]["field"]["type"]).to eq("choice")
+        expect(body["questions"]["field"]["criteria"].keys).to include("f1", "f2")
+        expect(body["questions"]["field"]["criteria"]["f1"]).to include("Did you brush your teeth")
+        instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
+      end
+
+      fields = [
+        { "id" => "f1", "name" => "Did you brush your teeth" },
+        { "id" => "f2", "name" => "What's your name" }
+      ]
+      post "/jev_input", params: { step: "edit_field", transcript: "the teeth one", fields: fields, api_key: "ts_test" }
+      expect(response).to have_http_status(:success)
+    end
+
     it "returns bad gateway on Jev timeout" do
       http = instance_double(Net::HTTP)
       allow(Net::HTTP).to receive(:new).and_return(http)

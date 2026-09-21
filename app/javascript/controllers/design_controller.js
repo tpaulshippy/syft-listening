@@ -261,16 +261,22 @@ export default class extends Controller {
   speak(text, onDone = null) {
     try {
       if (!window.speechSynthesis || !text) { onDone?.(); return }
+      if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = "Speaking…"
       window.speechSynthesis.cancel()
       const u = new SpeechSynthesisUtterance(text)
       u.lang = "en-US"
       let finished = false
-      const finish = () => { if (!finished) { finished = true; onDone?.() } }
+      let timer = null
+      const finish = () => { if (!finished) { finished = true; if (timer) clearTimeout(timer); onDone?.() } }
       u.onend = finish
       u.onerror = finish
       window.speechSynthesis.speak(u)
-      // Safety net: if TTS events never fire, keep going after a pause.
-      setTimeout(() => { if (this.active && this.awaiting) finish() }, 8000)
+      // Safety net: if TTS events never fire, advance after estimated speech
+      // time instead of a fixed wait (short prompts recover fast, long ones
+      // still get room to finish). No regex: split on plain spaces.
+      const words = String(text).split(" ").filter((w) => w.length).length || 1
+      const estMs = Math.min(15000, Math.max(3000, words * 500 + 2000))
+      timer = setTimeout(() => { if (this.active && this.awaiting) finish() }, estMs)
     } catch { onDone?.() }
   }
 

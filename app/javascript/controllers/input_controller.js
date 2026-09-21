@@ -187,7 +187,7 @@ export function rowsToDataset(rows) {
 }
 
 export function rowTableHtml(schema, rows, selectedIndex = null) {
-  if (!rows?.length) return `<p style="font-size:12px;color:#a1a1aa;">No records yet.</p>`
+  if (!rows?.length) return `<p style="font-size:12px;color:#a1a1aa;">No rows yet.</p>`
   const head = schema.map((f) => `<th style="text-align:left;padding:6px 8px;color:#71717a;font-weight:600;">${escapeHtml(f.name)}</th>`).join("")
   const body = rows.map((row, i) =>
     `<tr data-action="click->input#selectRow" data-index="${i}" style="border-top:1px solid #f4f4f5;cursor:pointer;${i === selectedIndex ? "outline:2px solid #2563eb;outline-offset:-2px;" : ""}"><td style="padding:6px 8px;color:#a1a1aa;">${i + 1}</td>` +
@@ -260,14 +260,14 @@ export default class extends Controller {
     if (this.active) return
     this.schema = loadSchema()
     if (!this.schema.length) {
-      this.setQuestion("Design fields first — then come back to fill records.")
+      this.setQuestion("Design fields first — then come back to fill rows.")
       return
     }
     this.active = true
     this.draft = {}
     this.fieldIndex = 0
     this.updateButtons()
-    // A tapped row means voice-editing it; otherwise a new record.
+    // A tapped row means voice-editing it; otherwise a new row.
     if (this.selectedIndex !== null && this.rows[this.selectedIndex]) {
       this.render()
       this.askRowMenu()
@@ -280,7 +280,7 @@ export default class extends Controller {
 
   done() {
     if (!this.active) return
-    // Save a non-empty draft as a record, then end the session.
+    // Save a non-empty draft as a row, then end the session.
     const row = {}
     for (const f of this.schema) {
       const v = this.draft[f.id]
@@ -300,7 +300,7 @@ export default class extends Controller {
     this.editValues = null
     this.render()
     this.setQuestion("Done.")
-    this.setStatus(empty ? "Session ended — no answers to save." : `Session ended — saved record ${this.rows.length}.`)
+    this.setStatus(empty ? "Session ended — no answers to save." : `Session ended — saved row ${this.rows.length}.`)
     this.updateButtons()
   }
 
@@ -395,7 +395,7 @@ export default class extends Controller {
     this.mode = "record"
     this.schema = loadSchema()
     if (!this.schema.length) {
-      this.setQuestion("Design fields first — then come back to fill records.")
+      this.setQuestion("Design fields first — then come back to fill rows.")
       if (this.hasProgressTarget) this.progressTarget.textContent = "0 fields"
       return
     }
@@ -414,7 +414,7 @@ export default class extends Controller {
         ? `Answering ${group.map((f) => f.name).join(" + ")} together. Say “skip” to skip, “go back” to edit.`
         : `${group[0].required ? "Required. " : ""}Say “skip” to skip, “go back” to edit.`
     }
-    if (this.hasProgressTarget) this.progressTarget.textContent = `Record ${this.rows.length + 1} · field ${this.fieldIndex + 1} of ${this.schema.length}`
+    if (this.hasProgressTarget) this.progressTarget.textContent = `Row ${this.rows.length + 1} · field ${this.fieldIndex + 1} of ${this.schema.length}`
     this.sayThenListen(q)
   }
 
@@ -528,7 +528,7 @@ export default class extends Controller {
     this.fieldIndex = 0
     this.render()
     if (!this.active) return
-    this.setStatus(empty ? "Record discarded (empty)." : `Saved record ${this.rows.length}.`)
+    this.setStatus(empty ? "Row discarded (empty)." : `Saved row ${this.rows.length}.`)
     this.nextGroup()
   }
 
@@ -546,9 +546,9 @@ export default class extends Controller {
     const row = this.rows[this.selectedIndex]
     if (!row) { this.selectedIndex = null; this.nextGroup(); return }
     this.mode = "menu"
-    if (this.hasStepHintTarget) this.stepHintTarget.textContent = "Say “edit” to change answers, or “delete” to remove the record."
-    if (this.hasProgressTarget) this.progressTarget.textContent = `Record ${this.selectedIndex + 1} of ${this.rows.length}`
-    this.sayThenListen(`Record ${this.selectedIndex + 1}. Edit it, or delete it?`)
+    if (this.hasStepHintTarget) this.stepHintTarget.textContent = "Say “edit” to change answers, or “delete” to remove the row."
+    if (this.hasProgressTarget) this.progressTarget.textContent = `Row ${this.selectedIndex + 1} of ${this.rows.length}`
+    this.sayThenListen(`Row ${this.selectedIndex + 1}. Edit it, or delete it?`)
   }
 
   async submitRowMenu(text) {
@@ -577,8 +577,8 @@ export default class extends Controller {
       const n = this.selectedIndex + 1
       this.rows.splice(this.selectedIndex, 1)
       saveRows(this.rows) // notifies Visualize, which auto-loads
-      this.endEdit("Record deleted.")
-      this.speak(`Record ${n} deleted.`)
+      this.endEdit("Row deleted.")
+      this.speak(`Row ${n} deleted.`)
       return
     }
     if (want === "edit") {
@@ -587,7 +587,7 @@ export default class extends Controller {
       this.askEditField()
       return
     }
-    this.sayThenListen(`Sorry — say edit, or delete. Record ${this.selectedIndex + 1}: edit it, or delete it?`)
+    this.sayThenListen(`Sorry — say edit, or delete. Row ${this.selectedIndex + 1}: edit it, or delete it?`)
   }
 
   askEditField() {
@@ -597,16 +597,16 @@ export default class extends Controller {
     this.mode = "edit"
     const field = this.schema[this.editIdx]
     if (this.hasStepHintTarget) {
-      this.stepHintTarget.textContent = `Record ${this.selectedIndex + 1} · field ${this.editIdx + 1} of ${this.schema.length}. Say “skip” to leave it, “go back” to revisit.`
+      this.stepHintTarget.textContent = `Row ${this.selectedIndex + 1} · field ${this.editIdx + 1} of ${this.schema.length}. Say “skip” to leave it, “go back” to revisit.`
     }
-    if (this.hasProgressTarget) this.progressTarget.textContent = `Editing record ${this.selectedIndex + 1} · field ${this.editIdx + 1} of ${this.schema.length}`
+    if (this.hasProgressTarget) this.progressTarget.textContent = `Editing row ${this.selectedIndex + 1} · field ${this.editIdx + 1} of ${this.schema.length}`
     this.sayThenListen(editPromptFor(field, row[field.name]))
   }
 
   async submitEditAnswer(text) {
     if (!this.active) return
     const row = this.rows[this.selectedIndex]
-    if (!row) return this.endEdit("Record is gone.")
+    if (!row) return this.endEdit("Row is gone.")
     const field = this.schema[this.editIdx]
     this.setStatus("Checking with Jev…")
     const { answers, fbNote } = await this.jevAnswer(text, [field])
@@ -651,7 +651,7 @@ export default class extends Controller {
 
   commitEdit() {
     const row = this.rows[this.selectedIndex]
-    if (!row) return this.endEdit("Record is gone.")
+    if (!row) return this.endEdit("Row is gone.")
     for (const f of this.schema) {
       if (this.editValues && f.id in this.editValues) {
         const v = this.editValues[f.id]
@@ -661,8 +661,8 @@ export default class extends Controller {
     saveRows(this.rows) // notifies Visualize, which auto-loads
     this.render()
     const n = this.selectedIndex + 1
-    this.endEdit(`Record ${n} updated.`)
-    this.speak(`Record ${n} updated.`)
+    this.endEdit(`Row ${n} updated.`)
+    this.speak(`Row ${n} updated.`)
   }
 
   async jevAnswer(transcript, fields) {

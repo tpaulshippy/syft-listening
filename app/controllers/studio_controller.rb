@@ -226,7 +226,7 @@ class StudioController < ApplicationController
       },
       "sort_by" => {
         type: "choice",
-        instructions: "How should categories/records be ordered for `request` (first panel)?",
+        instructions: "How should categories/rows be ordered for `request` (first panel)?",
         criteria: sort_criteria
       },
       "show_legend" => noul("Should a legend be shown for `request`?"),
@@ -283,8 +283,8 @@ class StudioController < ApplicationController
 
   def view_criteria
     {
-      table: "Sortable data grid, one row per record",
-      cards: "Card per record with title and key facts",
+      table: "Sortable data grid, one row per row",
+      cards: "Card per row with title and key facts",
       kpi: "Headline totals/averages (counts, sums)",
       bar: "Bar chart: value per category",
       line: "Line chart: trend over time or ordered categories",

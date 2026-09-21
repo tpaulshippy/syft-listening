@@ -2,7 +2,7 @@ require "net/http"
 require "uri"
 require "json"
 
-# Data input — voice-driven record filling, Jev-automated, no LLM text.
+# Data input — voice-driven row filling, Jev-automated, no LLM text.
 #
 # The user speaks every value verbatim. Jev only maps and validates:
 # - choice_single: one `choice` over the field's enumerated options
@@ -150,12 +150,12 @@ class InputController < ApplicationController
         repeat: "Didn't hear or wants the question repeated",
         skip: "Skip this question (skip, next, don't answer)",
         edit_previous: "Go back and change the previous answer",
-        finish_row: "Done with this record (finished, done, save it)"
+        finish_row: "Done with this row (finished, done, save it)"
       }
     }
   end
 
-  # Voice row menu: change the tapped record or delete it?
+  # Voice row menu: change the tapped row or delete it?
   def build_row_intent
     transcript = params[:transcript].to_s.strip
     return { error: "No transcript provided" } if transcript.blank?
@@ -165,10 +165,10 @@ class InputController < ApplicationController
       questions: {
         "intent" => {
           type: "choice",
-          instructions: "What does the speaker want to do with the record in `transcript`?",
+          instructions: "What does the speaker want to do with the row in `transcript`?",
           criteria: {
-            edit: "Change answers in the record (edit, change, update)",
-            delete: "Remove the whole record (delete, remove)"
+            edit: "Change answers in the row (edit, change, update)",
+            delete: "Remove the whole row (delete, remove)"
           }
         }
       }

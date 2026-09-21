@@ -304,9 +304,8 @@ export default class extends Controller {
     const unasked = fieldsNeedingRequired(this.fields)
     if (!unasked.length) { this.endSession(); return }
     this.phase = "required_fields"
-    const names = unasked.map((f) => f.name).join(", ")
     this.setHint("Name the required ones, say “all”, or say “none”.")
-    this.sayThenListen(`Which fields are required? ${names}.`)
+    this.sayThenListen(`Which fields are required?`)
   }
 
   sayThenListen(text) {
@@ -567,7 +566,7 @@ export default class extends Controller {
     }
     if (merged.usedFallback.length) {
       this.logInspector("required unsure — repeating")
-      this.sayThenListen(`Sorry — which fields are required? ${unasked.map((f) => f.name).join(", ")}.`)
+      this.sayThenListen(`Sorry — which fields are required?`)
       return
     }
     const wanted = new Set(merged.requiredIds)

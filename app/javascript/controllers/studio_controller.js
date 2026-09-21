@@ -491,7 +491,7 @@ export function renderKpiHtml(rows, spec, schema) {
   if (spec.yField === "count_rows") {
     return `<div style="display:flex;gap:8px;flex-wrap:wrap;">` +
       `<div style="border:1px solid #e4e4e7;border-radius:12px;padding:12px;min-width:140px;flex:1;text-align:center;">` +
-      `<div style="font-size:11px;color:#71717a;">records</div>` +
+      `<div style="font-size:11px;color:#71717a;">rows</div>` +
       `<div style="font-size:28px;font-weight:700;">${fmt(kept.length)}</div></div></div>`
   }
   const name = refToName(schema, spec.yField)
@@ -608,8 +608,8 @@ export default class extends Controller {
     if (!this.hasInputShareTarget) return
     const { rows } = this.readInputShare()
     this.inputShareTarget.textContent = rows.length
-      ? `${rows.length} input record${rows.length === 1 ? "" : "s"} loaded from the Input tab.`
-      : "No input records yet — they appear here automatically once filled in."
+      ? `${rows.length} input row${rows.length === 1 ? "" : "s"} loaded from the Input tab.`
+      : "No input rows yet — they appear here automatically once filled in."
   }
 
   autoLoadFromInput() {

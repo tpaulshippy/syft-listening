@@ -4,7 +4,7 @@ import {
   promptFor,
   controlFromAnswers,
   valuesFromAnswers,
-  offlineCheck,
+  validateGroup,
   rowsToDataset,
   rowTableHtml,
   editPromptFor,
@@ -31,12 +31,11 @@ describe("input grouping", () => {
   })
 })
 
-describe("input control", () => {
-  it("trusts confident Jev control, falls back by keyword", () => {
-    expect(controlFromAnswers({ control: { choice: "skip", confidence: 0.9 } }, "whatever").control).toBe("skip")
-    expect(controlFromAnswers({}, "skip").control).toBe("skip")
-    expect(controlFromAnswers({}, "go back").control).toBe("edit_previous")
-    expect(controlFromAnswers({}, "scifi").control).toBe("answer")
+describe("input control (Jev only)", () => {
+  it("trusts confident Jev control, marks unsure for repeat", () => {
+    expect(controlFromAnswers({ control: { choice: "skip", confidence: 0.9 } }).control).toBe("skip")
+    expect(controlFromAnswers({}).control).toBeNull()
+    expect(controlFromAnswers({}).usedFallback).toContain("control")
   })
 })
 
@@ -67,21 +66,20 @@ describe("input values", () => {
     expect(values).toEqual({ c: ["fiction"] })
   })
 
-  it("keeps open-type values verbatim", () => {
-    const { values } = valuesFromAnswers({ valid: { noul: 0.9 } }, [EMAIL], "a@b.co")
-    expect(values).toEqual({ d: "a@b.co" })
+  it("marks unsure values for repeat, keeping the transcript only as carrier", () => {
+    const { values, usedFallback } = valuesFromAnswers({}, [EMAIL], "a@b.co")
+    expect(values.d).toBeNull()
+    expect(usedFallback).toContain("valid")
   })
 })
 
-describe("input offline checks (block + retry)", () => {
-  it("validates email / number / yes-no / choice", () => {
-    expect(offlineCheck(EMAIL, "a@b.co").ok).toBe(true)
-    expect(offlineCheck(EMAIL, "nope").ok).toBe(false)
-    expect(offlineCheck({ ...EMAIL, type: "number" }, "12x").ok).toBe(false)
-    expect(offlineCheck(YES_NO, "yeah").value).toBe("yes")
-    expect(offlineCheck(GENRE, "SCIFI").value).toBe("scifi")
-    expect(offlineCheck(GENRE, "purple").ok).toBe(false)
-    expect(offlineCheck(NAME, "").ok).toBe(false) // required
+describe("input guards (no word matching)", () => {
+  it("blocks empty required fields and non-member options", () => {
+    expect(validateGroup([EMAIL], { d: "" }).ok).toBe(false)
+    expect(validateGroup([EMAIL], { d: "a@b.co" }).ok).toBe(true)
+    expect(validateGroup([GENRE], { b: "purple" }).ok).toBe(false)
+    expect(validateGroup([GENRE], { b: "scifi" }).ok).toBe(true)
+    expect(validateGroup([YES_NO], { a: "maybe" }).ok).toBe(false)
   })
 })
 
@@ -103,14 +101,13 @@ describe("voice row edit", () => {
   })
 
   it("prompts with the bare name plus current value", () => {
-    expect(editPromptFor(genre, "scifi")).toBe("Genre (fiction, scifi)? Currently scifi. Say a new value, or keep.")
+    expect(editPromptFor(genre, "scifi")).toBe("Genre (fiction, scifi)? Currently scifi. Say a new value, or skip.")
     expect(editPromptFor(genre, "")).toContain("Currently empty.")
   })
 
   it("routes edit versus delete through Jev first", () => {
-    expect(rowIntentFromAnswers({ intent: { choice: "delete", confidence: 0.9 } }, "whatever").intent).toBe("delete")
-    expect(rowIntentFromAnswers({}, "edit it").intent).toBe("edit")
-    expect(rowIntentFromAnswers({}, "delete").intent).toBe("delete")
-    expect(rowIntentFromAnswers({}, "scifi").intent).toBeNull()
+    expect(rowIntentFromAnswers({ intent: { choice: "delete", confidence: 0.9 } }).intent).toBe("delete")
+    expect(rowIntentFromAnswers({}).intent).toBeNull()
+    expect(rowIntentFromAnswers({}).usedFallback).toContain("intent")
   })
 })

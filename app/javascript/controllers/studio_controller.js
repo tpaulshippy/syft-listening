@@ -292,47 +292,21 @@ function sharedFilter(m, fb, answers, usedFallback) {
   return { column, op, value, negate }
 }
 
-// Offline keyword parse over an arbitrary schema — fallback without a key.
-// Filters need Jev (values are enumerated choices), so offline is unfiltered.
-export function defaultSpec(schema, prompt) {
-  const p = (prompt || "").toLowerCase()
-  const has = (...words) => words.some((w) => p.includes(w))
-  const numeric = colsByType(schema, ["numeric"])
-  const cats = colsByType(schema, ["categorical", "temporal", "text"])
-  const temporal = colsByType(schema, ["temporal"])
-  // Name a column if the prompt mentions it.
-  const mentioned = (c) => p.includes(c.name.toLowerCase()) || p.includes(c.slug.split("_").join(" "))
-  const named = (schema?.columns || []).find(mentioned)
-  const numericNamed = numeric.find(mentioned)?.slug || null
-  let view = "table"
-  if (has("pie", "share", "proportion", "breakdown")) view = "pie"
-  else if (has("line", "trend", "over time", "timeline")) view = "line"
-  else if (has("scatter", "correlation", " vs ", "versus")) view = "scatter"
-  else if (has("bubble")) view = "bubbles"
-  else if (has("bar", "chart", "compare", "by ", "per ")) view = "bar"
-  else if (has("kpi", "total", "how many", "sum of", "average")) view = "kpi"
-  else if (has("card")) view = "cards"
-  else if (has("table", "grid", "list", "spreadsheet", "rows")) view = "table"
-  else if (numeric.length && cats.length) view = "bar"
-
-  const xField = (view === "scatter" || view === "bubbles")
-    ? (numericNamed || numeric[0]?.slug || "none")
-    : (named && named.type !== "numeric" ? named.slug
-      : (view === "line" && temporal.length ? temporal[0].slug : (cats[0]?.slug || "none")))
-  let yField = numericNamed || numeric[0]?.slug || "count_rows"
-  if ((view === "scatter" || view === "bubbles") && yField === xField) {
-    yField = (numeric.find((c) => c.slug !== xField))?.slug || yField
-  }
-  const seconds = cats.filter((c) => c.slug !== xField)
-  const colorField = has("by ", "per ", "color", "coloured", "colored", "split", "stack", "series") || view === "pie"
-    ? (seconds[0]?.slug || "none") : "none"
+// Schema-derived starting spec: fixed safe constants, never prompt words.
+// Jev fills every slot; anything it leaves unsure repeats the question.
+export function constantSpec(schema, prompt) {
+  const cols = schema?.columns || []
+  const nonNumeric = cols.find((c) => c.type !== "numeric")
   return {
-    view,
-    xField, yField, colorField, sizeField: "none",
-    aggregation: has("average", "avg", "mean") ? "avg" : has("count", "how many", "number of") ? "count" : "sum",
-    sortBy: has("biggest", "largest", "top", "desc") ? "value_desc" : has("smallest", "asc") ? "value_asc" : "label_asc",
-    showLegend: view === "pie" || colorField !== "none",
-    showTotals: has("total", "kpi", "sum", "how many"),
+    view: "table",
+    xField: nonNumeric?.slug || cols[0]?.slug || "none",
+    yField: "count_rows",
+    colorField: "none",
+    sizeField: "none",
+    aggregation: "sum",
+    sortBy: "label_asc",
+    showLegend: false,
+    showTotals: false,
     horizontal: false,
     include: null,
     filter: null,
@@ -340,7 +314,7 @@ export function defaultSpec(schema, prompt) {
   }
 }
 
-// Merge Jev answers with the offline fallback; slugs validated vs schema.
+// Merge Jev answers over the constant spec; slugs validated vs schema.
 function makeMergers(answers, schema, usedFallback) {
   const validSlugs = new Set((schema?.columns || []).map((c) => c.slug))
   const fieldChoice = (key, fallback) => {
@@ -403,7 +377,7 @@ function sharedFlags(m, fb) {
 }
 
 export function specFromAnswers(answers, schema, prompt, rows = null) {
-  const fb = { ...defaultSpec(schema, prompt), schemaColumns: schema?.columns || [], allRows: rows }
+  const fb = { ...constantSpec(schema, prompt), schemaColumns: schema?.columns || [], allRows: rows }
   const usedFallback = []
   const m = makeMergers(answers, schema, usedFallback)
   const filter = sharedFilter(m, fb, answers, usedFallback)
@@ -414,52 +388,19 @@ export const MAX_PANELS = 3
 export const LAYOUTS = ["single", "stack", "side-by-side", "grid"]
 export const PANEL_COUNT_WORDS = { one: 1, two: 2, three: 3 }
 
-// Voice prompts compose with "and / plus / with": each clause becomes a panel.
-// Whole-word split (no regex): "candy" never splits, "and" always does.
-const CLAUSE_WORDS = ["and", "plus", "with", "alongside"]
-
-export function splitPrompt(prompt) {
-  const clauses = []
-  let current = []
-  for (const token of String(prompt || "").split(" ")) {
-    if (CLAUSE_WORDS.includes(token.toLowerCase()) && current.length) {
-      clauses.push(current.join(" "))
-      current = []
-    } else {
-      current.push(token)
-    }
-  }
-  if (current.join(" ").trim()) clauses.push(current.join(" "))
-  return clauses.map((s) => s.trim()).filter(Boolean).slice(0, MAX_PANELS)
-}
-
-export function defaultDashboard(schema, prompt) {
-  const p = (prompt || "").toLowerCase()
-  const segments = splitPrompt(prompt)
-  const clauses = segments.length ? segments : [prompt]
-  const panels = clauses.map((seg) => defaultSpec(schema, seg))
-  const layout = clauses.length < 2 ? "single"
-    : p.includes("side by side") ? "side-by-side"
-    : p.includes("grid") || p.includes("dashboard") ? "grid"
-    : "stack"
-  return { layout, panels, title: prompt }
-}
-
 export function dashboardFromAnswers(answers, schema, prompt, rows = null) {
-  const fb = defaultDashboard(schema, prompt)
+  const fb = constantSpec(schema, prompt)
   const usedFallback = []
   const m = makeMergers(answers, schema, usedFallback)
-  const countWord = m.choice("panel_count",
-    Object.keys(PANEL_COUNT_WORDS).find((w) => PANEL_COUNT_WORDS[w] === fb.panels.length) || "one",
-    Object.keys(PANEL_COUNT_WORDS))
+  const countWord = m.choice("panel_count", "one", Object.keys(PANEL_COUNT_WORDS))
   const count = Math.min(MAX_PANELS, PANEL_COUNT_WORDS[countWord])
-  const layout = m.choice("layout", count < 2 ? "single" : fb.layout, LAYOUTS)
+  const layout = m.choice("layout", "single", LAYOUTS)
   const fbBase = { schemaColumns: schema?.columns || [], allRows: rows }
   const filter = sharedFilter(m, fbBase, answers, usedFallback)
   const fbWithCols = (panel) => ({ ...panel, ...fbBase, filter })
-  const shared = sharedFlags(m, { ...fb.panels[0], schemaColumns: schema?.columns || [] })
+  const shared = sharedFlags(m, { ...fb, schemaColumns: schema?.columns || [] })
   const panels = Array.from({ length: count }, (_, i) =>
-    panelSpec(m, i === 0 ? "" : `_${i + 1}`, fbWithCols(fb.panels[i] || fb.panels[0]), shared))
+    panelSpec(m, i === 0 ? "" : `_${i + 1}`, fbWithCols(fb), shared))
   return { dashboard: { layout: count < 2 ? "single" : layout, panels, title: prompt }, usedFallback }
 }
 
@@ -778,8 +719,8 @@ export default class extends Controller {
     const key = this.apiKeyTarget.value.trim()
     const ok = key.length > 0 && localStorage.getItem("syft_jev_key_ok") === key
     this.keyStatusTarget.textContent = ok ? "✓ Key works — Jev will answer the schema-driven question set."
-      : key ? "Tap Test to verify this key. Without a key, the offline parse renders instead."
-      : "Add your key for the full parallel Jev pass — or just Ask and the offline parse renders."
+      : key ? "Tap Test to verify this key."
+      : "Add your key — every render is answered by Jev."
     this.keyStatusTarget.className = "mt-1 text-xs " + (ok ? "text-emerald-600" : "text-zinc-500 dark:text-zinc-400")
   }
 
@@ -875,12 +816,7 @@ export default class extends Controller {
     this.ask()
   }
 
-  offlineDashboard(prompt, rows, schema, t0, reason) {
-    this.renderResult(defaultDashboard(schema, prompt, rows), rows, schema, prompt, t0,
-      { count: 0, model: "offline parse", answers: {}, usedFallback: ["all"], offlineReason: reason })
-  }
-
-  // --- build --------------------------------------------------------------------------
+  // --- build (Jev only — no key or unsure answers repeat, never render) ---------
   async ask() {
     const prompt = this.promptTarget.value.trim()
     if (!prompt) { this.statusTarget.textContent = "Say or type how to render the data first."; return }
@@ -895,7 +831,7 @@ export default class extends Controller {
       const key = this.apiKeyTarget.value.trim()
       const schema = inferSchema(rows)
       if (!key) {
-        this.offlineDashboard(prompt, rows, schema, t0, "no key — offline parse")
+        this.statusTarget.textContent = "Add your Jev key first — every render is answered by Jev."
         return
       }
       const res = await fetch("/jev_studio", {
@@ -907,15 +843,19 @@ export default class extends Controller {
       if (res.status === 401) {
         localStorage.removeItem("syft_jev_key_ok")
         this.updateKeyStatus()
-        this.offlineDashboard(prompt, rows, schema, t0, "key rejected — offline parse")
+        this.statusTarget.textContent = "Key rejected — check it and try again."
         return
       }
       if (!res.ok || !data.answers) {
-        this.offlineDashboard(prompt, rows, schema, t0, `Jev error (HTTP ${res.status}) — offline parse`)
+        this.statusTarget.textContent = `Jev error (HTTP ${res.status}) — try again.`
         return
       }
       const serverSchema = data.schema || schema
       const { dashboard, usedFallback } = dashboardFromAnswers(data.answers || {}, serverSchema, prompt, rows)
+      if (usedFallback.length) {
+        this.statusTarget.textContent = `Jev wasn't sure about ${usedFallback.slice(0, 4).join(", ")} — rephrase and Ask again.`
+        return
+      }
       this.renderResult(dashboard, rows, serverSchema, prompt, t0, {
         count: data.question_count ?? Object.keys(data.answers).length,
         model: data.model || "jev-latest",
@@ -923,7 +863,7 @@ export default class extends Controller {
         usedFallback,
       })
     } catch {
-      this.offlineDashboard(prompt, rows, inferSchema(rows), t0, "connection failed — offline parse")
+      this.statusTarget.textContent = "Could not reach Jev — try again."
     } finally {
       this.askButtonTarget.disabled = false
     }
@@ -938,19 +878,16 @@ export default class extends Controller {
       `</div>`
     this.mountPanelCharts(dashboard, rows, schema)
     this.latencyTarget.textContent = `${ms.toLocaleString()} ms`
-    this.questionCountTarget.textContent = meta.count
-      ? `${meta.count} multiple-choice answers in parallel · ${meta.model}`
-      : `offline parse · ${meta.offlineReason}`
+    this.questionCountTarget.textContent =
+      `${meta.count} multiple-choice answers in parallel · ${meta.model}`
     const rows_out = Object.entries(meta.answers || {}).slice(0, 80).map(([k, a]) => {
       const val = a?.choice ?? (a?.noul != null ? (Number(a.noul) >= 0.5 ? "yes" : "no") : "?")
       const c = a?.confidence ?? (a?.noul != null ? noulConfidence(a.noul) : null)
-      const fb = meta.usedFallback?.includes(k) ? " · fallback" : ""
-      return `<div>${escapeHtml(k)} = <strong>${escapeHtml(val)}</strong> <span style="color:#a1a1aa;">${c == null ? "" : `conf ${Number(c).toFixed(2)}`}${escapeHtml(fb)}</span></div>`
+      return `<div>${escapeHtml(k)} = <strong>${escapeHtml(val)}</strong> <span style="color:#a1a1aa;">${c == null ? "" : `conf ${Number(c).toFixed(2)}`}</span></div>`
     })
-    this.inspectorTarget.innerHTML = rows_out.join("") || `<div style="color:#a1a1aa;">offline parse — no Jev answers for this render.</div>`
+    this.inspectorTarget.innerHTML = rows_out.join("")
     const n = dashboard.panels.length
-    this.statusTarget.textContent = `Rendered “${prompt}” as ${n} panel${n === 1 ? "" : "s"} (${dashboard.layout}).` +
-      (meta.usedFallback?.length ? ` ${meta.usedFallback.length} answer(s) fell back.` : " All answers from Jev.") +
+    this.statusTarget.textContent = `Rendered “${prompt}” as ${n} panel${n === 1 ? "" : "s"} (${dashboard.layout}). All answers from Jev.` +
       (n === 1 && dashboard.panels[0].filter
         ? ` Filter ${filterLabel(dashboard.panels[0].filter, schema)} — ${applyFilter(rows, schema, dashboard.panels[0].filter).length} of ${(rows || []).length} rows.`
         : "")

@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
   FIELD_TYPES,
-  fallbackType,
   typeFromAnswers,
   optionIntentFromAnswers,
   requiredFromAnswers,
@@ -18,49 +17,36 @@ import {
   SCHEMA_KEY,
 } from "../app/javascript/controllers/design_controller.js"
 
-describe("design field types", () => {
+describe("design field types (Jev only)", () => {
   it("covers the 8-type registry", () => {
     expect(FIELD_TYPES).toEqual(["text", "number", "date", "time", "email", "yes_no", "choice_single", "choice_multiple"])
   })
 
-  it("falls back by keyword", () => {
-    expect(fallbackType("Birthday")).toBe("date")
-    expect(fallbackType("Contact email")).toBe("email")
-    expect(fallbackType("Wake-up time")).toBe("time")
-    expect(fallbackType("How many guests")).toBe("number")
-    expect(fallbackType("Pick a genre")).toBe("choice_single")
-    expect(fallbackType("Notes")).toBe("text")
-  })
-
-  it("trusts confident Jev types, falls back otherwise", () => {
-    expect(typeFromAnswers({ field_type: { choice: "date", confidence: 0.9 } }, "Birthday").type).toBe("date")
-    const fb = typeFromAnswers({ field_type: { choice: "date", confidence: 0.2 } }, "Birthday")
-    expect(fb.type).toBe("date") // fallback agrees here
-    expect(fb.usedFallback).toContain("field_type")
-    const bad = typeFromAnswers({ field_type: { choice: "mystery", confidence: 0.9 } }, "Notes")
-    expect(bad.type).toBe("text")
+  it("trusts confident Jev types, marks unsure for repeat", () => {
+    expect(typeFromAnswers({ field_type: { choice: "date", confidence: 0.9 } }).type).toBe("date")
+    const unsure = typeFromAnswers({ field_type: { choice: "date", confidence: 0.2 } })
+    expect(unsure.type).toBeNull()
+    expect(unsure.usedFallback).toContain("field_type")
+    expect(typeFromAnswers({ field_type: { choice: "mystery", confidence: 0.9 } }).usedFallback).toContain("field_type")
+    expect(typeFromAnswers({}).type).toBeNull()
   })
 })
 
-describe("design intents", () => {
-  it("parses option intents with keyword fallback", () => {
-    expect(optionIntentFromAnswers({ intent: { choice: "done_options", confidence: 0.9 } }, "done").intent).toBe("done_options")
-    expect(optionIntentFromAnswers({}, "done").intent).toBe("done_options")
-    expect(optionIntentFromAnswers({}, "remove last").intent).toBe("remove_last")
-    expect(optionIntentFromAnswers({}, "Sci-fi").intent).toBe("add_option")
+describe("design intents (Jev only)", () => {
+  it("marks unsure option intents for repeat", () => {
+    expect(optionIntentFromAnswers({ intent: { choice: "done_options", confidence: 0.9 } }).intent).toBe("done_options")
+    expect(optionIntentFromAnswers({}).intent).toBeNull()
+    expect(optionIntentFromAnswers({}).usedFallback).toContain("intent")
   })
 
-  it("parses required with noul + keyword fallback", () => {
-    expect(requiredFromAnswers({ required: { noul: 0.95 } }, "yes").required).toBe(true)
-    expect(requiredFromAnswers({}, "yes, required").required).toBe(true)
-    expect(requiredFromAnswers({}, "optional").required).toBe(false)
+  it("marks unsure required for repeat", () => {
+    expect(requiredFromAnswers({ required: { noul: 0.95 } }).required).toBe(true)
+    expect(requiredFromAnswers({}).required).toBeNull()
   })
 
-  it("parses session intents", () => {
-    expect(sessionIntentFromAnswers({ intent: { choice: "finished", confidence: 0.9 } }, "finished").intent).toBe("finished")
-    expect(sessionIntentFromAnswers({}, "finished").intent).toBe("finished")
-    expect(sessionIntentFromAnswers({}, "delete last").intent).toBe("delete_last")
-    expect(sessionIntentFromAnswers({}, "something else").intent).toBe("next_field")
+  it("marks unsure session intents for repeat", () => {
+    expect(sessionIntentFromAnswers({ intent: { choice: "finished", confidence: 0.9 } }).intent).toBe("finished")
+    expect(sessionIntentFromAnswers({}).intent).toBeNull()
   })
 })
 
@@ -74,15 +60,17 @@ describe("end-of-session required", () => {
     const { requiredIds, usedFallback } = requiredFieldsFromAnswers({
       required_f1: { noul: 0.95 },
       required_f2: { noul: 0.05 },
-    }, fields, "email")
+    }, fields)
     expect(requiredIds).toEqual(["f1"])
     expect(usedFallback).toEqual([])
   })
 
-  it("falls back to name mentions, all, or none", () => {
-    expect(requiredFieldsFromAnswers({}, fields, "email and birthday").requiredIds).toEqual(["f1", "f2"])
-    expect(requiredFieldsFromAnswers({}, fields, "all of them").requiredIds).toEqual(["f1", "f2"])
-    expect(requiredFieldsFromAnswers({}, fields, "none").requiredIds).toEqual([])
+  it("marks any unsure field for repeat", () => {
+    const { requiredIds, usedFallback } = requiredFieldsFromAnswers({
+      required_f1: { noul: 0.95 },
+    }, fields)
+    expect(requiredIds).toEqual(["f1"])
+    expect(usedFallback).toEqual(["required_f2"])
   })
 
   it("only asks about fields never decided", () => {
@@ -134,17 +122,10 @@ describe("field card", () => {
 })
 
 describe("voice edit menu (Jev first)", () => {
-  it("trusts the edit_intent choice, falls back to whole words", () => {
-    expect(editIntentFromAnswers({ intent: { choice: "type", confidence: 0.9 } }, "whatever").aspect).toBe("type")
-    expect(editIntentFromAnswers({}, "name").aspect).toBe("name")
-    expect(editIntentFromAnswers({}, "rename it").aspect).toBe("name")
-    expect(editIntentFromAnswers({}, "change the name").aspect).toBe("name")
-    expect(editIntentFromAnswers({}, "change the type").aspect).toBe("type")
-    expect(editIntentFromAnswers({}, "add an option").aspect).toBe("options")
-    expect(editIntentFromAnswers({}, "make it required").aspect).toBe("required")
-    expect(editIntentFromAnswers({}, "remove it").aspect).toBe("remove")
-    expect(editIntentFromAnswers({}, "done").aspect).toBe("done")
-    expect(editIntentFromAnswers({}, "scifi").aspect).toBeNull()
+  it("trusts the edit_intent choice, marks unsure for repeat", () => {
+    expect(editIntentFromAnswers({ intent: { choice: "type", confidence: 0.9 } }).aspect).toBe("type")
+    expect(editIntentFromAnswers({}).aspect).toBeNull()
+    expect(editIntentFromAnswers({}).usedFallback).toContain("intent")
   })
 
   it("only offers options for choice fields", () => {
@@ -153,7 +134,7 @@ describe("voice edit menu (Jev first)", () => {
   })
 
   it("hears retypes through the change_type merger", () => {
-    expect(typeFromAnswers({ field_type: { choice: "number", confidence: 0.9 } }, "make it a number").type).toBe("number")
-    expect(typeFromAnswers({}, "make it multiple choice").type).toBe("choice_multiple")
+    expect(typeFromAnswers({ field_type: { choice: "number", confidence: 0.9 } }).type).toBe("number")
+    expect(typeFromAnswers({}).type).toBeNull()
   })
 })

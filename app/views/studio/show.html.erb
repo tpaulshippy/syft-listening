@@ -50,7 +50,7 @@
         <h2 class="text-[11px] font-medium tracking-[0.2em] text-zinc-400 dark:text-zinc-500">JEV API KEY</h2>
         <input data-design-target="apiKey" type="password" placeholder="ts_..." autocomplete="off" spellcheck="false"
                class="mt-2 w-full rounded-xl border border-zinc-200 bg-transparent px-3 py-2 font-mono text-base placeholder:text-zinc-400 focus:outline-none dark:border-zinc-800 dark:placeholder:text-zinc-600" />
-        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Same key as Visualize (stored only in this browser). Without a key, the keyword fallback classifies instead.</p>
+        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Same key as Visualize (stored only in this browser). A key is required — Jev answers every question.</p>
       </div>
     </div>
   </section>
@@ -93,7 +93,7 @@
         <h2 class="text-[11px] font-medium tracking-[0.2em] text-zinc-400 dark:text-zinc-500">JEV API KEY</h2>
         <input data-input-target="apiKey" type="password" placeholder="ts_..." autocomplete="off" spellcheck="false"
                class="mt-2 w-full rounded-xl border border-zinc-200 bg-transparent px-3 py-2 font-mono text-base placeholder:text-zinc-400 focus:outline-none dark:border-zinc-800 dark:placeholder:text-zinc-600" />
-        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Same key everywhere (stored only in this browser). Without a key, the offline check maps and validates instead — still blocking on invalid answers.</p>
+        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Same key everywhere (stored only in this browser). A key is required — Jev maps and validates every answer.</p>
       </div>
     </div>
   </section>
@@ -143,7 +143,7 @@
       <button data-action="click->studio#usePrompt" data-prompt="KPI totals: how many workouts and total minutes" class="rounded-full border border-zinc-300 px-3 py-1 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">🔢 KPIs</button>
       <button data-action="click->studio#usePrompt" data-prompt="Bar chart of revenue by genre with KPI totals" class="rounded-full border border-zinc-300 px-3 py-1 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">🧩 Chart + KPIs</button>
     </div>
-    <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Can render: table · cards · KPI · bar · line · pie · scatter · bubbles — name one. With a key, describe filters in words (“only open incidents”).</p>
+    <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Can render: table · cards · KPI · bar · line · pie · scatter · bubbles — name one, and describe filters in words (“only open incidents”). Anything Jev is unsure of repeats the question.</p>
   </div>
 
   <!-- Request -> UI latency line -->
@@ -158,7 +158,7 @@
   <!-- Rendered interface -->
   <div data-studio-target="canvas"
        class="mt-2 min-h-64 rounded-2xl border border-black/5 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
-    <p class="text-sm text-zinc-400">Load a dataset and ask — e.g. pick 📚 Bookstore, then “Bar chart of revenue by genre”.</p>
+    <p class="text-sm text-zinc-400">Records from the Input tab appear here — then speak or type how to render them.</p>
   </div>
 
   <!-- Answer inspector -->
@@ -168,8 +168,8 @@
       The server infers your dataset's schema (column names + numeric/temporal/categorical/text types)
       and generates the question set from it: field-binding <code>choice</code> options are your actual
       columns, plus one <code>include_*</code> flag per column. Jev answers them all in parallel and this
-      generic interpreter maps the winning spec onto Chart.js or table/cards/KPI DOM. Low-confidence
-      answers (&lt; 0.5) fall back to the offline parse, marked below.
+      generic interpreter maps the winning spec onto Chart.js or table/cards/KPI DOM. Anything
+      Jev is unsure of (&lt; 0.5) repeats the question instead of rendering.
     </p>
     <div data-studio-target="inspector" class="mt-2 space-y-1 font-mono"></div>
   </details>

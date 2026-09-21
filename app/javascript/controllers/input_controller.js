@@ -82,160 +82,48 @@ function noulBool(answer) {
   return p >= 0.5
 }
 
-// Word tokens for the no-key fallbacks: lowercase words, edge punctuation
-// stripped. Understanding goes to Jev first; whole-word checks are last resort.
-function isWordChar(ch) {
-  return (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9")
-}
+// No word matchers here: understanding belongs to Jev. The no-key path is
+// the Start button refusing; every merger below is Jev-or-unsure.
 
-export function words(text) {
-  const out = []
-  for (const raw of String(text || "").toLowerCase().split(" ")) {
-    let s = raw
-    while (s && !isWordChar(s[0])) s = s.slice(1)
-    while (s && !isWordChar(s[s.length - 1])) s = s.slice(0, -1)
-    if (s) out.push(s)
-  }
-  return out
-}
-
-export function hasWord(text, ...candidates) {
-  const ws = words(text)
-  return candidates.some((c) => ws.includes(c))
-}
-
-function startsWithPhrase(text, ...phrases) {
-  const t = String(text || "").toLowerCase().trim()
-  return phrases.some((ph) => t === ph || t.startsWith(ph + " ") || t.startsWith(ph))
-}
-
-function isDigit(ch) {
-  return ch >= "0" && ch <= "9"
-}
-
-function allDigits(s) {
-  return s.length > 0 && [...s].every(isDigit)
-}
-
-function isDecimalString(t) {
-  let s = t
-  if (s.startsWith("-")) s = s.slice(1)
-  if (!s) return false
-  const parts = s.split(".")
-  return parts.length <= 2 && parts.every(allDigits)
-}
-
-function looksLikeEmail(t) {
-  if (!t || t.includes(" ")) return false
-  const sides = t.split("@")
-  if (sides.length !== 2 || !sides[0] || !sides[1]) return false
-  const domain = sides[1].split(".")
-  return domain.length >= 2 && domain.every((part) => part.length > 0)
-}
-
-function looksLikeDate(t) {
-  const parts = t.split("-")
-  const lens = parts.length === 2 ? [4, 2] : parts.length === 3 ? [4, 2, 2] : null
-  return !!lens && parts.every((part, i) => part.length === lens[i] && allDigits(part))
-}
-
-function looksLikeTime(t) {
-  let s = t.toLowerCase()
-  for (const suffix of [" am", " pm", "am", "pm", " a.m.", " p.m."]) {
-    if (s.endsWith(suffix)) { s = s.slice(0, -suffix.length).trim(); break }
-  }
-  const parts = s.split(":")
-  return parts.length === 2 && parts[0].length >= 1 && parts[0].length <= 2 &&
-    allDigits(parts[0]) && parts[1].length === 2 && allDigits(parts[1])
-}
-
-// Splits "a, b and c" into ["a", "b", "c"]: commas/semicolons/pluses split,
-// whole-word "and" does too ("candy" survives).
-function splitChoices(t) {
-  const chunks = []
-  for (const c1 of String(t).split(",")) {
-    for (const c2 of c1.split(";")) {
-      for (const c3 of c2.split("+")) chunks.push(c3)
-    }
-  }
-  const out = []
-  for (const chunk of chunks) {
-    const kept = []
-    for (const token of chunk.split(" ")) {
-      const w = token.trim().toLowerCase()
-      if (w && w !== "and") kept.push(token.trim())
-    }
-    if (kept.length) out.push(kept.join(" "))
-  }
-  return out.filter(Boolean)
-}
-
-// Offline validity per type (fallback + block/retry reasons).
-export function offlineCheck(field, value) {
-  const t = String(value ?? "").trim()
-  if (!t) return { ok: !field.required, reason: field.required ? "An answer is required." : "" }
-  switch (field.type) {
-    case "number":
-      return isDecimalString(t) ? { ok: true } : { ok: false, reason: "That didn't look like a number." }
-    case "email":
-      return looksLikeEmail(t) ? { ok: true } : { ok: false, reason: "That didn't look like an email." }
-    case "date":
-      return looksLikeDate(t) ? { ok: true } : { ok: false, reason: "Use YYYY-MM-DD." }
-    case "time":
-      return looksLikeTime(t) ? { ok: true } : { ok: false, reason: "Use HH:MM." }
-    case "yes_no": {
-      const first = words(t)[0]
-      if (["yes", "yeah", "yep", "sure", "true"].includes(first)) return { ok: true, value: "yes" }
-      if (["no", "nope", "nah", "false"].includes(first)) return { ok: true, value: "no" }
-      return { ok: false, reason: "Say yes or no." }
-    }
-    case "choice_single": {
-      const hit = (field.options || []).find((o) => o.toLowerCase() === t.toLowerCase())
-      return hit ? { ok: true, value: hit } : { ok: false, reason: `Pick one of: ${(field.options || []).join(", ")}.` }
-    }
-    case "choice_multiple": {
-      const parts = splitChoices(t)
-      const hits = parts.map((p) => (field.options || []).find((o) => o.toLowerCase() === p.toLowerCase())).filter(Boolean)
-      return hits.length ? { ok: true, value: [...new Set(hits)] } : { ok: false, reason: `Pick from: ${(field.options || []).join(", ")}.` }
-    }
-    default:
-      return { ok: true }
-  }
-}
-
-export function controlFromAnswers(answers, transcript) {
+export function controlFromAnswers(answers) {
   const hit = confidentChoice(answers?.control, CONTROL_INTENTS)
   if (hit) return { control: hit, usedFallback: [] }
-  const first = words(transcript)[0]
-  if (["skip", "next"].includes(first) || startsWithPhrase(transcript, "don't answer")) {
-    return { control: "skip", usedFallback: ["control"] }
-  }
-  if (["repeat", "pardon", "what"].includes(first) || startsWithPhrase(transcript, "say again")) {
-    return { control: "repeat", usedFallback: ["control"] }
-  }
-  if (startsWithPhrase(transcript, "go back", "edit last") || ["back", "previous"].includes(first)) {
-    return { control: "edit_previous", usedFallback: ["control"] }
-  }
-  if (["finished", "done", "save"].includes(first) || startsWithPhrase(transcript, "that's all")) {
-    if (words(transcript).length <= 3) return { control: "finish_row", usedFallback: ["control"] }
-  }
-  return { control: "answer", usedFallback: ["control"] }
+  return { control: null, usedFallback: ["control"] }
 }
 
 export const ROW_INTENTS = ["edit", "delete"]
 
 // Voice row menu: Jev decides edit vs delete from the `row_intent` choice.
-export function rowIntentFromAnswers(answers, transcript) {
+export function rowIntentFromAnswers(answers) {
   const hit = confidentChoice(answers?.intent, ROW_INTENTS)
   if (hit) return { intent: hit, usedFallback: [] }
-  if (hasWord(transcript, "delete", "remove")) return { intent: "delete", usedFallback: ["intent"] }
-  if (hasWord(transcript, "edit", "change", "yes", "update")) return { intent: "edit", usedFallback: ["intent"] }
   return { intent: null, usedFallback: ["intent"] }
 }
 
-// Merges one prompt's Jev answers onto 1-2 fields. Values for open types
-// are the transcript verbatim; closed types map via choice/noul with the
-// hallucination guard (choice must name a real option, conf >= 0.5).
+// Guards Jev's answers without interpreting words: required fields must be
+// non-empty, and closed-type values must be members of their option sets.
+// Anything else repeats the question.
+export function validateGroup(group, values) {
+  for (const field of group) {
+    const raw = values[field.id]
+    const str = Array.isArray(raw) ? raw.join(", ") : String(raw ?? "").trim()
+    if (!str && field.required) return { ok: false, reason: `“${field.name}” is required.` }
+    if (!str) continue
+    if (field.type === "choice_single" && !(field.options || []).includes(raw)) {
+      return { ok: false, reason: `Pick one of: ${(field.options || []).join(", ")}.` }
+    }
+    if (field.type === "choice_multiple" && (!Array.isArray(raw) || !raw.every((o) => (field.options || []).includes(o)))) {
+      return { ok: false, reason: `Pick from: ${(field.options || []).join(", ")}.` }
+    }
+    if (field.type === "yes_no" && raw !== "yes" && raw !== "no") {
+      return { ok: false, reason: "Say yes or no." }
+    }
+  }
+  return { ok: true }
+}
+// Merges one prompt's Jev answers onto 1-2 fields. `transcript` is only the
+// verbatim value carrier for open types (used when Jev's validity noul
+// confirms) — it is never parsed or matched. Anything unsure repeats.
 export function valuesFromAnswers(answers, group, transcript) {
   const values = {}
   const usedFallback = []
@@ -249,32 +137,31 @@ export function valuesFromAnswers(answers, group, transcript) {
       if (ok) values[field.id] = a.choice
       else {
         usedFallback.push(`value${suffix}`)
-        values[field.id] = offlineCheck(field, transcript).value ?? null
+        values[field.id] = null
       }
     } else if (field.type === "choice_multiple") {
       const picks = []
+      let unsure = !answers
       for (const opt of field.options || []) {
         const hit = noulBool(answers?.[`pick${suffix}_${opt}`])
         if (hit === true) picks.push(opt)
-        else if (hit === null) usedFallback.push(`pick${suffix}_${opt}`)
+        else if (hit === null) {
+          unsure = true
+          usedFallback.push(`pick${suffix}_${opt}`)
+        }
       }
-      if (!answers || usedFallback.length === (field.options || []).length) {
-        values[field.id] = offlineCheck(field, transcript).value ?? []
-        if (!usedFallback.includes("choice_multiple")) usedFallback.push("choice_multiple")
-      } else {
-        values[field.id] = picks
-      }
+      values[field.id] = unsure ? null : picks
     } else if (field.type === "yes_no") {
       const hit = noulBool(answers?.[`value${suffix}`])
       if (hit !== null) values[field.id] = hit ? "yes" : "no"
       else {
         usedFallback.push(`value${suffix}`)
-        values[field.id] = offlineCheck(field, transcript).value ?? null
+        values[field.id] = null
       }
     } else {
       const valid = noulBool(answers?.[`valid${suffix}`])
       if (valid === null) usedFallback.push(`valid${suffix}`)
-      values[field.id] = String(transcript || "").trim()
+      values[field.id] = valid ? String(transcript || "").trim() : null
     }
   })
   return { values, usedFallback }
@@ -309,10 +196,11 @@ export function rowTableHtml(schema, rows, selectedIndex = null) {
     `<p style="font-size:11px;color:#a1a1aa;margin-top:4px;">Tap a row, then Start, to change or delete it by voice.</p>`
 }
 
-// The guided-edit prompt for one field: bare name, current value, keep option.
+// The guided-edit prompt for one field: bare name, current value, skip option.
+// "Skip" is the shared control choice, so Jev routes it — no word matching.
 export function editPromptFor(field, current) {
   const display = Array.isArray(current) ? current.join(", ") : String(current ?? "").trim()
-  return `${promptFor([field])} Currently ${display || "empty"}. Say a new value, or keep.`
+  return `${promptFor([field])} Currently ${display || "empty"}. Say a new value, or skip.`
 }
 
 // --- Stimulus controller: voice-only session -----------------------------------
@@ -363,6 +251,10 @@ export default class extends Controller {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) {
       this.setStatus("Voice not supported here — try Chrome or Edge.")
+      return
+    }
+    if (!localStorage.getItem("syft_jev_key")) {
+      this.setStatus("Add your Jev key first — every answer here is mapped by Jev.")
       return
     }
     if (this.active) return
@@ -569,49 +461,39 @@ export default class extends Controller {
         })
         const data = await res.json().catch(() => ({}))
         if (res.ok && data.answers) { answers = data.answers; fbNote = "" }
-      } catch { /* offline fallback below */ }
+      } catch { fbNote = "connection" }
     }
-    const { control, usedFallback: cfb } = controlFromAnswers(answers, text)
+    const { control, usedFallback: cfb } = controlFromAnswers(answers)
     const { values, usedFallback: vfb } = valuesFromAnswers(answers, this.group, text)
-    this.logInspector(`control=${control} values=${JSON.stringify(values)}${[...cfb, ...vfb].length || fbNote ? ` · fallback(${[...cfb, ...vfb].join(",")}${fbNote ? `,${fbNote}` : ""})` : ""}`)
+    const unsure = [...cfb, ...vfb]
+    this.logInspector(`control=${control} values=${JSON.stringify(values)}${unsure.length || fbNote ? ` · unsure(${unsure.join(",")}${fbNote ? `,${fbNote}` : ""})` : ""}`)
     if (!this.active) return
+    if (!control || unsure.length) {
+      this.sayThenListen(`Sorry — ${promptFor(this.group)}`)
+      return
+    }
 
     if (control === "repeat") { this.sayThenListen(promptFor(this.group)); return }
     if (control === "skip") { this.advance(values, true); return }
     if (control === "edit_previous") { this.goBack(); return }
     if (control === "finish_row") {
-      if (key) { // confirm the unfinished tail verbatim only if it validates
-        const tail = this.validateGroup(this.group, values)
-        if (!tail.ok) {
-          this.setStatus(tail.reason)
-          this.sayThenListen(`${tail.reason} ${promptFor(this.group)}`)
-          return
-        }
-        Object.assign(this.draft, values)
+      const tail = validateGroup(this.group, values)
+      if (!tail.ok) {
+        this.setStatus(tail.reason)
+        this.sayThenListen(`${tail.reason} ${promptFor(this.group)}`)
+        return
       }
+      Object.assign(this.draft, values)
       return this.finishRow()
     }
     // control === answer: validate, block + retry on failure
-    const check = this.validateGroup(this.group, values)
+    const check = validateGroup(this.group, values)
     if (!check.ok) {
       this.setStatus(check.reason)
       this.sayThenListen(`${check.reason} ${promptFor(this.group)}`)
       return
     }
     this.advance(values, false)
-  }
-
-  validateGroup(group, values) {
-    for (const field of group) {
-      const raw = values[field.id]
-      const str = Array.isArray(raw) ? raw.join(", ") : String(raw ?? "").trim()
-      if (!str && field.required) return { ok: false, reason: `“${field.name}” is required.` }
-      if (!str) continue
-      const check = offlineCheck(field, Array.isArray(raw) ? raw.join(", ") : raw)
-      // choice/yes_no merges already map to canonical values; re-check guards Jev slips
-      if (!check.ok) return { ok: false, reason: check.reason }
-    }
-    return { ok: true }
   }
 
   advance(values, skipped) {
@@ -715,7 +597,7 @@ export default class extends Controller {
     this.mode = "edit"
     const field = this.schema[this.editIdx]
     if (this.hasStepHintTarget) {
-      this.stepHintTarget.textContent = `Record ${this.selectedIndex + 1} · field ${this.editIdx + 1} of ${this.schema.length}. Say “keep” to leave it, “go back” to revisit.`
+      this.stepHintTarget.textContent = `Record ${this.selectedIndex + 1} · field ${this.editIdx + 1} of ${this.schema.length}. Say “skip” to leave it, “go back” to revisit.`
     }
     if (this.hasProgressTarget) this.progressTarget.textContent = `Editing record ${this.selectedIndex + 1} · field ${this.editIdx + 1} of ${this.schema.length}`
     this.sayThenListen(editPromptFor(field, row[field.name]))
@@ -726,26 +608,37 @@ export default class extends Controller {
     const row = this.rows[this.selectedIndex]
     if (!row) return this.endEdit("Record is gone.")
     const field = this.schema[this.editIdx]
-    // Exact session commands act as voice-buttons; values go to Jev.
-    const kept = ["keep", "skip", "next", "same", "no change"].includes(String(text || "").toLowerCase().trim())
-    if (kept) {
+    this.setStatus("Checking with Jev…")
+    const { answers, fbNote } = await this.jevAnswer(text, [field])
+    const { control, usedFallback: cfb } = controlFromAnswers(answers)
+    const { values, usedFallback: vfb } = valuesFromAnswers(answers, [field], text)
+    const unsure = [...cfb, ...vfb]
+    this.logInspector(`edit ${field.name}=${JSON.stringify(values[field.id])} control=${control}${unsure.length || fbNote ? ` · unsure(${unsure.join(",")}${fbNote ? `,${fbNote}` : ""})` : ""}`)
+    if (!this.active) return
+    // The shared control choice carries keep (skip) and go-back intents.
+    if (!control || (control !== "skip" && control !== "edit_previous" && unsure.length)) {
+      this.sayThenListen(`Sorry — ${editPromptFor(field, row[field.name])}`)
+      return
+    }
+    if (control === "skip") {
       this.editIdx += 1
       this.askEditField()
       return
     }
-    if (["go back", "back", "previous"].includes(String(text || "").toLowerCase().trim())) {
+    if (control === "edit_previous") {
       this.editIdx = Math.max(0, this.editIdx - 1)
       delete this.editValues[this.schema[this.editIdx].id]
       this.setStatus("Went back one question.")
       this.askEditField()
       return
     }
-    this.setStatus("Checking with Jev…")
-    const { answers, fbNote } = await this.jevAnswer(text, [field])
-    const { values, usedFallback: vfb } = valuesFromAnswers(answers, [field], text)
-    this.logInspector(`edit ${field.name}=${JSON.stringify(values[field.id])}${vfb.length || fbNote ? ` · fallback(${vfb.join(",")}${fbNote ? `,${fbNote}` : ""})` : ""}`)
-    if (!this.active) return
-    const check = this.validateGroup([field], values)
+    if (control === "repeat") {
+      this.sayThenListen(editPromptFor(field, row[field.name]))
+      return
+    }
+    if (control === "finish_row") return this.commitEdit()
+    // control === answer: validate, block + retry on failure
+    const check = validateGroup([field], values)
     if (!check.ok) {
       this.setStatus(check.reason)
       this.sayThenListen(`${check.reason} ${editPromptFor(field, values[field.id])}`)

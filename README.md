@@ -53,8 +53,8 @@ Optional: set `TYPESAFE_API_KEY` in the environment as a fallback server-side ke
 | GET | `/listen` | redirect to `/` |
 | POST | `/jev_analyze` | proxy to Jev (`{ text, metrics, api_key }`) |
 | GET | `/studio` | `studio#show` (Design → Input → Visualize tabs; Visualize is the Chart.js renderer) |
-| POST | `/jev_design` | proxy to Jev (`{ step, field_name|transcript, api_key }`; design interview classification) |
-| POST | `/jev_input` | proxy to Jev (`{ step, transcript, fields, api_key }`; input mapping + validation, Jev decides closed-type groupings) |
+| POST | `/jev_design` | proxy to Jev (`{ step, field_name|transcript, fields, api_key }`; design interview: classify, intents, required, edit, retype) |
+| POST | `/jev_input` | proxy to Jev (`{ step, transcript, fields, api_key }`; input mapping + validation + row intent, Jev decides closed-type groupings) |
 | POST | `/jev_studio` | proxy to Jev (`{ prompt, dataset|sample, api_key }`; questions generated from the dataset schema) |
 | GET | `/up` | health check |
 
@@ -91,13 +91,19 @@ npm run lint
 app/
   controllers/speech_controller.rb       # show + Jev proxy (analyze)
   controllers/studio_controller.rb       # data studio: schema-driven dynamic Jev questions (analyze)
+  controllers/design_controller.rb       # design interview steps (classify, intents, required, edit, retype)
+  controllers/input_controller.rb        # input steps (grouping, answer mapping, row intent)
   views/speech/show.html.erb             # key input, toggles, transcript, result cards
-  views/studio/show.html.erb             # arbitrary dataset input + voice prompt + Chart.js canvas
+  views/studio/show.html.erb             # Design → Input → Visualize tabs (voice-only; Jev decides, unsure repeats)
   javascript/controllers/speech_insights_controller.js  # Web Speech API + per-sentence analysis + key gate
   javascript/controllers/studio_controller.js  # schema inference + generic Chart.js/table/cards/KPI interpreter
-config/routes.rb                         # root -> speech#show, POST /jev_analyze, GET /studio, POST /jev_studio
+  javascript/controllers/design_controller.js  # voice field builder (Jev-only, key required)
+  javascript/controllers/input_controller.js   # voice record filling (Jev-only, key required)
+config/routes.rb                         # root -> speech#show, POST /jev_analyze, GET /studio, POST /jev_design, POST /jev_input, POST /jev_studio
 spec/requests/speech_spec.rb
 spec/requests/studio_spec.rb
+spec/requests/design_spec.rb
+spec/requests/input_spec.rb
 ```
 
 ## Deployment

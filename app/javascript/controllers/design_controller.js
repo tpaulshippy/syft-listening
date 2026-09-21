@@ -1,15 +1,16 @@
 import { Controller } from "@hotwired/stimulus"
 
-// Data design interview: user speaks/types all free text (field names,
-// option names). Jev only classifies — field type, option/session intents,
-// required flag. No LLM text generation anywhere.
+// Data design interview: the user speaks every name and option; Jev makes
+// every decision — field type, intents, required flags. No LLM text, no
+// matchers: anything Jev leaves unsure repeats the question. A Jev key is
+// required (Start refuses without one).
 //
 // Schema persists in localStorage under SCHEMA_KEY so the Input and
 // Visualize tabs can read it later:
-// [{ id, name, type, required, options[] }]
+// [{ id, name, type, required, requiredDecided, options[] }]
 //
 // Pure helpers are module-level exports for Vitest; the Stimulus class
-// below drives the interview (name -> classify -> options? -> required).
+// below drives the interview (name -> classify -> options? -> done).
 
 export const FIELD_TYPES = ["text", "number", "date", "time", "email", "yes_no", "choice_single", "choice_multiple"]
 export const CHOICE_TYPES = ["choice_single", "choice_multiple"]
@@ -43,48 +44,6 @@ export function validateFieldName(name, existing = []) {
   return null
 }
 
-// Word tokens for the no-key fallbacks below: lowercase words with edge
-// punctuation stripped, so "Done!" behaves as "done". Understanding always
-// goes to Jev first; these whole-word checks are the last resort only.
-function isWordChar(ch) {
-  return (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9")
-}
-
-export function words(text) {
-  const out = []
-  for (const raw of String(text || "").toLowerCase().split(" ")) {
-    let s = raw
-    while (s && !isWordChar(s[0])) s = s.slice(1)
-    while (s && !isWordChar(s[s.length - 1])) s = s.slice(0, -1)
-    if (s) out.push(s)
-  }
-  return out
-}
-
-export function hasWord(text, ...candidates) {
-  const ws = words(text)
-  return candidates.some((c) => ws.includes(c))
-}
-
-export function startsWithPhrase(text, ...phrases) {
-  const t = String(text || "").toLowerCase().trim()
-  return phrases.some((ph) => t === ph || t.startsWith(ph + " ") || t.startsWith(ph))
-}
-
-// Offline keyword fallback for type classification (no key / low confidence).
-export function fallbackType(fieldName) {
-  const p = String(fieldName || "").toLowerCase()
-  const has = (...needles) => needles.some((n) => p.includes(n))
-  if (has("email", "e-mail")) return "email"
-  if (has("birthday", "birth", "due date", "deadline", "date", "day", "month", "year")) return "date"
-  if (has("time", "alarm", "hour", "minute", "meeting at")) return "time"
-  if (has("how many", "amount", "count", "number", "qty", "quantity", "price", "cost", "total", "age", "minutes", "km", "units")) return "number"
-  if (has("yes-no", "yes no", "yesno", "true", "false", "agree", "confirm")) return "yes_no"
-  if (has("pick several", "choose several", "select several", "multiple", "check all")) return "choice_multiple"
-  if (has("pick", "choose", "select", "option", "category", "genre", "status", "kind", "type of")) return "choice_single"
-  return "text"
-}
-
 function confidentChoice(answer, allowed) {
   const conf = Number(answer?.confidence ?? NaN)
   if (answer?.choice && allowed.includes(answer.choice) && conf >= 0.5) return answer.choice
@@ -98,49 +57,33 @@ function noulBool(answer) {
   return p >= 0.5
 }
 
-export function typeFromAnswers(answers, fieldName) {
+// Jev-only mergers: a confident answer wins, anything else is marked unsure
+// and the caller repeats the question. There are no keyword fallbacks.
+export function typeFromAnswers(answers) {
   const hit = confidentChoice(answers?.field_type, FIELD_TYPES)
   if (hit) return { type: hit, usedFallback: [] }
-  return { type: fallbackType(fieldName), usedFallback: ["field_type"] }
+  return { type: null, usedFallback: ["field_type"] }
 }
 
 export const OPTION_INTENTS = ["add_option", "done_options", "remove_last"]
 export const SESSION_INTENTS = ["next_field", "finished", "edit_last", "delete_last"]
 
-export function optionIntentFromAnswers(answers, transcript) {
+export function optionIntentFromAnswers(answers) {
   const hit = confidentChoice(answers?.intent, OPTION_INTENTS)
   if (hit) return { intent: hit, usedFallback: [] }
-  if (startsWithPhrase(transcript, "done", "finished", "that's all", "next", "no more")) {
-    return { intent: "done_options", usedFallback: ["intent"] }
-  }
-  const ws = words(transcript)
-  if (["remove", "undo", "delete", "drop"].includes(ws[0]) && (ws.length === 1 || ["that", "it", "last"].includes(ws[1]))) {
-    return { intent: "remove_last", usedFallback: ["intent"] }
-  }
-  return { intent: "add_option", usedFallback: ["intent"] }
+  return { intent: null, usedFallback: ["intent"] }
 }
 
-export function requiredFromAnswers(answers, transcript) {
+export function requiredFromAnswers(answers) {
   const hit = noulBool(answers?.required)
   if (hit !== null) return { required: hit, usedFallback: [] }
-  if (hasWord(transcript, "required", "must", "mandatory", "yes")) return { required: true, usedFallback: ["required"] }
-  return { required: false, usedFallback: ["required"] }
+  return { required: null, usedFallback: ["required"] }
 }
 
-export function sessionIntentFromAnswers(answers, transcript) {
+export function sessionIntentFromAnswers(answers) {
   const hit = confidentChoice(answers?.intent, SESSION_INTENTS)
   if (hit) return { intent: hit, usedFallback: [] }
-  if (startsWithPhrase(transcript, "finished", "done", "that's all", "complete")) {
-    return { intent: "finished", usedFallback: ["intent"] }
-  }
-  const ws = words(transcript)
-  if (["delete", "remove"].includes(ws[0]) && ["last", "that", "it"].includes(ws[1])) {
-    return { intent: "delete_last", usedFallback: ["intent"] }
-  }
-  if (["edit", "rename"].includes(ws[0]) && ["last", "that", "it"].includes(ws[1])) {
-    return { intent: "edit_last", usedFallback: ["intent"] }
-  }
-  return { intent: "next_field", usedFallback: ["intent"] }
+  return { intent: null, usedFallback: ["intent"] }
 }
 
 // Fields the end-of-session required question hasn't covered yet. A field
@@ -152,9 +95,8 @@ export function fieldsNeedingRequired(fields) {
 }
 
 // Merges the end-of-session "which fields are required?" answers: one noul
-// per field, falling back to name mentions ("email and birthday"), "all",
-// or "none" when Jev is unsure or there is no key.
-export function requiredFieldsFromAnswers(answers, fields, transcript) {
+// per field. Any field Jev leaves unsure repeats the whole question.
+export function requiredFieldsFromAnswers(answers, fields) {
   const usedFallback = []
   const requiredIds = []
   for (const field of fields || []) {
@@ -164,14 +106,8 @@ export function requiredFieldsFromAnswers(answers, fields, transcript) {
       const n = Number(a.noul)
       if (Math.abs(n - 0.5) * 2 >= 0.5) req = n >= 0.5
     }
-    if (req === null) {
-      usedFallback.push(`required_${field.id}`)
-      const lowered = String(transcript || "").toLowerCase()
-      if (hasWord(transcript, "none", "nope") || lowered.includes("not required") || lowered.includes("all optional")) req = false
-      else if (hasWord(transcript, "all", "every", "everything") || lowered.includes("all of them")) req = true
-      else req = lowered.includes(String(field.name || "").toLowerCase())
-    }
-    if (req) requiredIds.push(field.id)
+    if (req === null) usedFallback.push(`required_${field.id}`)
+    else if (req) requiredIds.push(field.id)
   }
   return { requiredIds, usedFallback }
 }
@@ -206,23 +142,12 @@ export function fieldCardHtml(field, index, selected = false) {
 }
 
 // Voice edit menu: Jev decides which aspect the speaker names, from the
-// `edit_intent` choice. The no-key fallback matches whole words only.
+// `edit_intent` choice. Unsure repeats the menu.
 export const EDIT_INTENTS = ["name", "type", "options", "required", "remove", "done"]
 
-export function editIntentFromAnswers(answers, transcript) {
+export function editIntentFromAnswers(answers) {
   const hit = confidentChoice(answers?.intent, EDIT_INTENTS)
   if (hit) return { aspect: hit, usedFallback: [] }
-  const lowered = String(transcript || "").toLowerCase()
-  if (["remove", "delete", "drop"].some((w) => hasWord(transcript, w))) return { aspect: "remove", usedFallback: ["intent"] }
-  if (["done", "finished", "stop", "no", "nope"].includes(lowered.trim()) || startsWithPhrase(transcript, "that's all")) {
-    return { aspect: "done", usedFallback: ["intent"] }
-  }
-  if (hasWord(transcript, "name", "rename") || lowered.includes("call it") || hasWord(transcript, "title")) {
-    return { aspect: "name", usedFallback: ["intent"] }
-  }
-  if (hasWord(transcript, "option", "options", "choice", "choices")) return { aspect: "options", usedFallback: ["intent"] }
-  if (hasWord(transcript, "required", "optional", "must", "need")) return { aspect: "required", usedFallback: ["intent"] }
-  if (hasWord(transcript, "type")) return { aspect: "type", usedFallback: ["intent"] }
   return { aspect: null, usedFallback: ["intent"] }
 }
 
@@ -235,8 +160,7 @@ export function editMenuPrompt(field) {
   return `Change ${field.name}, or remove it? Say ${aspects}.`
 }
 
-// (Retype answers come from the `change_type` Jev step; the no-key path
-// reuses fallbackType over the spoken words.)
+// (Retype answers come from the `change_type` Jev step.)
 
 // --- Stimulus controller: voice-only session ---------------------------------
 // One Start button, one Done button. The system speaks each question, listens,
@@ -281,10 +205,15 @@ export default class extends Controller {
   }
 
   // --- session ------------------------------------------------------------------
+  // Jev-only: without a key nothing can be decided, so Start refuses.
   start() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) {
       this.setStatus("Voice not supported here — try Chrome or Edge.")
+      return
+    }
+    if (!localStorage.getItem("syft_jev_key")) {
+      this.setStatus("Add your Jev key first — every question here is answered by Jev.")
       return
     }
     if (this.active) return
@@ -351,8 +280,15 @@ export default class extends Controller {
     this.phase = "name"
     this.pending = null
     const n = this.fields.length + 1
-    this.setHint("Say the field name — or say “finished” when done.")
+    this.setHint("Say the field name. Tap Done when the list is complete.")
     this.sayThenListen(`What should field ${n} be called?`)
+  }
+
+  askNameType() {
+    if (!this.active || !this.pending) return
+    this.phase = "name_type"
+    this.setHint("Jev will classify the type from your words.")
+    this.sayThenListen(`What type should ${this.pending.name} be? Text, number, date, time, email, yes or no, single choice, or multiple choice.`)
   }
 
   askOptions() {
@@ -443,18 +379,12 @@ export default class extends Controller {
     }
   }
 
-  // --- main router: what the user said drives the next step ---------------------
+  // --- main router: every utterance goes to Jev; unsure repeats ---------------
   async handleTranscript(text) {
     if (!this.active) return
-    if (this.phase === "name") {
-      // Exact session commands act as voice-buttons; everything else is a name.
-      const w = words(text)
-      if (w.length <= 2 && (["finished", "done", "stop"].includes(w[0]) || startsWithPhrase(text, "that's all", "no more"))) {
-        this.done()
-        return
-      }
-      return this.submitName(text)
-    }
+    // Finishing is the Done button's job — every spoken turn is content.
+    if (this.phase === "name") return this.submitName(text)
+    if (this.phase === "name_type") return this.submitNameType(text)
     if (this.phase === "options") return this.submitOption(text)
     if (this.phase === "required_fields") return this.submitRequiredFields(text)
     if (this.phase === "edit_menu") return this.submitEditMenu(text)
@@ -466,6 +396,7 @@ export default class extends Controller {
   repeatQuestion() {
     // re-speak the current question and listen again
     if (this.phase === "name") return this.askName()
+    if (this.phase === "name_type") return this.askNameType()
     if (this.phase === "options") return this.askOptions()
     if (this.phase === "required_fields") return this.askRequiredFields()
     if (this.phase === "edit_menu") return this.askEditMenu()
@@ -481,16 +412,53 @@ export default class extends Controller {
     }
     if (this.fields.length >= MAX_FIELDS) {
       this.setStatus(`Field cap reached (${MAX_FIELDS}).`)
-      this.sayThenListen(`Field cap reached. Say “finished” to end, or remove a field first.`)
+      this.sayThenListen(`Field cap reached. Tap Done to end, or remove a field first.`)
       return
     }
     this.pending = { id: `f${Date.now().toString(36)}`, name: clean, type: "text", required: false, requiredDecided: false, options: [] }
     this.setStatus("Classifying type with Jev…")
-    const { type, usedFallback } = await this.classifyType(clean)
+    const { type } = await this.classifyType(clean)
     if (!this.active) return
+    if (!type) {
+      // Jev couldn't tell from the name — ask for the type outright.
+      this.logInspector("field_type unsure — asking outright")
+      this.askNameType()
+      return
+    }
     this.pending.type = type
-    this.logInspector(`field_type = ${type}${usedFallback.length ? " · fallback" : ""}`)
+    this.logInspector(`field_type = ${type}`)
     if (CHOICE_TYPES.includes(type)) this.askOptions()
+    else this.commitField()
+  }
+
+  // The name didn't reveal the type, so Jev classifies the spoken type words.
+  async submitNameType(text) {
+    if (!this.active || !this.pending) return
+    this.setStatus("Checking the type with Jev…")
+    const key = localStorage.getItem("syft_jev_key") || ""
+    let typed = { type: null, usedFallback: ["field_type", "no-key"] }
+    if (key) {
+      try {
+        const res = await fetch("/jev_design", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": document.querySelector('meta[name="csrf-token"]')?.content },
+          body: JSON.stringify({ step: "change_type", transcript: text, field_name: this.pending.name, api_key: key }),
+        })
+        const data = await res.json().catch(() => ({}))
+        typed = typeFromAnswers(res.ok ? data.answers : {})
+      } catch {
+        typed = typeFromAnswers({})
+      }
+    }
+    if (!this.active) return
+    if (!typed.type) {
+      this.logInspector("field_type unsure — repeating")
+      this.sayThenListen(`Sorry, I didn't catch the type. Text, number, date, time, email, yes or no, single choice, or multiple choice?`)
+      return
+    }
+    this.pending.type = typed.type
+    this.logInspector(`field_type = ${typed.type}`)
+    if (CHOICE_TYPES.includes(typed.type)) this.askOptions()
     else this.commitField()
   }
 
@@ -506,7 +474,7 @@ export default class extends Controller {
 
   async classifyType(fieldName) {
     const key = localStorage.getItem("syft_jev_key") || ""
-    if (!key) return { type: fallbackType(fieldName), usedFallback: ["field_type", "no-key"] }
+    if (!key) return { type: null, usedFallback: ["field_type", "no-key"] }
     try {
       const res = await fetch("/jev_design", {
         method: "POST",
@@ -514,17 +482,16 @@ export default class extends Controller {
         body: JSON.stringify({ step: "classify", field_name: fieldName, api_key: key }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok || !data.answers) return { type: fallbackType(fieldName), usedFallback: ["field_type", `http-${res.status}`] }
-      return typeFromAnswers(data.answers, fieldName)
+      if (!res.ok || !data.answers) return { type: null, usedFallback: ["field_type", `http-${res.status}`] }
+      return typeFromAnswers(data.answers)
     } catch {
-      return { type: fallbackType(fieldName), usedFallback: ["field_type", "connection"] }
+      return { type: null, usedFallback: ["field_type", "connection"] }
     }
   }
 
   async submitOption(text) {
     const key = localStorage.getItem("syft_jev_key") || ""
-    let intent = "add_option"
-    let fb = ["intent", "no-key"]
+    let merged = { intent: null, usedFallback: ["intent", "no-key"] }
     if (key) {
       try {
         const res = await fetch("/jev_design", {
@@ -536,21 +503,18 @@ export default class extends Controller {
           }),
         })
         const data = await res.json().catch(() => ({}))
-        if (res.ok && data.answers) {
-          const m = optionIntentFromAnswers(data.answers, text)
-          intent = m.intent
-          fb = m.usedFallback
-        } else {
-          intent = optionIntentFromAnswers({}, text).intent
-        }
+        merged = optionIntentFromAnswers(res.ok ? data.answers : {})
       } catch {
-        intent = optionIntentFromAnswers({}, text).intent
+        merged = optionIntentFromAnswers({})
       }
-    } else {
-      intent = optionIntentFromAnswers({}, text).intent
     }
-    this.logInspector(`option intent = ${intent}${fb.length ? " · fallback" : ""}`)
+    const intent = merged.intent
+    this.logInspector(`option intent = ${intent}${merged.usedFallback.length ? " · unsure" : ""}`)
     if (!this.active) return
+    if (!intent) {
+      this.sayThenListen(`Sorry — say the next option, “done” to finish, or “remove last” to undo.`)
+      return
+    }
     if (intent === "done_options") {
       if (!(this.pending.options || []).length) {
         this.setStatus("I need at least one option.")
@@ -596,16 +560,15 @@ export default class extends Controller {
           }),
         })
         const data = await res.json().catch(() => ({}))
-        if (res.ok && data.answers) {
-          merged = requiredFieldsFromAnswers(data.answers, unasked, text)
-        } else {
-          merged = requiredFieldsFromAnswers({}, unasked, text)
-        }
+        merged = requiredFieldsFromAnswers(res.ok ? data.answers : {}, unasked)
       } catch {
-        merged = requiredFieldsFromAnswers({}, unasked, text)
+        merged = requiredFieldsFromAnswers({}, unasked)
       }
-    } else {
-      merged = requiredFieldsFromAnswers({}, unasked, text)
+    }
+    if (merged.usedFallback.length) {
+      this.logInspector("required unsure — repeating")
+      this.sayThenListen(`Sorry — which fields are required? ${unasked.map((f) => f.name).join(", ")}.`)
+      return
     }
     const wanted = new Set(merged.requiredIds)
     for (const f of unasked) {
@@ -614,7 +577,7 @@ export default class extends Controller {
     }
     saveSchema(this.fields)
     this.render()
-    this.logInspector(`required = ${unasked.filter((f) => f.required).map((f) => f.name).join(", ") || "none"}${merged.usedFallback.length ? " · fallback" : ""}`)
+    this.logInspector(`required = ${unasked.filter((f) => f.required).map((f) => f.name).join(", ") || "none"}`)
     if (!this.active) return
     const names = unasked.filter((f) => f.required).map((f) => f.name)
     this.speak(names.length ? `Marked ${names.join(", ")} as required.` : "Nothing marked required.", () => {
@@ -665,8 +628,12 @@ export default class extends Controller {
       merged = editIntentFromAnswers({}, text)
     }
     const aspect = merged.aspect
-    this.logInspector(`edit intent = ${aspect}${merged.usedFallback.length ? " · fallback" : ""}`)
+    this.logInspector(`edit intent = ${aspect}${merged.usedFallback.length ? " · unsure" : ""}`)
     if (!this.active) return
+    if (!aspect) {
+      this.sayThenListen(`Sorry — ${editMenuPrompt(field)}`)
+      return
+    }
     if (aspect === "remove") {
       this.fields = this.fields.filter((f) => f.id !== field.id)
       this.selectedId = null
@@ -706,7 +673,6 @@ export default class extends Controller {
       this.askOptions()
       return
     }
-    this.sayThenListen(`Sorry — say name, type, options, or required. Or say done.`)
   }
 
   async submitEditName(text) {
@@ -731,7 +697,7 @@ export default class extends Controller {
     if (!field) { this.askName(); return }
     this.setStatus("Checking the type with Jev…")
     const key = localStorage.getItem("syft_jev_key") || ""
-    let typed = { type: fallbackType(text), usedFallback: ["field_type", "no-key"] }
+    let typed = { type: null, usedFallback: ["field_type", "no-key"] }
     if (key) {
       try {
         const res = await fetch("/jev_design", {
@@ -740,16 +706,16 @@ export default class extends Controller {
           body: JSON.stringify({ step: "change_type", transcript: text, field_name: field.name, api_key: key }),
         })
         const data = await res.json().catch(() => ({}))
-        typed = typeFromAnswers(res.ok ? data.answers : {}, text)
+        typed = typeFromAnswers(res.ok ? data.answers : {})
       } catch {
-        typed = typeFromAnswers({}, text)
+        typed = typeFromAnswers({})
       }
     }
     if (!this.active) return
     const type = typed.type
-    this.logInspector(`retyped ${field.name} -> ${type}${typed.usedFallback.length ? " · fallback" : ""}`)
-    if (!FIELD_TYPES.includes(type)) {
-      this.sayThenListen(`I didn't catch a type. Text, number, date, time, email, yes or no, single choice, or multiple choice?`)
+    this.logInspector(`retyped ${field.name} -> ${type}${typed.usedFallback.length ? " · unsure" : ""}`)
+    if (!type) {
+      this.sayThenListen(`Sorry, I didn't catch the type. Text, number, date, time, email, yes or no, single choice, or multiple choice?`)
       return
     }
     field.type = type
@@ -768,7 +734,7 @@ export default class extends Controller {
     const field = this.selectedField()
     if (!field) { this.askName(); return }
     const key = localStorage.getItem("syft_jev_key") || ""
-    let required = requiredFromAnswers({}, text).required
+    let merged = { required: null, usedFallback: ["required", "no-key"] }
     if (key) {
       try {
         const res = await fetch("/jev_design", {
@@ -777,10 +743,18 @@ export default class extends Controller {
           body: JSON.stringify({ step: "required", transcript: text, field_name: field.name, api_key: key }),
         })
         const data = await res.json().catch(() => ({}))
-        if (res.ok && data.answers) required = requiredFromAnswers(data.answers, text).required
-      } catch { /* fallback stands */ }
+        merged = requiredFromAnswers(res.ok ? data.answers : {})
+      } catch {
+        merged = requiredFromAnswers({})
+      }
     }
     if (!this.active) return
+    if (merged.required === null) {
+      this.logInspector("required unsure — repeating")
+      this.sayThenListen(`Sorry — should ${field.name} be required? Say yes or no.`)
+      return
+    }
+    const required = merged.required
     field.required = required
     field.requiredDecided = true
     saveSchema(this.fields)

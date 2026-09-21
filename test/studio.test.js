@@ -4,7 +4,7 @@ import {
   inferSchema,
   slugify,
   columnType,
-  defaultSpec,
+  constantSpec,
   specFromAnswers,
   aggregateCategory,
   scatterSeries,
@@ -14,8 +14,6 @@ import {
   renderKpiHtml,
   chartUnavailableHtml,
   resolveChartClass,
-  splitPrompt,
-  defaultDashboard,
   dashboardFromAnswers,
   panelTitle,
   dashboardContainerStyle,
@@ -58,41 +56,28 @@ describe("inferSchema (arbitrary data)", () => {
   })
 })
 
-describe("defaultSpec (offline voice-prompt parse)", () => {
+describe("constantSpec (schema-derived starting point, Jev fills the rest)", () => {
   const schema = inferSchema(SAMPLES.bookstore)
 
-  it("parses a spoken bar-chart request", () => {
-    const spec = defaultSpec(schema, "Bar chart of revenue by genre")
+  it("starts from a fixed table spec, never prompt words", () => {
+    const spec = constantSpec(schema, "Bar chart of revenue by genre")
+    expect(spec.view).toBe("table")
+    expect(spec.xField).toBe("title") // first non-numeric column
+    expect(spec.yField).toBe("count_rows")
+    expect(spec.filter).toBeNull()
+  })
+
+  it("merges a confident Jev bar spec over the constants", () => {
+    const { spec, usedFallback } = specFromAnswers({
+      view: { choice: "bar", confidence: 0.94 },
+      x_field: { choice: "genre", confidence: 0.9 },
+      y_field: { choice: "revenue", confidence: 0.88 },
+      aggregation: { choice: "sum", confidence: 0.8 },
+      show_legend: { noul: 0.95 },
+    }, schema, "Bar chart of revenue by genre")
     expect(spec.view).toBe("bar")
     expect(spec.xField).toBe("genre")
-    expect(spec.yField).toBe("revenue")
-  })
-
-  it("parses a trend request onto the time axis", () => {
-    const spec = defaultSpec(schema, "Show the trend of units over month as a line")
-    expect(spec.view).toBe("line")
-    expect(spec.xField).toBe("month")
-    expect(spec.yField).toBe("units")
-  })
-
-  it("parses a table request with biggest-first sort", () => {
-    const inc = inferSchema(SAMPLES.incidents)
-    const spec = defaultSpec(inc, "Table of all incidents, biggest minutes_open first")
-    expect(spec.view).toBe("table")
-    expect(spec.yField).toBe("minutes_open")
-    expect(spec.sortBy).toBe("value_desc")
-  })
-
-  it("parses a KPI request", () => {
-    const spec = defaultSpec(inferSchema(SAMPLES.workouts), "KPI totals: how many workouts and total minutes")
-    expect(spec.view).toBe("kpi")
-  })
-
-  it("puts scatter on two numeric axes", () => {
-    const spec = defaultSpec(inferSchema(SAMPLES.workouts), "Scatter of km vs minutes")
-    expect(spec.view).toBe("scatter")
-    expect(spec.xField).toBe("minutes")
-    expect(spec.yField).toBe("km")
+    expect(usedFallback).not.toContain("view")
   })
 })
 
@@ -113,13 +98,13 @@ describe("specFromAnswers (parallel-answer merge)", () => {
     expect(usedFallback).not.toContain("view")
   })
 
-  it("rejects slugs outside the schema and falls back per-question", () => {
+  it("marks unsure and out-of-schema answers for repeat", () => {
     const { spec, usedFallback } = specFromAnswers({
       view: { choice: "bar", confidence: 0.9 },
       x_field: { choice: "owner", confidence: 0.9 }, // not a bookstore column
       y_field: { choice: "revenue", confidence: 0.2 }, // unsure
     }, schema, "Bar chart of revenue by genre")
-    expect(spec.xField).toBe("genre")
+    expect(spec.xField).toBe("title") // constant default, not a guess
     expect(usedFallback).toContain("x_field")
     expect(usedFallback).toContain("y_field")
   })
@@ -143,7 +128,13 @@ describe("aggregation + Chart.js config", () => {
   })
 
   it("builds a bar config Chart.js can consume", () => {
-    const spec = defaultSpec(schema, "Bar chart of revenue by genre")
+    const { spec } = specFromAnswers({
+      view: { choice: "bar", confidence: 0.9 },
+      x_field: { choice: "genre", confidence: 0.9 },
+      y_field: { choice: "revenue", confidence: 0.9 },
+      aggregation: { choice: "sum", confidence: 0.9 },
+      sort_by: { choice: "label_asc", confidence: 0.9 },
+    }, schema, "Bar chart of revenue by genre")
     const config = buildChartConfig(spec, SAMPLES.bookstore, schema)
     expect(config.type).toBe("bar")
     expect(config.data.labels).toContain("scifi")
@@ -151,7 +142,13 @@ describe("aggregation + Chart.js config", () => {
   })
 
   it("builds a pie config for share requests", () => {
-    const spec = defaultSpec(schema, "Pie chart share of units by genre")
+    const { spec } = specFromAnswers({
+      view: { choice: "pie", confidence: 0.9 },
+      x_field: { choice: "genre", confidence: 0.9 },
+      y_field: { choice: "units", confidence: 0.9 },
+      aggregation: { choice: "sum", confidence: 0.9 },
+      sort_by: { choice: "label_asc", confidence: 0.9 },
+    }, schema, "Pie chart share of units by genre")
     const config = buildChartConfig(spec, SAMPLES.bookstore, schema)
     expect(config.type).toBe("pie")
     expect(config.data.datasets[0].data.reduce((a, b) => a + b, 0)).toBe(365)
@@ -159,7 +156,11 @@ describe("aggregation + Chart.js config", () => {
 
   it("builds scatter series from two numeric columns", () => {
     const wschema = inferSchema(SAMPLES.workouts)
-    const spec = defaultSpec(wschema, "Scatter of km vs minutes")
+    const { spec } = specFromAnswers({
+      view: { choice: "scatter", confidence: 0.9 },
+      x_field: { choice: "minutes", confidence: 0.9 },
+      y_field: { choice: "km", confidence: 0.9 },
+    }, wschema, "Scatter of km vs minutes")
     const series = scatterSeries(SAMPLES.workouts, spec, wschema)
     expect(series.length).toBe(1)
     expect(series[0].data).toHaveLength(6)
@@ -187,26 +188,30 @@ describe("DOM renderers", () => {
   })
 
   it("renders a table with schema headers, biggest first", () => {
-    const spec = defaultSpec(schema, "Table of all incidents, biggest minutes_open first")
+    const { spec } = specFromAnswers({
+      view: { choice: "table", confidence: 0.9 },
+      y_field: { choice: "minutes_open", confidence: 0.9 },
+      sort_by: { choice: "value_desc", confidence: 0.9 },
+    }, schema, "Table of all incidents, biggest minutes_open first")
     const html = renderTableHtml(SAMPLES.incidents, spec, schema)
     expect(html).toContain("minutes_open")
     expect(html.indexOf("INC-102")).toBeLessThan(html.indexOf("INC-105"))
   })
 
   it("renders KPI sums for numeric columns", () => {
-    const spec = defaultSpec(schema, "KPI totals")
+    const { spec } = specFromAnswers({ view: { choice: "kpi", confidence: 0.9 } }, schema, "KPI totals")
     const html = renderKpiHtml(SAMPLES.incidents, spec, schema)
     expect(html).toContain("270") // 47+120+25+63+15
   })
 
   it("renders one card per record", () => {
-    const spec = defaultSpec(schema, "Cards of incidents")
+    const { spec } = specFromAnswers({ view: { choice: "cards", confidence: 0.9 } }, schema, "Cards of incidents")
     const html = renderCardsHtml(SAMPLES.incidents, spec, schema)
     for (const row of SAMPLES.incidents) expect(html).toContain(row.id)
   })
 })
 
-describe("end-to-end on a never-before-seen dataset (voice prompt, no key)", () => {
+describe("end-to-end on a never-before-seen dataset (Jev answers, no task code)", () => {
   const planets = [
     { name: "Kepler-186f", type: "rocky", moons: 0, distance_au: 0.36 },
     { name: "Kepler-22b", type: "rocky", moons: 0, distance_au: 0.85 },
@@ -215,9 +220,18 @@ describe("end-to-end on a never-before-seen dataset (voice prompt, no key)", () 
     { name: "Europa", type: "moon", moons: 1, distance_au: 5.2 },
   ]
 
-  it("goes from spoken prompt to chart config with no task-specific code", () => {
+  it("goes from Jev answers to chart config with no task-specific code", () => {
     const schema = inferSchema(planets)
-    const spec = defaultSpec(schema, "Bar chart of moons by type")
+    const { spec, usedFallback } = specFromAnswers({
+      view: { choice: "bar", confidence: 0.9 },
+      x_field: { choice: "type", confidence: 0.9 },
+      y_field: { choice: "moons", confidence: 0.9 },
+      aggregation: { choice: "sum", confidence: 0.9 },
+      sort_by: { choice: "label_asc", confidence: 0.9 },
+    }, schema, "Bar chart of moons by type")
+    expect(usedFallback).not.toContain("view")
+    expect(usedFallback).not.toContain("x_field")
+    expect(usedFallback).not.toContain("y_field")
     expect(spec.view).toBe("bar")
     const config = buildChartConfig(spec, planets, schema)
     expect(config.type).toBe("bar")
@@ -226,29 +240,28 @@ describe("end-to-end on a never-before-seen dataset (voice prompt, no key)", () 
   })
 })
 
-describe("dashboard (option 2: multi-panel)", () => {
+describe("dashboard (Jev-driven multi-panel)", () => {
   const schema = inferSchema(SAMPLES.bookstore)
 
-  it("splits a spoken multi-view prompt into clauses", () => {
-    expect(splitPrompt("Bar chart of revenue by genre with KPI totals")).toEqual([
-      "Bar chart of revenue by genre", "KPI totals",
-    ])
-    expect(splitPrompt("Plot units over month and a table of everything")).toHaveLength(2)
-    expect(splitPrompt("Bar chart")).toEqual(["Bar chart"])
+  it("starts from one constant panel and grows on Jev's count", () => {
+    const { dashboard, usedFallback } = dashboardFromAnswers({
+      panel_count: { choice: "two", confidence: 0.92 },
+      layout: { choice: "stack", confidence: 0.9 },
+      view: { choice: "bar", confidence: 0.9 },
+      x_field: { choice: "genre", confidence: 0.9 },
+      y_field: { choice: "revenue", confidence: 0.9 },
+      view_2: { choice: "kpi", confidence: 0.9 },
+    }, schema, "Bar chart of revenue by genre with KPI totals")
+    expect(dashboard.panels).toHaveLength(2)
+    expect(dashboard.panels[0].view).toBe("bar")
+    expect(dashboard.panels[1].view).toBe("kpi")
+    expect(dashboard.layout).toBe("stack")
+    expect(usedFallback).not.toContain("panel_count")
   })
 
-  it("builds one panel per clause offline, stacked by default", () => {
-    const dash = defaultDashboard(schema, "Bar chart of revenue by genre with KPI totals")
-    expect(dash.panels).toHaveLength(2)
-    expect(dash.panels[0].view).toBe("bar")
-    expect(dash.panels[1].view).toBe("kpi")
-    expect(dash.layout).toBe("stack")
-  })
-
-  it("honours side-by-side / grid layout keywords", () => {
-    expect(defaultDashboard(schema, "A bar chart and a table side by side").layout).toBe("side-by-side")
-    expect(defaultDashboard(schema, "A bar chart and a table and KPIs as a grid").layout).toBe("grid")
-    expect(defaultDashboard(schema, "Bar chart of revenue by genre").layout).toBe("single")
+  it("marks an unsure count for repeat instead of guessing panels", () => {
+    const { usedFallback } = dashboardFromAnswers({}, schema, "Bar chart")
+    expect(usedFallback).toContain("panel_count")
   })
 
   it("merges per-panel Jev answers, falling back per slot", () => {
@@ -279,7 +292,11 @@ describe("dashboard (option 2: multi-panel)", () => {
   })
 
   it("derives deterministic panel titles", () => {
-    const { dashboard } = dashboardFromAnswers({}, schema, "Bar chart of revenue by genre")
+    const { dashboard } = dashboardFromAnswers({
+      view: { choice: "bar", confidence: 0.9 },
+      x_field: { choice: "genre", confidence: 0.9 },
+      y_field: { choice: "revenue", confidence: 0.9 },
+    }, schema, "Bar chart of revenue by genre")
     expect(panelTitle(dashboard.panels[0], schema)).toBe("revenue by genre · bar")
   })
 
@@ -390,8 +407,8 @@ describe("row filter (Jev-native)", () => {
     expect(filterLabel({ column: "service", op: "starts_with", value: "check" }, schema)).toBe("service starts with “check”")
   })
 
-  it("leaves offline specs unfiltered", () => {
-    expect(defaultSpec(schema, "Table of incidents where status is open").filter).toBeNull()
+  it("starts unfiltered until Jev answers", () => {
+    expect(constantSpec(schema, "Table of incidents where status is open").filter).toBeNull()
   })
 
   it("merges confident Jev filter answers", () => {

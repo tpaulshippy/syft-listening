@@ -8,8 +8,6 @@ import {
   sessionIntentFromAnswers,
   fieldsNeedingRequired,
   fieldCardHtml,
-  fieldEditorHtml,
-  changeFieldType,
   editIntentFromAnswers,
   editMenuPrompt,
   addOption,
@@ -111,7 +109,7 @@ describe("design options + validation", () => {
 describe("field card", () => {
   const field = { id: "f1", name: "Genre", type: "choice_single", required: true, options: ["a", "b"] }
 
-  it("is tappable to select; the card itself holds no inputs", () => {
+  it("is tappable to select, with no editor panel", () => {
     const html = fieldCardHtml(field, 0, false)
     expect(html).toContain("design#selectField")
     expect(html).not.toContain("<select")
@@ -120,40 +118,6 @@ describe("field card", () => {
 
   it("highlights the selected field", () => {
     expect(fieldCardHtml(field, 0, true)).toContain("2px solid #2563eb")
-  })
-})
-
-describe("field editor (manual data-type change)", () => {
-  it("renders a type select wired to changeType", () => {
-    const html = fieldEditorHtml({ id: "f1", name: "Genre", type: "text" })
-    expect(html).toContain("<select")
-    expect(html).toContain("change->design#changeType")
-    expect(html).toContain('data-id="f1"')
-    for (const t of FIELD_TYPES) expect(html).toContain(`value="${t}"`)
-  })
-
-  it("renders nothing without a selected field", () => {
-    expect(fieldEditorHtml(null)).toBe("")
-  })
-
-  it("changes the type, clearing options when leaving choice types", () => {
-    const field = { id: "f1", name: "Genre", type: "choice_single", options: ["a"] }
-    expect(changeFieldType(field, "text")).toEqual({ ok: true, changed: true })
-    expect(field.type).toBe("text")
-    expect(field.options).toEqual([])
-  })
-
-  it("keeps options when switching between choice types", () => {
-    const field = { id: "f1", name: "Genre", type: "choice_single", options: ["a"] }
-    expect(changeFieldType(field, "choice_multiple").changed).toBe(true)
-    expect(field.options).toEqual(["a"])
-  })
-
-  it("rejects unknown types and no-ops on the same type", () => {
-    const field = { id: "f1", name: "Genre", type: "text", options: [] }
-    expect(changeFieldType(field, "mystery").ok).toBe(false)
-    expect(field.type).toBe("text")
-    expect(changeFieldType(field, "text")).toEqual({ ok: true, changed: false })
   })
 })
 

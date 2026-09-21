@@ -94,6 +94,18 @@ export function controlFromAnswers(answers) {
   return { control: null, usedFallback: ["control"] }
 }
 
+// A confident value with an unsure meta-intent is still an answer: Jev
+// understood the words (it parsed them into values), it only hedged on
+// whether the speaker meant answer/skip/done. Defaulting to answer is the
+// conservative choice — ending the row (finish_row) stays explicit, never
+// assumed. A confident skip/repeat/done is always honored; only a null
+// control with zero value fallbacks is assumed.
+export function effectiveControl(control, controlFallback, valueFallback) {
+  if (control) return { control, usedFallback: controlFallback, assumed: false }
+  if (valueFallback.length === 0) return { control: "answer", usedFallback: [], assumed: true }
+  return { control: null, usedFallback: controlFallback, assumed: false }
+}
+
 export const ROW_INTENTS = ["edit", "delete"]
 
 // Voice row menu: Jev decides edit vs delete from the `row_intent` choice.
@@ -545,10 +557,11 @@ export default class extends Controller {
         if (res.ok && data.answers) { answers = data.answers; fbNote = "" }
       } catch { fbNote = "connection" }
     }
-    const { control, usedFallback: cfb } = controlFromAnswers(answers)
+    const { control: rawControl, usedFallback: cfb } = controlFromAnswers(answers)
     const { values, usedFallback: vfb } = valuesFromAnswers(answers, this.group, text)
-    const unsure = [...cfb, ...vfb]
-    this.logInspector(`control=${control} values=${JSON.stringify(values)}${unsure.length || fbNote ? ` · unsure(${unsure.join(",")}${fbNote ? `,${fbNote}` : ""})` : ""}`)
+    const { control, usedFallback: efb, assumed } = effectiveControl(rawControl, cfb, vfb)
+    const unsure = [...efb, ...vfb]
+    this.logInspector(`control=${control}${assumed ? " (assumed — Jev unsure, values confident)" : ""} values=${JSON.stringify(values)}${unsure.length || fbNote ? ` · unsure(${unsure.join(",")}${fbNote ? `,${fbNote}` : ""})` : ""}`)
     if (!this.active) return
     if (!control || unsure.length) {
       this.sayThenListen(`Sorry — ${promptFor(this.group)}`)
@@ -743,10 +756,11 @@ export default class extends Controller {
     const field = this.schema[this.editIdx]
     this.setStatus("Checking with Jev…")
     const { answers, fbNote } = await this.jevAnswer(text, [field])
-    const { control, usedFallback: cfb } = controlFromAnswers(answers)
+    const { control: rawControl, usedFallback: cfb } = controlFromAnswers(answers)
     const { values, usedFallback: vfb } = valuesFromAnswers(answers, [field], text)
-    const unsure = [...cfb, ...vfb]
-    this.logInspector(`edit ${field.name}=${JSON.stringify(values[field.id])} control=${control}${unsure.length || fbNote ? ` · unsure(${unsure.join(",")}${fbNote ? `,${fbNote}` : ""})` : ""}`)
+    const { control, usedFallback: efb, assumed } = effectiveControl(rawControl, cfb, vfb)
+    const unsure = [...efb, ...vfb]
+    this.logInspector(`edit ${field.name}=${JSON.stringify(values[field.id])} control=${control}${assumed ? " (assumed — Jev unsure, values confident)" : ""}${unsure.length || fbNote ? ` · unsure(${unsure.join(",")}${fbNote ? `,${fbNote}` : ""})` : ""}`)
     if (!this.active) return
     // The shared control choice carries keep (skip) and go-back intents.
     if (!control || (control !== "skip" && control !== "edit_previous" && unsure.length)) {

@@ -3,6 +3,7 @@ import {
   proposeGroup,
   promptFor,
   controlFromAnswers,
+  effectiveControl,
   valuesFromAnswers,
   validateGroup,
   rowsToDataset,
@@ -40,6 +41,32 @@ describe("input control (Jev only)", () => {
     expect(controlFromAnswers({ control: { choice: "skip", confidence: 0.9 } }).control).toBe("skip")
     expect(controlFromAnswers({}).control).toBeNull()
     expect(controlFromAnswers({}).usedFallback).toContain("control")
+  })
+
+  it("assumes answer when values are confident but control hedges (live replay)", () => {
+    // Inspector showed: control=null values={"…":"2026-09-13"} · unsure(control)
+    const DATE = { id: "f", name: "Date", type: "date", required: true, options: [] }
+    const answers = {
+      control: { choice: "answer", confidence: 0.3 },
+      month: { choice: "september", confidence: 1.0 },
+      day: { choice: "13", confidence: 1.0 },
+      year: { choice: "2026", confidence: 1.0 },
+    }
+    const { control: raw, usedFallback: cfb } = controlFromAnswers(answers)
+    const { values, usedFallback: vfb } = valuesFromAnswers(answers, [DATE], "September 13, 2026")
+    expect(raw).toBeNull()
+    expect(values).toEqual({ f: "2026-09-13" })
+    const eff = effectiveControl(raw, cfb, vfb)
+    expect(eff.control).toBe("answer")
+    expect(eff.assumed).toBe(true)
+    expect([...eff.usedFallback, ...vfb]).toEqual([])
+  })
+
+  it("never assumes: confident intents pass through, unsure values still repeat", () => {
+    expect(effectiveControl("skip", [], []).control).toBe("skip")
+    expect(effectiveControl("finish_row", [], []).control).toBe("finish_row")
+    expect(effectiveControl(null, ["control"], ["month", "day", "year"]).control).toBeNull()
+    expect(effectiveControl(null, ["control"], ["month", "day", "year"]).usedFallback).toContain("control")
   })
 })
 

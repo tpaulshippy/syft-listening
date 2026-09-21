@@ -196,10 +196,40 @@ export function rowTableHtml(schema, rows) {
   if (!rows?.length) return `<p style="font-size:12px;color:#a1a1aa;">No records yet.</p>`
   const head = schema.map((f) => `<th style="text-align:left;padding:6px 8px;color:#71717a;font-weight:600;">${escapeHtml(f.name)}</th>`).join("")
   const body = rows.map((row, i) =>
-    `<tr style="border-top:1px solid #f4f4f5;"><td style="padding:6px 8px;color:#a1a1aa;">${i + 1}</td>` +
+    `<tr style="border-top:1px solid #f4f4f5;cursor:pointer;" data-action="click->input#editRow" data-index="${i}"><td style="padding:6px 8px;color:#a1a1aa;">${i + 1}</td>` +
     schema.map((f) => `<td style="padding:6px 8px;">${escapeHtml(Array.isArray(row[f.name]) ? row[f.name].join(", ") : row[f.name] ?? "")}</td>`).join("") +
     `<td style="padding:6px 8px;"><button data-action="click->input#removeRow" data-index="${i}" style="font-size:11px;color:#dc2626;">Delete</button></td></tr>`).join("")
-  return `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr><th style="padding:6px 8px;">#</th>${head}<th></th></tr></thead><tbody>${body}</tbody></table></div>`
+  return `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr><th style="padding:6px 8px;">#</th>${head}<th></th></tr></thead><tbody>${body}</tbody></table></div>` +
+    `<p style="font-size:11px;color:#a1a1aa;margin-top:4px;">Tap a row to edit it.</p>`
+}
+
+// One control per field type for the tap-to-edit row form.
+export function editControlHtml(field, value, idx) {
+  const v = Array.isArray(value) ? value : String(value ?? "")
+  if (field.type === "yes_no") {
+    return `<select data-edit-idx="${idx}" style="width:100%;border:1px solid #e4e4e7;border-radius:8px;padding:6px 8px;font-size:13px;">` +
+      ["", "yes", "no"].map((o) => `<option value="${o}"${v === o ? " selected" : ""}>${o === "" ? "—" : o}</option>`).join("") + `</select>`
+  }
+  if (field.type === "choice_single") {
+    const opts = field.required ? (field.options || []) : ["", ...(field.options || [])]
+    return `<select data-edit-idx="${idx}" style="width:100%;border:1px solid #e4e4e7;border-radius:8px;padding:6px 8px;font-size:13px;">` +
+      opts.map((o) => `<option value="${escapeHtml(o)}"${v === o ? " selected" : ""}>${o === "" ? "—" : escapeHtml(o)}</option>`).join("") + `</select>`
+  }
+  if (field.type === "choice_multiple") {
+    const current = Array.isArray(value) ? value : []
+    return `<div style="display:flex;gap:8px;flex-wrap:wrap;">` + (field.options || []).map((o) =>
+      `<label style="font-size:12px;display:flex;gap:4px;align-items:center;"><input type="checkbox" data-edit-idx="${idx}" value="${escapeHtml(o)}"${current.includes(o) ? " checked" : ""} /> ${escapeHtml(o)}</label>`).join("") + `</div>`
+  }
+  return `<input data-edit-idx="${idx}" value="${escapeHtml(v)}" style="width:100%;border:1px solid #e4e4e7;border-radius:8px;padding:6px 8px;font-size:13px;" />`
+}
+
+export function editFormHtml(schema, row) {
+  const controls = schema.map((f, i) =>
+    `<label style="font-size:11px;color:#71717a;">${escapeHtml(f.name)}${f.required ? " · required" : ""}<br />${editControlHtml(f, row?.[f.name], i)}</label>`).join("")
+  return `<div style="display:grid;gap:8px;">${controls}` +
+    `<div style="display:flex;gap:6px;">` +
+    `<button data-action="click->input#saveEdit" style="flex:1;border-radius:999px;background:#18181b;color:#fff;padding:6px;font-size:13px;">Save</button>` +
+    `<button data-action="click->input#cancelEdit" style="flex:1;border-radius:999px;border:1px solid #e4e4e7;padding:6px;font-size:13px;">Cancel</button></div></div>`
 }
 
 // --- Stimulus controller: voice-only session -----------------------------------
@@ -207,12 +237,13 @@ export function rowTableHtml(schema, rows) {
 // order, listens, and advances automatically from what the user says.
 export default class extends Controller {
   static targets = ["question", "status", "progress",
-    "rowsTable", "inspector", "voiceStatus", "apiKey", "stepHint",
+    "rowsTable", "editForm", "inspector", "voiceStatus", "apiKey", "stepHint",
     "startButton", "doneButton"]
 
   connect() {
     this.schema = loadSchema()
     this.rows = loadRows()
+    this.editingIndex = null
     this.draft = {}
     this.fieldIndex = 0
     this.group = []
@@ -258,7 +289,9 @@ export default class extends Controller {
     this.active = true
     this.draft = {}
     this.fieldIndex = 0
+    this.editingIndex = null
     this.updateButtons()
+    this.render()
     this.nextGroup()
   }
 
@@ -280,6 +313,8 @@ export default class extends Controller {
     this.draft = {}
     this.fieldIndex = 0
     this.group = []
+    this.editingIndex = null
+    this.render()
     this.setQuestion("Done.")
     this.setStatus(empty ? "Session ended — no answers to save." : `Session ended — saved record ${this.rows.length}.`)
     this.updateButtons()
@@ -521,10 +556,74 @@ export default class extends Controller {
   }
 
   removeRow(event) {
+    event.stopPropagation()
     const i = Number(event.currentTarget.dataset.index)
+    if (this.editingIndex === i) this.editingIndex = null
+    else if (this.editingIndex !== null && this.editingIndex > i) this.editingIndex -= 1
     this.rows.splice(i, 1)
     saveRows(this.rows)
     this.render()
+  }
+
+  // --- tap-to-edit a row ----------------------------------------------------------
+  editRow(event) {
+    // The Delete button lives inside the row — it handles itself.
+    if (event.target.closest("button")) return
+    this.editingIndex = Number(event.currentTarget.dataset.index)
+    this.renderEditForm()
+  }
+
+  cancelEdit() {
+    this.editingIndex = null
+    this.renderEditForm()
+  }
+
+  saveEdit() {
+    if (this.editingIndex === null) return
+    const form = this.hasEditFormTarget ? this.editFormTarget : null
+    if (!form) return
+    const row = {}
+    for (let i = 0; i < this.schema.length; i++) {
+      const field = this.schema[i]
+      const inputs = [...form.querySelectorAll(`[data-edit-idx="${i}"]`)]
+      let value
+      if (field.type === "choice_multiple") {
+        value = inputs.filter((el) => el.checked).map((el) => el.value)
+      } else {
+        value = inputs[0]?.value ?? ""
+      }
+      const str = Array.isArray(value) ? value.join(", ") : String(value).trim()
+      if (!str && field.required) {
+        this.setStatus(`“${field.name}” is required.`)
+        return
+      }
+      if (str) {
+        const check = offlineCheck(field, Array.isArray(value) ? value.join(", ") : value)
+        if (!check.ok) {
+          this.setStatus(`${field.name}: ${check.reason}`)
+          return
+        }
+        row[field.name] = check.value !== undefined ? check.value : value
+      } else {
+        row[field.name] = field.type === "choice_multiple" ? [] : ""
+      }
+    }
+    this.rows[this.editingIndex] = row
+    saveRows(this.rows) // notifies Visualize, which auto-loads
+    this.editingIndex = null
+    this.setStatus("Record updated.")
+    this.render()
+  }
+
+  renderEditForm() {
+    if (!this.hasEditFormTarget) return
+    if (this.editingIndex === null || !this.rows[this.editingIndex]) {
+      this.editFormTarget.innerHTML = ""
+      return
+    }
+    this.editFormTarget.innerHTML = `<div style="margin-bottom:8px;border:1px solid #e4e4e7;border-radius:12px;padding:10px;">` +
+      `<p style="font-size:12px;font-weight:700;margin-bottom:8px;">Editing record ${this.editingIndex + 1}</p>` +
+      editFormHtml(this.schema, this.rows[this.editingIndex]) + `</div>`
   }
 
   clearRows() {
@@ -535,6 +634,7 @@ export default class extends Controller {
 
   render() {
     if (this.hasRowsTableTarget) this.rowsTableTarget.innerHTML = rowTableHtml(this.schema, this.rows)
+    this.renderEditForm()
   }
 
   logInspector(line) {

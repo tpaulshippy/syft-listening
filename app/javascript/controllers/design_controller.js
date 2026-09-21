@@ -147,18 +147,43 @@ export function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
 }
 
-export function fieldCardHtml(field, index) {
+export function fieldCardHtml(field, index, editing = false) {
   const opts = CHOICE_TYPES.includes(field.type) && field.options?.length
     ? `<div style="font-size:11px;color:#52525b;margin-top:4px;">options: ${field.options.map(escapeHtml).join(" · ")}</div>`
     : ""
+  const editor = editing ? fieldEditorHtml(field) : ""
   return `<div style="border:1px solid #e4e4e7;border-radius:12px;padding:10px;" data-field-id="${escapeHtml(field.id)}">` +
     `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;">` +
     `<strong style="font-size:13px;">${index + 1}. ${escapeHtml(field.name)}</strong>` +
-    `<span style="font-size:11px;color:#71717a;">${escapeHtml(field.type)}${field.required ? " · required" : ""}</span></div>${opts}` +
-    `<div style="display:flex;gap:6px;margin-top:8px;font-size:11px;">` +
+    `<span style="font-size:11px;color:#71717a;">${escapeHtml(field.type)}${field.required ? " · required" : ""}</span></div>${opts}${editor}` +
+    (editing ? "" : `<div style="display:flex;gap:6px;margin-top:8px;font-size:11px;">` +
+    `<button data-action="click->design#editField" data-id="${escapeHtml(field.id)}" style="border:1px solid #e4e4e7;border-radius:999px;padding:2px 10px;">Edit</button>` +
     `<button data-action="click->design#removeField" data-id="${escapeHtml(field.id)}" style="border:1px solid #e4e4e7;border-radius:999px;padding:2px 10px;">Remove</button>` +
-    `<button data-action="click->design#toggleRequired" data-id="${escapeHtml(field.id)}" style="border:1px solid #e4e4e7;border-radius:999px;padding:2px 10px;">${field.required ? "Make optional" : "Make required"}</button>` +
-    `</div></div>`
+    `</div>`) + `</div>`
+}
+
+// Inline editor for one field: rename, retype, toggle required, fix options.
+// Changes apply on edit (change events); Done validates and closes.
+export function fieldEditorHtml(field) {
+  const typeOpts = FIELD_TYPES.map((t) =>
+    `<option value="${t}"${t === field.type ? " selected" : ""}>${t}</option>`).join("")
+  const optRows = (field.options || []).map((o, i) =>
+    `<div style="display:flex;gap:6px;align-items:center;">` +
+    `<span style="flex:1;font-size:12px;">${escapeHtml(o)}</span>` +
+    `<button data-action="click->design#removeEditorOption" data-id="${escapeHtml(field.id)}" data-index="${i}" style="font-size:11px;color:#dc2626;">Remove</button></div>`).join("")
+  const optEditor = CHOICE_TYPES.includes(field.type)
+    ? `<div style="margin-top:6px;"><div style="font-size:11px;color:#71717a;">Options</div>${optRows}` +
+      `<div style="display:flex;gap:6px;margin-top:4px;">` +
+      `<input data-editor-new-option placeholder="New option" style="flex:1;min-width:0;border:1px solid #e4e4e7;border-radius:8px;padding:4px 8px;font-size:12px;" />` +
+      `<button data-action="click->design#addEditorOption" data-id="${escapeHtml(field.id)}" style="border:1px solid #e4e4e7;border-radius:999px;padding:2px 10px;font-size:11px;">Add</button></div></div>`
+    : ""
+  return `<div style="margin-top:8px;border-top:1px dashed #e4e4e7;padding-top:8px;display:grid;gap:6px;">` +
+    `<label style="font-size:11px;color:#71717a;">Name<br /><input data-editor-name value="${escapeHtml(field.name)}" data-action="change->design#editorChanged" style="width:100%;border:1px solid #e4e4e7;border-radius:8px;padding:4px 8px;font-size:13px;color:#18181b;" /></label>` +
+    `<div style="display:flex;gap:8px;align-items:end;">` +
+    `<label style="font-size:11px;color:#71717a;flex:1;">Type<br /><select data-editor-type data-action="change->design#editorChanged" style="width:100%;border:1px solid #e4e4e7;border-radius:8px;padding:4px;font-size:12px;">${typeOpts}</select></label>` +
+    `<label style="font-size:12px;display:flex;gap:4px;align-items:center;"><input type="checkbox" data-editor-required data-action="change->design#editorChanged"${field.required ? " checked" : ""} /> Required</label>` +
+    `<button data-action="click->design#closeEditor" data-id="${escapeHtml(field.id)}" style="border-radius:999px;background:#18181b;color:#fff;padding:4px 14px;font-size:12px;">Done</button></div>` +
+    optEditor + `</div>`
 }
 
 // --- Stimulus controller: voice-only session ---------------------------------
@@ -171,6 +196,7 @@ export default class extends Controller {
 
   connect() {
     this.fields = loadSchema()
+    this.editingId = null
     this.phase = "idle" // idle -> name -> options -> required_fields
     this.pending = null // field under construction
     this.recognition = null
@@ -506,22 +532,74 @@ export default class extends Controller {
     })
   }
 
-  // --- field list management (tap to fix; voice session keeps going) ---------------
+  // --- field list management (tap Edit to fix; voice session keeps going) --------
+  editField(event) {
+    this.editingId = event.currentTarget.dataset.id
+    this.render()
+  }
+
+  editorChanged(event) {
+    const card = event.currentTarget.closest("[data-field-id]")
+    const field = this.fields.find((f) => f.id === card?.dataset.fieldId)
+    if (!field) return
+    const name = card.querySelector("[data-editor-name]")?.value.trim() ?? field.name
+    const err = validateFieldName(name, this.fields.filter((f) => f.id !== field.id))
+    if (err) {
+      this.setStatus(err)
+      this.render() // revert the input
+      return
+    }
+    field.name = name
+    field.type = card.querySelector("[data-editor-type]")?.value || field.type
+    if (!FIELD_TYPES.includes(field.type)) field.type = "text"
+    field.required = card.querySelector("[data-editor-required]")?.checked || false
+    saveSchema(this.fields)
+    this.render()
+  }
+
+  addEditorOption(event) {
+    const id = event.currentTarget.dataset.id
+    const field = this.fields.find((f) => f.id === id)
+    const card = event.currentTarget.closest("[data-field-id]")
+    const value = card?.querySelector("[data-editor-new-option]")?.value ?? ""
+    if (!field) return
+    const r = addOption(field, value)
+    if (!r.ok) this.setStatus(r.reason === "duplicate" ? "Already have that option." : "Could not add that option.")
+    saveSchema(this.fields)
+    this.render()
+  }
+
+  removeEditorOption(event) {
+    const { id, index } = event.currentTarget.dataset
+    const field = this.fields.find((f) => f.id === id)
+    if (!field) return
+    ;(field.options || []).splice(Number(index), 1)
+    saveSchema(this.fields)
+    this.render()
+  }
+
+  closeEditor(event) {
+    const id = event.currentTarget.dataset.id
+    const field = this.fields.find((f) => f.id === id)
+    if (field && CHOICE_TYPES.includes(field.type) && !(field.options || []).length) {
+      this.setStatus("Add at least one option before closing.")
+      return
+    }
+    this.editingId = null
+    this.render()
+  }
+
   removeField(event) {
     const id = event.currentTarget.dataset.id
+    if (this.editingId === id) this.editingId = null
     this.fields = this.fields.filter((f) => f.id !== id)
     saveSchema(this.fields)
     this.render()
   }
 
-  toggleRequired(event) {
-    const id = event.currentTarget.dataset.id
-    const f = this.fields.find((x) => x.id === id)
-    if (f) { f.required = !f.required; saveSchema(this.fields); this.render() }
-  }
-
   clearAll() {
     this.fields = []
+    this.editingId = null
     saveSchema(this.fields)
     this.render()
   }
@@ -529,7 +607,7 @@ export default class extends Controller {
   render() {
     if (!this.hasFieldListTarget) return
     this.fieldListTarget.innerHTML = this.fields.length
-      ? this.fields.map((f, i) => fieldCardHtml(f, i)).join("")
+      ? this.fields.map((f, i) => fieldCardHtml(f, i, f.id === this.editingId)).join("")
       : `<p style="font-size:12px;color:#a1a1aa;">No fields yet — tap Start and speak.</p>`
   }
 

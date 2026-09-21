@@ -7,6 +7,7 @@ import {
   requiredFromAnswers,
   requiredFieldsFromAnswers,
   sessionIntentFromAnswers,
+  fieldCardHtml,
   addOption,
   validateFieldName,
   loadSchema,
@@ -102,5 +103,29 @@ describe("design options + validation", () => {
     saveSchema([{ id: "f1", name: "Genre", type: "choice_single", required: false, options: ["a"] }], store)
     expect(store.getItem(SCHEMA_KEY)).toContain("Genre")
     expect(loadSchema(store)).toHaveLength(1)
+  })
+})
+
+describe("field card editor", () => {
+  const field = { id: "f1", name: "Genre", type: "choice_single", required: true, options: ["a", "b"] }
+
+  it("renders Edit affordance when closed", () => {
+    const html = fieldCardHtml(field, 0, false)
+    expect(html).toContain("design#editField")
+    expect(html).not.toContain("<select")
+  })
+
+  it("renders name/type/required/options controls when editing", () => {
+    const html = fieldCardHtml(field, 0, true)
+    expect(html).toContain('value="Genre"')
+    expect(html).toContain("<select")
+    expect(html).toContain("checked")
+    expect(html).toContain("design#addEditorOption")
+    expect(html).toContain("design#closeEditor")
+  })
+
+  it("hides the option editor for non-choice types", () => {
+    const html = fieldCardHtml({ ...field, type: "text" }, 0, true)
+    expect(html).not.toContain("design#addEditorOption")
   })
 })

@@ -95,19 +95,25 @@ RSpec.describe "Input", type: :request do
       expect(response).to have_http_status(:success)
     end
 
-    it "checks dates by month, day, and a reasonable year range" do
+    it "parses dates with month/day/year choices instead of a validity noul" do
       http = stub_jev
       allow(http).to receive(:request) do |req|
         body = JSON.parse(req.body)
-        instructions = body["questions"]["valid"]["instructions"]
-        expect(instructions).to include("month")
-        expect(instructions).to include("day")
-        expect(instructions).to include("2020 and 2035")
+        expect(body["questions"].keys).to include("month", "day", "year", "control")
+        expect(body["questions"].keys).not_to include("valid")
+        expect(body["questions"]["month"]["type"]).to eq("choice")
+        expect(body["questions"]["month"]["criteria"].keys).to include("january", "september", "december")
+        expect(body["questions"]["day"]["criteria"].size).to eq(31)
+        years = body["questions"]["year"]["criteria"].keys
+        expect(years.first).to eq("1930")
+        expect(years).to include("2026")
+        expect(years.size).to be > 90
+        expect(body["questions"]["month"]["instructions"]).to include("Birthday")
         instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
       end
 
       fields = [ { "name" => "Birthday", "type" => "date", "required" => true, "options" => [] } ]
-      post "/jev_input", params: { step: "answer", transcript: "June 3 2026", fields: fields, api_key: "ts_test" }
+      post "/jev_input", params: { step: "answer", transcript: "September 13, 2026", fields: fields, api_key: "ts_test" }
       expect(response).to have_http_status(:success)
     end
 

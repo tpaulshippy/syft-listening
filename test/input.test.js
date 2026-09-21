@@ -10,6 +10,9 @@ import {
   editPromptFor,
   rowIntentFromAnswers,
   editFieldFromAnswers,
+  dateFromAnswers,
+  numberFromTranscript,
+  DATE_MIN_YEAR,
 } from "../app/javascript/controllers/input_controller.js"
 
 const YES_NO = { id: "a", name: "Subscribe", type: "yes_no", required: false, options: [] }
@@ -71,6 +74,76 @@ describe("input values", () => {
     const { values, usedFallback } = valuesFromAnswers({}, [EMAIL], "a@b.co")
     expect(values.d).toBeNull()
     expect(usedFallback).toContain("valid")
+  })
+
+  it("composes Jev's month/day/year choices into an ISO date", () => {
+    const BIRTHDAY = { id: "f", name: "Birthday", type: "date", required: true, options: [] }
+    const { values, usedFallback } = valuesFromAnswers({
+      month: { choice: "september", confidence: 1.0 },
+      day: { choice: "13", confidence: 1.0 },
+      year: { choice: "2026", confidence: 1.0 },
+      control: { choice: "answer", confidence: 0.7 },
+    }, [BIRTHDAY], "September 13, 2026")
+    expect(values).toEqual({ f: "2026-09-13" })
+    expect(usedFallback).toEqual([])
+  })
+
+  it("repeats the date question when any part is unsure", () => {
+    const BIRTHDAY = { id: "f", name: "Birthday", type: "date", required: true, options: [] }
+    const { values, usedFallback } = valuesFromAnswers({
+      month: { choice: "september", confidence: 1.0 },
+      day: { choice: "13", confidence: 0.2 },
+      year: { choice: "2026", confidence: 1.0 },
+    }, [BIRTHDAY], "September 2026")
+    expect(values.f).toBeNull()
+    expect(usedFallback).toEqual(["month", "day", "year"])
+  })
+
+  it("coerces Jev-validated numbers with Number(), repeating words", () => {
+    const AGE = { id: "g", name: "Age", type: "number", required: true, options: [] }
+    const ok = valuesFromAnswers({ valid: { noul: 0.95 } }, [AGE], "42")
+    expect(ok.values).toEqual({ g: 42 })
+    expect(ok.usedFallback).toEqual([])
+    const words = valuesFromAnswers({ valid: { noul: 0.95 } }, [AGE], "forty-two")
+    expect(words.values.g).toBeNull()
+    expect(words.usedFallback).toContain("valid")
+  })
+})
+
+describe("date parse (Jev choices in, ISO out)", () => {
+  const confident = {
+    month: { choice: "september", confidence: 1.0 },
+    day: { choice: "13", confidence: 1.0 },
+    year: { choice: "2026", confidence: 1.0 },
+  }
+
+  it("parses September 13, 2026 to 2026-09-13 (live Jev replay)", () => {
+    expect(dateFromAnswers(confident)).toBe("2026-09-13")
+  })
+
+  it("rejects non-real calendar dates like February 30", () => {
+    expect(dateFromAnswers({
+      month: { choice: "february", confidence: 1.0 },
+      day: { choice: "30", confidence: 1.0 },
+      year: { choice: "2026", confidence: 1.0 },
+    })).toBeNull()
+  })
+
+  it("rejects unsure parts and out-of-range years", () => {
+    expect(dateFromAnswers({ ...confident, day: { choice: "13", confidence: 0.2 } })).toBeNull()
+    expect(dateFromAnswers({})).toBeNull()
+    expect(dateFromAnswers({
+      ...confident,
+      year: { choice: String(DATE_MIN_YEAR - 1), confidence: 1.0 },
+    })).toBeNull()
+  })
+
+  it("coerces digit strings, never words or empties", () => {
+    expect(numberFromTranscript("42")).toBe(42)
+    expect(numberFromTranscript(" -3.5 ")).toBe(-3.5)
+    expect(numberFromTranscript("forty-two")).toBeNull()
+    expect(numberFromTranscript("")).toBeNull()
+    expect(numberFromTranscript("   ")).toBeNull()
   })
 })
 

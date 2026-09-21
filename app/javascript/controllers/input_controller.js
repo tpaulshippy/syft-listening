@@ -84,6 +84,9 @@ function noulBool(answer) {
 
 // No word matchers here: understanding belongs to Jev. The no-key path is
 // the Start button refusing; every merger below is Jev-or-unsure.
+// Dates are parsed by Jev into month/day/year choices (composed to ISO
+// below); numbers are Jev-validated then coerced with Number(). Both use
+// platform conversion only — our code inspects no characters.
 
 export function controlFromAnswers(answers) {
   const hit = confidentChoice(answers?.control, CONTROL_INTENTS)
@@ -98,6 +101,52 @@ export function rowIntentFromAnswers(answers) {
   const hit = confidentChoice(answers?.intent, ROW_INTENTS)
   if (hit) return { intent: hit, usedFallback: [] }
   return { intent: null, usedFallback: ["intent"] }
+}
+
+export const MONTHS = ["january", "february", "march", "april", "may", "june",
+  "july", "august", "september", "october", "november", "december"]
+export const DATE_MIN_YEAR = 1930
+export const DATE_YEAR_HEADROOM = 10
+
+export function dateMaxYear(now = null) {
+  const ref = now instanceof Date ? now : new Date()
+  return ref.getFullYear() + DATE_YEAR_HEADROOM
+}
+
+// A confident Jev choice that is canonically an integer in range: "13"
+// yes, "13.0" / "thirteen" no. Number() plus a String() round-trip —
+// platform conversion, no character inspection in our code.
+function confidentInt(answer, min, max) {
+  const conf = Number(answer?.confidence ?? NaN)
+  if (typeof answer?.choice !== "string" || !(conf >= 0.5)) return null
+  const clean = answer.choice.trim()
+  if (!clean) return null
+  const n = Number(clean)
+  if (!Number.isInteger(n) || n < min || n > max || String(n) !== clean) return null
+  return n
+}
+
+// Composes Jev's month/day/year choices into YYYY-MM-DD. Any unsure part,
+// out-of-range number, or non-real calendar date (Feb 30) is null and the
+// caller repeats the question.
+export function dateFromAnswers(answers, suffix = "") {
+  const monthName = confidentChoice(answers?.[`month${suffix}`], MONTHS)
+  const day = confidentInt(answers?.[`day${suffix}`], 1, 31)
+  const year = confidentInt(answers?.[`year${suffix}`], DATE_MIN_YEAR, dateMaxYear())
+  if (monthName === null || day === null || year === null) return null
+  const month = MONTHS.indexOf(monthName) + 1
+  const d = new Date(year, month - 1, day)
+  if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+}
+
+// Coerces a Jev-validated numeric transcript with Number() only: "42" ->
+// 42, "forty-two" -> null (repeat). Guards the empty->0 trap explicitly.
+export function numberFromTranscript(transcript) {
+  const clean = String(transcript ?? "").trim()
+  if (!clean) return null
+  const n = Number(clean)
+  return Number.isFinite(n) ? n : null
 }
 
 // Voice field picker: Jev maps "which question" onto one field id.
@@ -131,8 +180,10 @@ export function validateGroup(group, values) {
   return { ok: true }
 }
 // Merges one prompt's Jev answers onto 1-2 fields. `transcript` is only the
-// verbatim value carrier for open types (used when Jev's validity noul
-// confirms) — it is never parsed or matched. Anything unsure repeats.
+// verbatim value carrier for text/time/email (used when Jev's validity noul
+// confirms) — it is never parsed or matched. Dates ride Jev's month/day/
+// year choices (composed to ISO above); numbers are Jev-validated then
+// coerced with Number(). Anything unsure repeats.
 export function valuesFromAnswers(answers, group, transcript) {
   const values = {}
   const usedFallback = []
@@ -167,6 +218,18 @@ export function valuesFromAnswers(answers, group, transcript) {
         usedFallback.push(`value${suffix}`)
         values[field.id] = null
       }
+    } else if (field.type === "date") {
+      const iso = dateFromAnswers(answers, suffix)
+      if (iso !== null) values[field.id] = iso
+      else {
+        usedFallback.push(`month${suffix}`, `day${suffix}`, `year${suffix}`)
+        values[field.id] = null
+      }
+    } else if (field.type === "number") {
+      const valid = noulBool(answers?.[`valid${suffix}`])
+      const num = valid ? numberFromTranscript(transcript) : null
+      if (num === null) usedFallback.push(`valid${suffix}`)
+      values[field.id] = num
     } else {
       const valid = noulBool(answers?.[`valid${suffix}`])
       if (valid === null) usedFallback.push(`valid${suffix}`)

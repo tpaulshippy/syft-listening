@@ -26,6 +26,11 @@ class InputController < ApplicationController
   CLOSED_TYPES = %w[yes_no choice_single choice_multiple].freeze
   MAX_OPTIONS = 30
   MAX_FIELDS_PER_PROMPT = 2
+  # Jev date parse: month/day/year choices (Jev can't emit free text, but
+  # Choice supports up to 255 options, so years ride as enumerated options).
+  DATE_MONTHS = %w[january february march april may june july august september october november december].freeze
+  DATE_MIN_YEAR = 1930
+  DATE_YEAR_HEADROOM = 10
 
   def resolve
     step = params[:step].to_s.strip.presence || "answer"
@@ -216,6 +221,8 @@ class InputController < ApplicationController
   def answer_questions(field, suffix)
     name = "`field` ##{suffix.empty? ? 1 : 2}"
     case field[:type]
+    when "date"
+      date_questions(field, suffix)
     when "choice_single"
       {
         "value#{suffix}" => {
@@ -248,11 +255,39 @@ class InputController < ApplicationController
     end
   end
 
-  # What Jev checks for each open type. Dates: a real month, a real day, and
-  # a year in a reasonable range — Jev judges all three from the words.
+  # Dates are parsed, not just validated: one choice each for month, day,
+  # and year, composed into YYYY-MM-DD on the frontend. The field name is
+  # interpolated directly (state carries the plural `fields` list, so a
+  # singular `field` backtick would not resolve).
+  def date_questions(field, suffix)
+    label = field[:name]
+    {
+      "month#{suffix}" => {
+        type: "choice",
+        instructions: "Which month does `transcript` name for #{label}?",
+        criteria: DATE_MONTHS.each_with_object({}) { |m, h| h[m] = "`transcript` names #{m.capitalize}" }
+      },
+      "day#{suffix}" => {
+        type: "choice",
+        instructions: "Which day of the month does `transcript` name for #{label} (1-31)?",
+        criteria: (1..31).each_with_object({}) { |d, h| h[d.to_s] = "`transcript` names day #{d}" }
+      },
+      "year#{suffix}" => {
+        type: "choice",
+        instructions: "Which year does `transcript` name for #{label}?",
+        criteria: (DATE_MIN_YEAR..date_max_year).each_with_object({}) { |y, h| h[y.to_s] = "`transcript` names #{y}" }
+      }
+    }
+  end
+
+  def date_max_year
+    Time.current.year + DATE_YEAR_HEADROOM
+  end
+
+  # What Jev checks for the remaining open types (dates ride the month /
+  # day / year choices above instead of a validity noul).
   def validity_check(type)
     case type
-    when "date" then "a real calendar date — a month (January–December), a day (1–31), and a year between 2020 and 2035"
     when "time" then "a real time of day — an hour (0–23) and minutes (0–59)"
     when "number" then "a real number — digits, optionally negative or decimal"
     when "email" then "a real email address — a name, an @ sign, and a domain"

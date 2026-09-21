@@ -4,7 +4,7 @@ import { Controller } from "@hotwired/stimulus"
 // every decision — field type, intents, required flags. No LLM text, no
 // matchers: anything Jev leaves unsure repeats the question (an unsure
 // field type defaults to text and can be retyped by voice when editing).
-// A Jev key is required (Start refuses without one).
+// A Jev key is required (voice commands refuse without one).
 //
 // Schema persists in localStorage under SCHEMA_KEY so the Input and
 // Visualize tabs can read it later:
@@ -180,8 +180,8 @@ export function editMenuChoices(field) {
 // (Retype answers come from the `change_type` Jev step.)
 
 // --- Stimulus controller: voice-only session ---------------------------------
-// One Start button, one Done button. The system speaks each question, listens,
-// and advances automatically from what the user says. No typing anywhere.
+// One mic (the command bar), one Done button. The system speaks each question,
+// listens, and advances automatically from what the user says. No typing anywhere.
 export default class extends Controller {
   static targets = ["question",
     "fieldList", "status", "inspector", "voiceStatus", "apiKey", "stepHint",
@@ -204,8 +204,10 @@ export default class extends Controller {
       })
     }
     this.render()
-    this.setQuestion("Tap 🎙 above, then speak — I'll ask for each field.")
-    this.setStatus("Idle. Tap 🎙 above to begin.")
+    this.setQuestion("Say “create a new field” — I'll ask for each field.")
+    this.setStatus(this.fields.length
+      ? `${this.fields.length} field${this.fields.length === 1 ? "" : "s"}.`
+      : "No fields yet.")
     this.updateButtons()
     // Global voice commands (Jev-routed): create a field or edit one by id.
     // The action and field id are Jev decisions — never parsed here.
@@ -241,7 +243,7 @@ export default class extends Controller {
   }
 
   // --- session ------------------------------------------------------------------
-  // Jev-only: without a key nothing can be decided, so Start refuses.
+  // Jev-only: without a key nothing can be decided, so voice commands refuse.
   start() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) {
@@ -264,14 +266,14 @@ export default class extends Controller {
   done() {
     if (!this.active) return
     if (!this.fields.length) {
-      this.endSession("Session ended — no fields. Tap 🎙 above to begin.")
+      this.endSession("Session ended — no fields.")
       return
     }
     // Fields are all there — one closing question, only about fields whose
     // required status was never decided (new since the last session).
     this.pending = null
     if (!fieldsNeedingRequired(this.fields).length) {
-      this.endSession(`Session ended — ${this.fields.length} field${this.fields.length === 1 ? "" : "s"}, required already set. Tap 🎙 above to add more.`)
+      this.endSession(`Session ended — ${this.fields.length} field${this.fields.length === 1 ? "" : "s"}, required already set.`)
       return
     }
     this.askRequiredFields()
@@ -286,7 +288,7 @@ export default class extends Controller {
     this.render()
     this.setQuestion("Done.")
     this.setChoices("")
-    this.setStatus(status || `Session ended — ${this.fields.length} field${this.fields.length === 1 ? "" : "s"}. Tap 🎙 above to add more.`)
+    this.setStatus(status || `Session ended — ${this.fields.length} field${this.fields.length === 1 ? "" : "s"}.`)
     this.updateButtons()
   }
 
@@ -651,7 +653,7 @@ export default class extends Controller {
       this.selectedId = null
       saveSchema(this.fields)
       this.render()
-      this.speak(`Removed ${field.name}.`, () => this.endSession(`Removed “${field.name}”. Tap 🎙 above to add more.`))
+      this.speak(`Removed ${field.name}.`, () => this.endSession(`Removed “${field.name}”.`))
       return
     }
     if (aspect === "done") {
@@ -790,7 +792,7 @@ export default class extends Controller {
     if (!this.hasFieldListTarget) return
     this.fieldListTarget.innerHTML = this.fields.length
       ? this.fields.map((f, i) => fieldCardHtml(f, i, f.id === this.selectedId)).join("")
-      : `<p style="font-size:12px;color:#a1a1aa;">No fields yet — tap 🎙 above and speak.</p>`
+      : `<p style="font-size:12px;color:#a1a1aa;">No fields yet — say “create a new field”.</p>`
   }
 
   logInspector(line) {

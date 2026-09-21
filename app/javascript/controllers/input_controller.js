@@ -91,7 +91,7 @@ function noulBool(answer) {
 }
 
 // No word matchers here: understanding belongs to Jev. The no-key path is
-// the Start button refusing; every merger below is Jev-or-unsure.
+// voice commands refusing; every merger below is Jev-or-unsure.
 // Dates are parsed by Jev into month/day/year choices (composed to ISO
 // below); numbers are Jev-validated then coerced with Number(). Both use
 // platform conversion only — our code inspects no characters.
@@ -374,7 +374,7 @@ export function rowTableHtml(schema, rows, selectedIndex = null) {
     `<tr data-action="click->input#selectRow" data-index="${i}" style="border-top:1px solid #f4f4f5;cursor:pointer;${i === selectedIndex ? "outline:2px solid #2563eb;outline-offset:-2px;" : ""}"><td style="padding:6px 8px;color:#a1a1aa;">${i + 1}</td>` +
     schema.map((f) => `<td style="padding:6px 8px;">${escapeHtml(Array.isArray(row[f.name]) ? row[f.name].join(", ") : row[f.name] ?? "")}</td>`).join("") + `</tr>`).join("")
   return `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr><th style="padding:6px 8px;">#</th>${head}</tr></thead><tbody>${body}</tbody></table></div>` +
-    `<p style="font-size:11px;color:#a1a1aa;margin-top:4px;">Tap a row, then Start, to change or delete it by voice.</p>`
+    `<p style="font-size:11px;color:#a1a1aa;margin-top:4px;">Tap a row, or say “edit the … row”, to change or delete it by voice.</p>`
 }
 
 // The guided-edit prompt for one field: bare name only — the current
@@ -391,8 +391,8 @@ export function spokenEditPromptFor(field) {
 }
 
 // --- Stimulus controller: voice-only session -----------------------------------
-// One Start button, one Done button. The system speaks each question in schema
-// order, listens, and advances automatically from what the user says.
+// One mic (the command bar), one Done button. The system speaks each question
+// in schema order, listens, and advances automatically from what the user says.
 export default class extends Controller {
   static targets = ["question", "status", "progress",
     "rowsTable", "inspector", "voiceStatus", "apiKey", "stepHint",
@@ -418,8 +418,8 @@ export default class extends Controller {
       })
     }
     this.render()
-    this.setQuestion("Tap 🎙 above, then speak — I'll ask each question in order.")
-    this.setStatus("Idle. Tap 🎙 above to begin.")
+    this.setQuestion("Say “add a new row” — I'll ask each question in order.")
+    this.setStatus(this.rows.length ? `${this.rows.length} row${this.rows.length === 1 ? "" : "s"} saved.` : "No rows yet.")
     this.updateButtons()
     // Global voice commands (Jev-routed): add a row or edit one by index.
     // The action and row index are Jev decisions — never parsed here.

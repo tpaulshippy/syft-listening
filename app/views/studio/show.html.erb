@@ -29,16 +29,15 @@
   <!-- Design: voice interview that builds the field list. Jev classifies only. -->
   <section data-studio-tabs-target="panel" data-panel="design" role="tabpanel">
     <div class="w-full" data-controller="design">
-      <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Tap 🎙 above and speak — everything runs on voice. Say “finished” or tap Done to end.</p>
       <div class="mt-3 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900">
-        <h2 class="text-base font-semibold" data-design-target="question">Tap 🎙 above, then speak.</h2>
+        <h2 class="text-base font-semibold" data-design-target="question">Say “create a new field” to begin.</h2>
         <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-design-target="stepHint"></p>
         <p class="mt-1 text-sm font-medium text-zinc-700 dark:text-zinc-200" data-design-target="choices"></p>
         <div class="mt-3 flex gap-2">
           <button data-design-target="doneButton" data-action="click->design#done"
                   class="flex-1 rounded-xl border border-zinc-300 px-4 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">Done</button>
         </div>
-        <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400" data-design-target="voiceStatus">Idle.</p>
+        <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400" data-design-target="voiceStatus"></p>
         <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-design-target="status" aria-live="polite"></p>
       </div>
 
@@ -69,17 +68,17 @@
   <section data-studio-tabs-target="panel" data-panel="input" role="tabpanel">
     <div class="w-full" data-controller="input">
       <div class="mt-1 flex items-baseline justify-between">
-        <p class="text-sm text-zinc-600 dark:text-zinc-300">Tap 🎙 above and speak — each answer is heard and saved automatically.</p>
+        <p class="text-sm text-zinc-600 dark:text-zinc-300">Answer by voice — “skip” skips a question, “done” saves the row.</p>
         <p class="text-xs text-zinc-500 dark:text-zinc-400" data-input-target="progress"></p>
       </div>
       <div class="mt-3 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900">
-        <h2 class="text-base font-semibold" data-input-target="question">Tap 🎙 above, then speak.</h2>
+        <h2 class="text-base font-semibold" data-input-target="question">Say “add a new row” to begin.</h2>
         <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-input-target="stepHint"></p>
         <div class="mt-3 flex gap-2">
           <button data-input-target="doneButton" data-action="click->input#done"
                   class="flex-1 rounded-xl border border-zinc-300 px-4 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">Done</button>
         </div>
-        <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400" data-input-target="voiceStatus">Idle.</p>
+        <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400" data-input-target="voiceStatus"></p>
         <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-input-target="status" aria-live="polite"></p>
       </div>
 
@@ -130,7 +129,7 @@
   <div class="mt-2 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900">
     <div class="flex items-end gap-2">
       <textarea data-studio-target="prompt" rows="2" spellcheck="false"
-             placeholder='"Bar chart of revenue by genre" — or tap 🎙 above and say it'
+             placeholder='"Bar chart of revenue by genre" — or say it out loud'
              data-action="keydown->studio#promptKeydown input->studio#promptInput"
              class="max-h-64 min-w-0 flex-1 resize-y overflow-y-auto rounded-xl border border-zinc-200 bg-transparent px-3 py-2 text-base focus:outline-none dark:border-zinc-800"></textarea>
       <button data-studio-target="askButton" data-action="click->studio#ask"

@@ -131,6 +131,34 @@ export function escapeHtml(s) {
     .split(">").join("&gt;").split('"').join("&quot;").split("'").join("&#39;")
 }
 
+// Manual editor for the selected (editing) field: a data-type <select> so
+// the type can be changed without voice. Cards stay tappable; this panel
+// only renders for the selected field (see render()).
+export function fieldEditorHtml(field) {
+  if (!field) return ""
+  const opts = FIELD_TYPES.map((t) =>
+    `<option value="${escapeHtml(t)}"${t === field.type ? " selected" : ""}>${escapeHtml(t)}</option>`
+  ).join("")
+  return `<div data-editor-for="${escapeHtml(field.id)}" style="border:1px solid #e4e4e7;border-radius:12px;padding:10px;margin-top:8px;">` +
+    `<label style="display:block;font-size:11px;color:#71717a;">Data type for “${escapeHtml(field.name)}”</label>` +
+    `<select data-action="change->design#changeType" data-id="${escapeHtml(field.id)}" style="margin-top:4px;width:100%;font-size:13px;border:1px solid #e4e4e7;border-radius:8px;padding:6px;">${opts}</select></div>`
+}
+
+// Applies a manual data-type change. Returns { ok, changed }. Switching
+// away from a choice type drops its options (they no longer apply);
+// switching to a choice type keeps (or inits) the option list.
+export function changeFieldType(field, newType) {
+  if (!field || !FIELD_TYPES.includes(newType)) return { ok: false, changed: false }
+  if (field.type === newType) return { ok: true, changed: false }
+  field.type = newType
+  if (CHOICE_TYPES.includes(newType)) {
+    if (!Array.isArray(field.options)) field.options = []
+  } else {
+    field.options = []
+  }
+  return { ok: true, changed: true }
+}
+
 export function fieldCardHtml(field, index, selected = false) {
   const opts = CHOICE_TYPES.includes(field.type) && field.options?.length
     ? `<div style="font-size:11px;color:#52525b;margin-top:4px;">options: ${field.options.map(escapeHtml).join(" · ")}</div>`
@@ -778,11 +806,33 @@ export default class extends Controller {
     this.render()
   }
 
+  // Manual data-type change from the editor <select>. Works with or
+  // without an active voice session — voice never blocks a tap.
+  changeType(event) {
+    const el = event?.currentTarget
+    const id = el?.dataset?.id
+    const field = (this.fields || []).find((f) => f.id === id)
+    if (!field) return
+    const applied = changeFieldType(field, el.value)
+    if (!applied.ok) {
+      this.setStatus("Unknown data type — pick one from the list.")
+      this.render()
+      return
+    }
+    if (!applied.changed) return
+    saveSchema(this.fields)
+    this.render()
+    this.logInspector(`retyped ${field.name} -> ${field.type} (manual)`)
+    this.setStatus(`“${field.name}” is now ${field.type}.`)
+  }
+
   render() {
     if (!this.hasFieldListTarget) return
-    this.fieldListTarget.innerHTML = this.fields.length
+    const cards = this.fields.length
       ? this.fields.map((f, i) => fieldCardHtml(f, i, f.id === this.selectedId)).join("")
       : `<p style="font-size:12px;color:#a1a1aa;">No fields yet — tap Start and speak.</p>`
+    const selected = this.selectedField()
+    this.fieldListTarget.innerHTML = cards + (selected ? fieldEditorHtml(selected) : "")
   }
 
   logInspector(line) {

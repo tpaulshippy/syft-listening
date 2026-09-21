@@ -400,12 +400,32 @@ export function spokenEditPromptFor(field) {
   return `${field.name}?`
 }
 
+// Resolves once the speech engine has a voice loaded (phones often start
+// with none) — with a short cap so a missing engine never stalls the flow.
+function speechReady(synth) {
+  return new Promise((resolve) => {
+    try {
+      if (synth.getVoices && synth.getVoices().length) { resolve(); return }
+    } catch { resolve(); return }
+    let done = false
+    const finish = () => { if (!done) { done = true; resolve() } }
+    try { synth.addEventListener("voiceschanged", finish, { once: true }) } catch { /* ignore */ }
+    setTimeout(finish, 700)
+  })
+}
+
 // --- Stimulus controller: voice-only session -----------------------------------
 // One mic (the command bar), one Done button. The system speaks each question
 // in schema order, listens, and advances automatically from what the user says.
 export default class extends Controller {
-  static targets = ["question", "status", "progress",
-    "rowsTable", "voiceStatus", "stepHint"]
+  static targets = ["status", "progress",
+    "rowsTable", "stepHint"]
+
+  // Mic state (prompt, listening, heard) lives in the frozen bar — publish
+  // it on the voice bus instead of showing it in this card.
+  voice(detail) {
+    try { window.dispatchEvent(new CustomEvent("syft:voice", { detail })) } catch { /* non-browser */ }
+  }
 
   connect() {
     this.schema = loadSchema()
@@ -448,7 +468,6 @@ export default class extends Controller {
     this.handleSessionStop = () => {
       if (!this.active) return
       this.stopSession()
-      this.setStatus("Stopped.")
     }
     window.addEventListener("syft:session-stop", this.handleSessionStop)
   }
@@ -475,11 +494,11 @@ export default class extends Controller {
   start() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) {
-      this.setStatus("Voice not supported here — try Chrome or Edge.")
+      this.voice({ message: "Voice not supported here — try Chrome or Edge." })
       return
     }
     if (!localStorage.getItem("syft_jev_key")) {
-      this.setStatus("Add your Jev key first — every answer here is mapped by Jev.")
+      this.voice({ message: "Add your Jev key below first — every answer here is mapped by Jev." })
       return
     }
     if (this.active) return
@@ -540,10 +559,11 @@ export default class extends Controller {
 
   speak(text, onDone = null) {
     try {
-      if (!window.speechSynthesis || !text) { onDone?.(); return }
-      if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = "Speaking…"
-      window.speechSynthesis.cancel()
-      try { window.speechSynthesis.resume?.() } catch { /* ignore */ }
+      const synth = window.speechSynthesis
+      if (!synth || !text) { onDone?.(); return }
+      this.voice({ mode: "speaking" })
+      synth.cancel()
+      try { synth.resume?.() } catch { /* ignore */ }
       const u = new SpeechSynthesisUtterance(text)
       u.lang = "en-US"
       let finished = false
@@ -551,7 +571,15 @@ export default class extends Controller {
       const finish = () => { if (!finished) { finished = true; if (timer) clearTimeout(timer); onDone?.() } }
       u.onend = finish
       u.onerror = finish
-      window.speechSynthesis.speak(u)
+      // Two classic mobile drops: speaking synchronously after cancel() is
+      // silently swallowed, and a cold engine has no voice loaded yet.
+      // Wait for voices (briefly), then speak past the cancel window.
+      speechReady(synth).then(() => {
+        setTimeout(() => {
+          if (finished || !this.active || !this.awaiting) return
+          try { synth.speak(u) } catch { finish() }
+        }, 60)
+      })
       // Safety net: if TTS events never fire, advance after estimated speech
       // time instead of a fixed wait (short prompts recover fast, long ones
       // still get room to finish). No regex: split on plain spaces.
@@ -561,16 +589,16 @@ export default class extends Controller {
     } catch { onDone?.() }
   }
 
-  // Speech asks the bare prompt; the question line shows the full prompt
-  // with options, which are never read aloud.
+  // Speech asks the bare prompt; the frozen bar shows the full prompt with
+  // options, which are never read aloud.
   sayThenListen(text, display = null) {
-    if (this.hasQuestionTarget) this.questionTarget.textContent = display ?? text
+    this.voice({ prompt: display ?? text })
     this.awaiting = true
     this.speak(text, () => { if (this.active && this.awaiting) this.listen() })
   }
 
   setQuestion(text) {
-    if (this.hasQuestionTarget) this.questionTarget.textContent = text
+    this.voice({ prompt: text })
   }
 
   setStatus(text) {
@@ -580,7 +608,7 @@ export default class extends Controller {
   listen() {
     if (!this.active || !this.awaiting) return
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) { this.setStatus("Voice not supported here — try Chrome or Edge."); return }
+    if (!SR) { this.voice({ message: "Voice not supported here — try Chrome or Edge." }); return }
     try { this.recognition?.abort?.() } catch { /* ignore */ }
     this.recognition = new SR()
     this.recognition.continuous = false
@@ -593,16 +621,13 @@ export default class extends Controller {
         if (event.results[i].isFinal) finalText += event.results[i][0].transcript + " "
         else interim += event.results[i][0].transcript
       }
-      if (this.hasVoiceStatusTarget) {
-        this.voiceStatusTarget.textContent = (finalText + interim).trim()
-          ? `Heard: “${(finalText + interim).trim()}”` : "Listening…"
-      }
+      this.voice({ mode: "listening", heard: (finalText + interim).trim() })
     }
     this.recognition.onerror = (event) => {
       if (!this.active) return
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         this.awaiting = false
-        this.setStatus("Mic blocked — allow microphone access, then try your voice command again.")
+        this.voice({ message: "Mic blocked — allow microphone access, then tap 🎙." })
         this.stopSession()
         this.updateButtons()
       }
@@ -619,7 +644,7 @@ export default class extends Controller {
     }
     try {
       this.recognition.start()
-      if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = "Listening…"
+      this.voice({ mode: "listening", heard: "" })
     } catch {
       setTimeout(() => { if (this.active && this.awaiting) this.listen() }, 300)
     }
@@ -683,7 +708,7 @@ export default class extends Controller {
     if (this.mode === "edit") return this.submitEditAnswer(text)
     if (!this.schema.length) { this.setStatus("Design fields first."); return }
     if (!this.group.length) { this.setStatus("Nothing to answer."); return }
-    this.setStatus("Checking with Jev…")
+    this.voice({ mode: "thinking" })
     const key = localStorage.getItem("syft_jev_key") || ""
     let answers = {}
     if (key) {
@@ -847,7 +872,7 @@ export default class extends Controller {
     if (!this.active) return
     const row = this.rows[this.selectedIndex]
     if (!row) return this.endEdit("Row is gone.")
-    this.setStatus("Checking with Jev…")
+    this.voice({ mode: "thinking" })
     const key = localStorage.getItem("syft_jev_key") || ""
     let merged = { fieldId: null, usedFallback: ["field", "no-key"] }
     if (key) {
@@ -897,7 +922,7 @@ export default class extends Controller {
     const row = this.rows[this.selectedIndex]
     if (!row) return this.endEdit("Row is gone.")
     const field = this.schema[this.editIdx]
-    this.setStatus("Checking with Jev…")
+    this.voice({ mode: "thinking" })
     const { answers } = await this.jevAnswer(text, [field])
     const { control: rawControl, usedFallback: cfb } = controlFromAnswers(answers)
     const { values, usedFallback: vfb } = valuesFromAnswers(answers, [field], text)

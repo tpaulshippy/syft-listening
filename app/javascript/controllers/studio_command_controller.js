@@ -80,8 +80,17 @@ function readRowCount() {
   }
 }
 
+export const VOICE_MODES = ["idle", "listening", "speaking", "thinking", "off"]
+export const VOICE_MODE_LABELS = {
+  idle: "Tap 🎙 once — it stays on until you tap again.",
+  listening: "Listening… (tap 🎙 to stop)",
+  speaking: "Speaking…",
+  thinking: "Checking with Jev…",
+  off: "Stopped. Tap 🎙 to start.",
+}
+
 export default class extends Controller {
-  static targets = ["micButton", "status"]
+  static targets = ["micButton", "status", "prompt"]
 
   connect() {
     this.recognition = null
@@ -91,6 +100,13 @@ export default class extends Controller {
     // mic (two recognitions can't run at once) — resuming when it ends.
     this.loop = false
     this.tabSessionActive = false
+    // The frozen bar renders one voice bus: the current prompt above the
+    // mic, and listening/heard in exactly one status line. Tabs publish
+    // here via syft:voice instead of showing mic state locally.
+    this.voicePrompt = null
+    this.voiceMode = "idle"
+    this.voiceHeard = ""
+    this.voiceMessage = null
     this.handleSessionActive = (event) => {
       const on = !!event?.detail?.active
       this.tabSessionActive = on
@@ -100,12 +116,21 @@ export default class extends Controller {
         this.listening = false
         return
       }
-      if (this.loop && !this.listening) this.resumeLoop("Listening… (tap 🎙 to stop)")
+      if (this.loop && !this.listening) this.resumeLoop()
+    }
+    this.handleVoiceBus = (event) => {
+      const detail = event?.detail || {}
+      if ("prompt" in detail) { this.voicePrompt = detail.prompt; this.voiceMessage = null }
+      if ("mode" in detail && VOICE_MODES.includes(detail.mode)) { this.voiceMode = detail.mode; this.voiceMessage = null }
+      if ("heard" in detail) { this.voiceHeard = detail.heard || ""; this.voiceMessage = null }
+      if ("message" in detail) this.voiceMessage = detail.message
+      this.renderVoice()
     }
     window.addEventListener("syft:session-active", this.handleSessionActive)
+    window.addEventListener("syft:voice", this.handleVoiceBus)
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR && this.hasStatusTarget) {
-      this.statusTarget.textContent = "Voice commands need Chrome or Edge — tabs still work by tap."
+      this.statusTarget.textContent = "Voice commands need Chrome or Edge — sections still work by tap."
     }
   }
 
@@ -113,6 +138,7 @@ export default class extends Controller {
     this.loop = false
     try { this.recognition?.stop() } catch { /* ignore */ }
     try { window.removeEventListener("syft:session-active", this.handleSessionActive) } catch { /* ignore */ }
+    try { window.removeEventListener("syft:voice", this.handleVoiceBus) } catch { /* ignore */ }
   }
 
   // The page is one scrolling column — "going to" a section means
@@ -133,8 +159,19 @@ export default class extends Controller {
     try { window.dispatchEvent(new CustomEvent(name, { detail })) } catch { /* non-browser */ }
   }
 
-  setStatus(text) {
-    if (this.hasStatusTarget) this.statusTarget.textContent = text
+  renderVoice() {
+    if (this.hasPromptTarget && this.voicePrompt !== null) this.promptTarget.textContent = this.voicePrompt
+    if (!this.hasStatusTarget) return
+    if (this.voiceMessage !== null) { this.statusTarget.textContent = this.voiceMessage; return }
+    if (this.voiceHeard) { this.statusTarget.textContent = `Heard: “${this.voiceHeard}”`; return }
+    this.statusTarget.textContent = VOICE_MODE_LABELS[this.voiceMode] || VOICE_MODE_LABELS.idle
+  }
+
+  // One-shot bar message (errors, routing notes). The next prompt, mode,
+  // or heard update clears it.
+  say(text) {
+    this.voiceMessage = text
+    this.renderVoice()
   }
 
   toggleVoice() {
@@ -147,12 +184,12 @@ export default class extends Controller {
     }
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) {
-      this.setStatus("Voice not supported here — tap a tab instead.")
+      this.say("Voice not supported here — use touch instead.")
       return
     }
     const key = localStorage.getItem("syft_jev_key") || ""
     if (!key) {
-      this.setStatus("Add your Jev key first — every command is routed by Jev.")
+      this.say("Add your Jev key first — every command is routed by Jev.")
       return
     }
     // Warm up speech output inside the tap gesture — mobile browsers gate
@@ -171,12 +208,18 @@ export default class extends Controller {
     try { this.recognition?.stop() } catch { /* ignore */ }
     this.listening = false
     if (this.hasMicButtonTarget) this.micButtonTarget.style.background = ""
-    this.setStatus("Stopped. Tap 🎙 to start.")
+    this.voiceMode = "off"
+    this.voiceHeard = ""
+    this.voiceMessage = null
+    this.renderVoice()
   }
 
-  resumeLoop(status) {
+  resumeLoop() {
     if (!this.loop || this.listening || this.tabSessionActive) return
-    if (status) this.setStatus(status)
+    this.voiceMode = "listening"
+    this.voiceHeard = ""
+    this.voiceMessage = null
+    this.renderVoice()
     setTimeout(() => this.startCycle(), 350)
   }
 
@@ -185,13 +228,13 @@ export default class extends Controller {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) {
       this.stopLoop()
-      this.setStatus("Voice not supported here — tap a tab instead.")
+      this.say("Voice not supported here — use touch instead.")
       return
     }
     const key = localStorage.getItem("syft_jev_key") || ""
     if (!key) {
       this.stopLoop()
-      this.setStatus("Add your Jev key first — every command is routed by Jev.")
+      this.say("Add your Jev key first — every command is routed by Jev.")
       return
     }
     this.recognition = new SR()
@@ -205,14 +248,16 @@ export default class extends Controller {
         if (event.results[i].isFinal) finalText += event.results[i][0].transcript + " "
         else interim += event.results[i][0].transcript
       }
-      const heard = (finalText + interim).trim()
-      this.setStatus(heard ? `Heard: “${heard}”` : "Listening… (tap 🎙 to stop)")
+      this.voiceHeard = (finalText + interim).trim()
+      this.voiceMode = "listening"
+      this.voiceMessage = null
+      this.renderVoice()
     }
     this.recognition.onerror = (event) => {
       // A blocked mic never recovers by retrying — stop the loop instead.
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         this.stopLoop()
-        this.setStatus("Mic blocked — allow microphone access, then tap 🎙.")
+        this.say("Mic blocked — allow microphone access, then tap 🎙.")
       }
       // Other errors fall through to onend, which restarts the loop.
     }
@@ -222,7 +267,6 @@ export default class extends Controller {
       const heard = finalText.trim()
       const run = async () => {
         if (heard) await this.handleCommand(heard)
-        else this.setStatus("Didn't catch that — listening…")
         // A routed tab session pauses the loop (see syft:session-active);
         // otherwise keep the conversation going with no new tap.
         this.resumeLoop()
@@ -232,7 +276,10 @@ export default class extends Controller {
     try {
       this.recognition.start()
       this.listening = true
-      this.setStatus("Listening… (tap 🎙 to stop)")
+      this.voiceMode = "listening"
+      this.voiceHeard = ""
+      this.voiceMessage = null
+      this.renderVoice()
     } catch {
       this.listening = false
       this.resumeLoop()
@@ -242,13 +289,16 @@ export default class extends Controller {
   async handleCommand(transcript) {
     const key = localStorage.getItem("syft_jev_key") || ""
     if (!key) {
-      this.setStatus("Add your Jev key first — every command is routed by Jev.")
+      this.say("Add your Jev key first — every command is routed by Jev.")
       return
     }
     const schema = readSchema()
     const rowCount = readRowCount()
     const columns = schema.map((f) => f.name)
-    this.setStatus(`Heard: “${transcript}” — asking Jev where it goes…`)
+    this.voiceHeard = transcript
+    this.voiceMode = "thinking"
+    this.voiceMessage = null
+    this.renderVoice()
     let answers = null
     try {
       const res = await fetch("/jev_command", {
@@ -266,21 +316,21 @@ export default class extends Controller {
       const data = await res.json().catch(() => ({}))
       if (res.status === 401) {
         localStorage.removeItem("syft_jev_key_ok")
-        this.setStatus("Key rejected — check it and try again.")
+        this.say("Key rejected — check it and try again.")
         return
       }
       if (!res.ok || !data.answers) {
-        this.setStatus(`Jev error (HTTP ${res.status}) — try again or tap a tab.`)
+        this.say(`Jev error (HTTP ${res.status}) — try again or scroll to a section.`)
         return
       }
       answers = data.answers
     } catch {
-      this.setStatus("Could not reach Jev — try again or tap a tab.")
+      this.say("Could not reach Jev — try again or scroll to a section.")
       return
     }
     const merged = commandFromAnswers(answers, schema.map((f) => f.id), rowCount)
     if (!merged.destination) {
-      this.setStatus("Jev wasn't sure where that goes — rephrase and try again.")
+      this.say("Jev wasn't sure where that goes — rephrase and try again.")
       return
     }
     this.routeCommand(transcript, merged)
@@ -291,29 +341,29 @@ export default class extends Controller {
     this.showTab(destination)
     if (destination === "design") {
       if (newField) {
-        this.setStatus(`Heard: “${transcript}” — Design: new field.`)
+        this.say(`Heard: “${transcript}” — Design: new field.`)
         this.dispatch("syft:design-command", { action: "create" })
       } else if (fieldId) {
-        this.setStatus(`Heard: “${transcript}” — Design: editing that field.`)
+        this.say(`Heard: “${transcript}” — Design: editing that field.`)
         this.dispatch("syft:design-command", { action: "edit", fieldId })
       } else {
-        this.setStatus(`Heard: “${transcript}” — on Design. Say what to add or change.`)
+        this.say(`Heard: “${transcript}” — on Design. Say what to add or change.`)
       }
       return
     }
     if (destination === "input") {
       if (newRow) {
-        this.setStatus(`Heard: “${transcript}” — Input: new row.`)
+        this.say(`Heard: “${transcript}” — Input: new row.`)
         this.dispatch("syft:input-command", { action: "add" })
       } else if (rowIndex !== null && rowIndex !== undefined) {
-        this.setStatus(`Heard: “${transcript}” — Input: editing row ${rowIndex + 1}.`)
+        this.say(`Heard: “${transcript}” — Input: editing row ${rowIndex + 1}.`)
         this.dispatch("syft:input-command", { action: "edit", rowIndex })
       } else {
-        this.setStatus(`Heard: “${transcript}” — on Input. Say what to add or change.`)
+        this.say(`Heard: “${transcript}” — on Input. Say what to add or change.`)
       }
       return
     }
-    this.setStatus(`Heard: “${transcript}” — Visualize: building…`)
+    this.say(`Heard: “${transcript}” — Visualize: building…`)
     this.dispatch("syft:visualize-command", { prompt: transcript })
   }
 }

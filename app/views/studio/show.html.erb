@@ -4,20 +4,17 @@
   <script src="<%= asset_path("chart.umd.js") %>" defer></script>
 <% end %>
 <div class="w-full">
-  <div class="flex items-baseline justify-between">
-    <h1 class="text-xl font-bold tracking-tight">Data studio</h1>
-    <span class="text-xs text-zinc-500 dark:text-zinc-400">design → input → visualize · voice + Jev, no LLM</span>
-  </div>
-
-  <div class="mt-2 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900" data-controller="studio-command">
-    <div class="flex items-center gap-2">
+  <!-- Frozen voice bar: the only mic, the current prompt above it, and the
+       single listening/heard status. Tabs publish here, never locally. -->
+  <div class="sticky top-0 z-30 mt-2 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900" data-controller="studio-command">
+    <p class="text-base font-semibold" data-studio-command-target="prompt">Say what to do — “create a new field”, “add a new row”, “visualize …”.</p>
+    <div class="mt-1 flex items-center gap-2">
       <button data-studio-command-target="micButton" data-action="click->studio-command#toggleVoice" aria-label="Voice command for every tab"
               class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-white transition-transform hover:scale-105 active:scale-95 dark:bg-zinc-50 dark:text-zinc-950">
         <span aria-hidden="true">🎙</span>
       </button>
-      <p class="text-sm text-zinc-600 dark:text-zinc-300">Command by voice — Jev routes it (“create a new field”, “edit the third row”, “visualize totals by day”).</p>
+      <p class="text-xs text-zinc-500 dark:text-zinc-400" data-studio-command-target="status" aria-live="polite">Tap 🎙 once — it stays on until you tap again.</p>
     </div>
-    <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-studio-command-target="status" aria-live="polite">Tap 🎙 once — it stays on until you tap again.</p>
   </div>
 
   <!-- The studio's only key input — every tab reads it from this browser.
@@ -42,10 +39,8 @@
     <h2 class="mt-4 text-sm font-bold tracking-tight">Design</h2>
     <div class="w-full" data-controller="design">
       <div class="mt-3 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900">
-        <h2 class="text-base font-semibold" data-design-target="question">Say “create a new field” to begin.</h2>
         <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-design-target="stepHint"></p>
         <p class="mt-1 text-sm font-medium text-zinc-700 dark:text-zinc-200" data-design-target="choices"></p>
-        <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400" data-design-target="voiceStatus"></p>
         <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-design-target="status" aria-live="polite"></p>
       </div>
 
@@ -69,9 +64,7 @@
         <p class="text-xs text-zinc-500 dark:text-zinc-400" data-input-target="progress"></p>
       </div>
       <div class="mt-3 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900">
-        <h2 class="text-base font-semibold" data-input-target="question">Say “add a new row” to begin.</h2>
         <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-input-target="stepHint"></p>
-        <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400" data-input-target="voiceStatus"></p>
         <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-input-target="status" aria-live="polite"></p>
       </div>
 

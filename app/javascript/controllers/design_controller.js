@@ -105,6 +105,14 @@ export function sessionIntentFromAnswers(answers, transcript) {
   return { intent: "next_field", usedFallback: ["intent"] }
 }
 
+// Fields the end-of-session required question hasn't covered yet. A field
+// counts as decided once it was included in a required answer or its
+// required flag was flipped by hand. Persists on the field objects, so a
+// later session only asks about genuinely new fields.
+export function fieldsNeedingRequired(fields) {
+  return (fields || []).filter((f) => !f.requiredDecided)
+}
+
 // Merges the end-of-session "which fields are required?" answers: one noul
 // per field, falling back to name mentions ("email and birthday"), "all",
 // or "none" when Jev is unsure or there is no key.
@@ -246,8 +254,13 @@ export default class extends Controller {
       this.endSession("Session ended — no fields. Tap Start to begin.")
       return
     }
-    // Fields are all there — one closing question instead of per-field nags.
+    // Fields are all there — one closing question, only about fields whose
+    // required status was never decided (new since the last session).
     this.pending = null
+    if (!fieldsNeedingRequired(this.fields).length) {
+      this.endSession(`Session ended — ${this.fields.length} field${this.fields.length === 1 ? "" : "s"}, required already set. Tap Start to add more.`)
+      return
+    }
     this.askRequiredFields()
   }
 
@@ -301,8 +314,10 @@ export default class extends Controller {
 
   askRequiredFields() {
     if (!this.active) return
+    const unasked = fieldsNeedingRequired(this.fields)
+    if (!unasked.length) { this.endSession(); return }
     this.phase = "required_fields"
-    const names = this.fields.map((f) => f.name).join(", ")
+    const names = unasked.map((f) => f.name).join(", ")
     this.setHint("Name the required ones, say “all”, or say “none”.")
     this.sayThenListen(`Which fields are required? ${names}.`)
   }
@@ -408,7 +423,7 @@ export default class extends Controller {
       this.sayThenListen(`Field cap reached. Say “finished” to end, or remove a field first.`)
       return
     }
-    this.pending = { id: `f${Date.now().toString(36)}`, name: clean, type: "text", required: false, options: [] }
+    this.pending = { id: `f${Date.now().toString(36)}`, name: clean, type: "text", required: false, requiredDecided: false, options: [] }
     this.setStatus("Classifying type with Jev…")
     const { type, usedFallback } = await this.classifyType(clean)
     if (!this.active) return
@@ -481,7 +496,7 @@ export default class extends Controller {
         this.sayThenListen(`I need at least one option for “${this.pending.name}”. Tell me the first option.`)
         return
       }
-      this.askRequiredFields()
+      this.commitField()
     } else if (intent === "remove_last") {
       this.pending.options.pop()
       this.setStatus("Removed the last option.")
@@ -495,6 +510,8 @@ export default class extends Controller {
   }
 
   async submitRequiredFields(text) {
+    const unasked = fieldsNeedingRequired(this.fields)
+    if (!unasked.length) { this.endSession(); return }
     const key = localStorage.getItem("syft_jev_key") || ""
     let merged = { requiredIds: [], usedFallback: ["required_fields", "no-key"] }
     if (key) {
@@ -504,29 +521,32 @@ export default class extends Controller {
           headers: { "Content-Type": "application/json", "X-CSRF-Token": document.querySelector('meta[name="csrf-token"]')?.content },
           body: JSON.stringify({
             step: "required_fields", transcript: text,
-            fields: this.fields.map((f) => ({ id: f.id, name: f.name })),
+            fields: unasked.map((f) => ({ id: f.id, name: f.name })),
             api_key: key,
           }),
         })
         const data = await res.json().catch(() => ({}))
         if (res.ok && data.answers) {
-          merged = requiredFieldsFromAnswers(data.answers, this.fields, text)
+          merged = requiredFieldsFromAnswers(data.answers, unasked, text)
         } else {
-          merged = requiredFieldsFromAnswers({}, this.fields, text)
+          merged = requiredFieldsFromAnswers({}, unasked, text)
         }
       } catch {
-        merged = requiredFieldsFromAnswers({}, this.fields, text)
+        merged = requiredFieldsFromAnswers({}, unasked, text)
       }
     } else {
-      merged = requiredFieldsFromAnswers({}, this.fields, text)
+      merged = requiredFieldsFromAnswers({}, unasked, text)
     }
     const wanted = new Set(merged.requiredIds)
-    for (const f of this.fields) f.required = wanted.has(f.id)
+    for (const f of unasked) {
+      f.required = wanted.has(f.id)
+      f.requiredDecided = true
+    }
     saveSchema(this.fields)
     this.render()
-    this.logInspector(`required = ${[...wanted].join(", ") || "none"}${merged.usedFallback.length ? " · fallback" : ""}`)
+    this.logInspector(`required = ${unasked.filter((f) => f.required).map((f) => f.name).join(", ") || "none"}${merged.usedFallback.length ? " · fallback" : ""}`)
     if (!this.active) return
-    const names = this.fields.filter((f) => f.required).map((f) => f.name)
+    const names = unasked.filter((f) => f.required).map((f) => f.name)
     this.speak(names.length ? `Marked ${names.join(", ")} as required.` : "Nothing marked required.", () => {
       this.endSession()
     })
@@ -553,6 +573,8 @@ export default class extends Controller {
     field.type = card.querySelector("[data-editor-type]")?.value || field.type
     if (!FIELD_TYPES.includes(field.type)) field.type = "text"
     field.required = card.querySelector("[data-editor-required]")?.checked || false
+    // Flipping required by hand counts as decided; renames/retypes don't.
+    if (event.currentTarget.hasAttribute("data-editor-required")) field.requiredDecided = true
     saveSchema(this.fields)
     this.render()
   }

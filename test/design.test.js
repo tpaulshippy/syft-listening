@@ -7,6 +7,7 @@ import {
   requiredFromAnswers,
   requiredFieldsFromAnswers,
   sessionIntentFromAnswers,
+  fieldsNeedingRequired,
   fieldCardHtml,
   addOption,
   validateFieldName,
@@ -80,6 +81,15 @@ describe("end-of-session required", () => {
     expect(requiredFieldsFromAnswers({}, fields, "email and birthday").requiredIds).toEqual(["f1", "f2"])
     expect(requiredFieldsFromAnswers({}, fields, "all of them").requiredIds).toEqual(["f1", "f2"])
     expect(requiredFieldsFromAnswers({}, fields, "none").requiredIds).toEqual([])
+  })
+
+  it("only asks about fields never decided", () => {
+    const all = [
+      { id: "f1", name: "Email", requiredDecided: true },
+      { id: "f2", name: "Birthday" },
+    ]
+    expect(fieldsNeedingRequired(all).map((f) => f.id)).toEqual(["f2"])
+    expect(fieldsNeedingRequired([])).toEqual([])
   })
 })
 

@@ -126,7 +126,7 @@ class DesignController < ApplicationController
       questions: fields[:fields].each_with_object({}) do |field, qs|
         qs["required_#{field[:id]}"] = {
           type: "noul",
-          instructions: "Does the speaker name #{field[:name]} in `transcript` as a required field?"
+          instructions: "Is #{field[:name]} required according to `transcript`? Answer yes if `transcript` names #{field[:name]} as required, or says all / every field / everything is required. Answer no if `transcript` says none / nothing is required, says #{field[:name]} is optional, or does not include #{field[:name]} as required."
         }
       end
     }

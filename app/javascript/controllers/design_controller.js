@@ -311,7 +311,7 @@ export default class extends Controller {
     if (!unasked.length) { this.endSession(); return }
     this.phase = "required_fields"
     this.setHint("Name the required ones, say “all”, or say “none”.")
-    this.sayThenListen(`Which fields are required?`)
+    this.sayThenListen(`Which fields are required? Name them, or say all or none.`)
   }
 
   sayThenListen(text) {
@@ -572,7 +572,7 @@ export default class extends Controller {
     }
     if (merged.usedFallback.length) {
       this.logInspector("required unsure — repeating")
-      this.sayThenListen(`Sorry — which fields are required?`)
+      this.sayThenListen(`Sorry — which fields are required? Name them, or say all or none.`)
       return
     }
     const wanted = new Set(merged.requiredIds)

@@ -11,6 +11,7 @@ import {
   fieldCardHtml,
   parseEditMenu,
   parseFieldType,
+  editMenuPrompt,
   addOption,
   validateFieldName,
   loadSchema,
@@ -135,13 +136,20 @@ describe("field card", () => {
 
 describe("voice edit menu", () => {
   it("routes aspects, removal, and finish", () => {
+    expect(parseEditMenu("name")).toBe("name")
     expect(parseEditMenu("rename it")).toBe("name")
+    expect(parseEditMenu("change the name")).toBe("name")
     expect(parseEditMenu("change the type")).toBe("type")
     expect(parseEditMenu("add an option")).toBe("options")
     expect(parseEditMenu("make it required")).toBe("required")
     expect(parseEditMenu("remove it")).toBe("remove")
     expect(parseEditMenu("done")).toBe("done")
     expect(parseEditMenu("scifi")).toBeNull()
+  })
+
+  it("only offers options for choice fields", () => {
+    expect(editMenuPrompt({ name: "Genre", type: "choice_single" })).toContain("options")
+    expect(editMenuPrompt({ name: "Age", type: "number" })).not.toContain("options")
   })
 
   it("hears field types with synonyms", () => {

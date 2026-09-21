@@ -171,11 +171,20 @@ export function parseEditMenu(text) {
   const p = String(text || "").toLowerCase().trim()
   if (/^(remove|delete|drop)( it| that| this)?$/.test(p)) return "remove"
   if (/^(done|finished|that'?s all|no|nope|stop)$/.test(p)) return "done"
-  if (/(re?name|call it|title)/.test(p)) return "name"
+  if (/rename|\bname\b|call it|title/.test(p)) return "name"
   if (/(option|choice)/.test(p)) return "options"
   if (/(required|optional|must|need)/.test(p)) return "required"
   if (/(type|kind|format)/.test(p)) return "type"
   return null
+}
+
+// The edit-menu question: only offers options for choice fields, so users
+// are never invited down a dead end.
+export function editMenuPrompt(field) {
+  const aspects = CHOICE_TYPES.includes(field.type)
+    ? "name, type, options, or required"
+    : "name, type, or required"
+  return `Change ${field.name}, or remove it? Say ${aspects}.`
 }
 
 // A spoken field type, with everyday synonyms. Null when nothing matches.
@@ -589,8 +598,8 @@ export default class extends Controller {
     const field = this.selectedField()
     if (!field) { this.askName(); return }
     this.phase = "edit_menu"
-    this.setHint("Say name, type, options, or required — say “remove” to delete it, “done” to finish.")
-    this.sayThenListen(`${note}Change ${field.name}, or remove it? Say name, type, options, or required.`)
+    this.setHint("Say “done” to finish, or “remove” to delete the field.")
+    this.sayThenListen(`${note ? note + " " : ""}${editMenuPrompt(field)}`)
   }
 
   async submitEditMenu(text) {

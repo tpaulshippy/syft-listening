@@ -435,11 +435,18 @@ export default class extends Controller {
       this.start()
     }
     window.addEventListener("syft:input-command", this.handleVoiceCommand)
+    this.handleSessionStop = () => {
+      if (!this.active) return
+      this.stopSession()
+      this.setStatus("Stopped.")
+    }
+    window.addEventListener("syft:session-stop", this.handleSessionStop)
   }
 
   disconnect() {
     this.stopSession()
     try { window.removeEventListener("syft:input-command", this.handleVoiceCommand) } catch { /* ignore */ }
+    try { window.removeEventListener("syft:session-stop", this.handleSessionStop) } catch { /* ignore */ }
   }
 
   stopSession() {
@@ -448,6 +455,11 @@ export default class extends Controller {
     try { this.recognition?.abort?.() } catch { /* ignore */ }
     try { this.recognition?.stop() } catch { /* ignore */ }
     try { window.speechSynthesis?.cancel() } catch { /* ignore */ }
+    this.broadcastSession(false)
+  }
+
+  broadcastSession(on) {
+    try { window.dispatchEvent(new CustomEvent("syft:session-active", { detail: { active: !!on } })) } catch { /* non-browser */ }
   }
 
   start() {
@@ -461,6 +473,8 @@ export default class extends Controller {
       return
     }
     if (this.active) return
+    // One mic: starting here stops any session running elsewhere.
+    try { window.dispatchEvent(new CustomEvent("syft:session-stop")) } catch { /* non-browser */ }
     this.schema = loadSchema()
     if (!this.schema.length) {
       this.setQuestion("Design fields first — then come back to fill rows.")
@@ -471,6 +485,7 @@ export default class extends Controller {
     this.fieldIndex = 0
     this.editSingle = false
     this.updateButtons()
+    this.broadcastSession(true)
     // A tapped row means voice-editing it; otherwise a new row.
     if (this.selectedIndex !== null && this.rows[this.selectedIndex]) {
       this.render()
@@ -518,6 +533,7 @@ export default class extends Controller {
       if (!window.speechSynthesis || !text) { onDone?.(); return }
       if (this.hasVoiceStatusTarget) this.voiceStatusTarget.textContent = "Speaking…"
       window.speechSynthesis.cancel()
+      try { window.speechSynthesis.resume?.() } catch { /* ignore */ }
       const u = new SpeechSynthesisUtterance(text)
       u.lang = "en-US"
       let finished = false

@@ -86,6 +86,23 @@ export default class extends Controller {
   connect() {
     this.recognition = null
     this.listening = false
+    // Loop mode: one tap starts an ongoing conversation. The mic restarts
+    // itself after every utterance and pauses while a tab session owns the
+    // mic (two recognitions can't run at once) — resuming when it ends.
+    this.loop = false
+    this.tabSessionActive = false
+    this.handleSessionActive = (event) => {
+      const on = !!event?.detail?.active
+      this.tabSessionActive = on
+      if (on) {
+        // A tab session just took the mic — yield it immediately.
+        try { this.recognition?.abort?.() } catch { /* ignore */ }
+        this.listening = false
+        return
+      }
+      if (this.loop && !this.listening) this.resumeLoop("Listening… (tap 🎙 to stop)")
+    }
+    window.addEventListener("syft:session-active", this.handleSessionActive)
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR && this.hasStatusTarget) {
       this.statusTarget.textContent = "Voice commands need Chrome or Edge — tabs still work by tap."
@@ -93,7 +110,9 @@ export default class extends Controller {
   }
 
   disconnect() {
+    this.loop = false
     try { this.recognition?.stop() } catch { /* ignore */ }
+    try { window.removeEventListener("syft:session-active", this.handleSessionActive) } catch { /* ignore */ }
   }
 
   currentTab() {
@@ -120,7 +139,13 @@ export default class extends Controller {
   }
 
   toggleVoice() {
-    if (this.listening) { try { this.recognition?.stop() } catch { /* ignore */ } return }
+    if (this.loop) {
+      this.stopLoop()
+      // The mic is the global stop: a tab session owns its own mic, so
+      // tell it to stop too.
+      this.dispatch("syft:session-stop")
+      return
+    }
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) {
       this.setStatus("Voice not supported here — tap a tab instead.")
@@ -128,6 +153,45 @@ export default class extends Controller {
     }
     const key = localStorage.getItem("syft_jev_key") || ""
     if (!key) {
+      this.setStatus("Add your Jev key first — every command is routed by Jev.")
+      return
+    }
+    // Warm up speech output inside the tap gesture — mobile browsers gate
+    // it, and a cold engine stalls the first question for seconds.
+    try {
+      window.speechSynthesis?.cancel()
+      window.speechSynthesis?.getVoices()
+    } catch { /* ignore */ }
+    this.loop = true
+    if (this.hasMicButtonTarget) this.micButtonTarget.style.background = "#dc2626"
+    this.startCycle()
+  }
+
+  stopLoop() {
+    this.loop = false
+    try { this.recognition?.stop() } catch { /* ignore */ }
+    this.listening = false
+    if (this.hasMicButtonTarget) this.micButtonTarget.style.background = ""
+    this.setStatus("Stopped. Tap 🎙 to start.")
+  }
+
+  resumeLoop(status) {
+    if (!this.loop || this.listening || this.tabSessionActive) return
+    if (status) this.setStatus(status)
+    setTimeout(() => this.startCycle(), 350)
+  }
+
+  startCycle() {
+    if (!this.loop || this.listening || this.tabSessionActive) return
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) {
+      this.stopLoop()
+      this.setStatus("Voice not supported here — tap a tab instead.")
+      return
+    }
+    const key = localStorage.getItem("syft_jev_key") || ""
+    if (!key) {
+      this.stopLoop()
       this.setStatus("Add your Jev key first — every command is routed by Jev.")
       return
     }
@@ -143,27 +207,36 @@ export default class extends Controller {
         else interim += event.results[i][0].transcript
       }
       const heard = (finalText + interim).trim()
-      this.setStatus(heard ? `Heard: “${heard}”` : "Listening…")
+      this.setStatus(heard ? `Heard: “${heard}”` : "Listening… (tap 🎙 to stop)")
     }
     this.recognition.onerror = (event) => {
-      this.listening = false
-      if (this.hasMicButtonTarget) this.micButtonTarget.style.background = ""
-      this.setStatus(`Mic error: ${event.error} — tap a tab instead.`)
+      // A blocked mic never recovers by retrying — stop the loop instead.
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        this.stopLoop()
+        this.setStatus("Mic blocked — allow microphone access, then tap 🎙.")
+      }
+      // Other errors fall through to onend, which restarts the loop.
     }
     this.recognition.onend = () => {
       this.listening = false
-      if (this.hasMicButtonTarget) this.micButtonTarget.style.background = ""
+      if (!this.loop) return
       const heard = finalText.trim()
-      if (heard) this.handleCommand(heard)
-      else this.setStatus("Didn't catch that — try again or tap a tab.")
+      const run = async () => {
+        if (heard) await this.handleCommand(heard)
+        else this.setStatus("Didn't catch that — listening…")
+        // A routed tab session pauses the loop (see syft:session-active);
+        // otherwise keep the conversation going with no new tap.
+        this.resumeLoop()
+      }
+      run()
     }
     try {
       this.recognition.start()
       this.listening = true
-      if (this.hasMicButtonTarget) this.micButtonTarget.style.background = "#dc2626"
-      this.setStatus("Listening… say it (“create a new field”, “edit the third row”, “visualize totals by day”).")
-    } catch (e) {
-      this.setStatus(`Could not start mic: ${e.message}`)
+      this.setStatus("Listening… (tap 🎙 to stop)")
+    } catch {
+      this.listening = false
+      this.resumeLoop()
     }
   }
 

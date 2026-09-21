@@ -427,24 +427,49 @@ describe("row filter (Jev-native)", () => {
     expect(spec.filter).toEqual({ column: "col4", op: "equals", value: "open", negate: true })
   })
 
-  it("drops the filter when Jev says none or is unsure", () => {
+  it("drops the filter when Jev says none or is unsure of the target", () => {
     const none = specFromAnswers(
       { filter_column: { choice: "none", confidence: 0.95 } }, schema, "Table", SAMPLES.incidents)
     expect(none.spec.filter).toBeNull()
     const unsure = specFromAnswers(
       { filter_column: { choice: "col4", confidence: 0.2 } }, schema, "Table", SAMPLES.incidents)
     expect(unsure.spec.filter).toBeNull()
-    expect(unsure.usedFallback).toContain("filter_column")
+    expect(unsure.nonBlocking).toContain("filter_column")
+    expect(unsure.usedFallback).not.toContain("filter_column")
   })
 
-  it("rejects a hallucinated value and records fallback", () => {
-    const { spec, usedFallback } = specFromAnswers({
+  it("rejects a hallucinated value with a note instead of blocking", () => {
+    const { spec, nonBlocking, usedFallback } = specFromAnswers({
       filter_column: { choice: "col4", confidence: 0.9 },
       filter_op: { choice: "equals", confidence: 0.9 },
       filter_value_col4: { choice: "purple", confidence: 0.9 },
     }, schema, "Table", SAMPLES.incidents)
     expect(spec.filter).toBeNull()
-    expect(usedFallback).toContain("filter_value_col4")
+    expect(nonBlocking).toContain("filter_value_col4")
+    expect(usedFallback).not.toContain("filter_value_col4")
+  })
+
+  it("renders unfiltered when Jev targets a column but hedges the value (live: 'show miles by route')", () => {
+    const rows = [
+      { Date: "2026-09-13", Miles: 5, "Which route did you take": "Canal" },
+      { Date: "2026-09-14", Miles: 3, "Which route did you take": "Neighborhood" },
+      { Date: "2026-09-15", Miles: 2, "Which route did you take": "Canal" },
+    ]
+    const routes = inferSchema(rows)
+    const { spec, usedFallback, nonBlocking } = specFromAnswers({
+      view: { choice: "bar", confidence: 0.9 },
+      x_field: { choice: "col2", confidence: 0.9 },
+      y_field: { choice: "col1", confidence: 0.9 },
+      aggregation: { choice: "sum", confidence: 0.9 },
+      sort_by: { choice: "label_asc", confidence: 0.9 },
+      filter_column: { choice: "col2", confidence: 0.9 },
+      filter_value_col2: { choice: "Canal", confidence: 0.2 },
+    }, routes, "show miles by route", rows)
+    expect(spec.view).toBe("bar")
+    expect(spec.filter).toBeNull()
+    expect(nonBlocking).toContain("filter_value_col2")
+    const { blocking } = partitionFallbacks(usedFallback)
+    expect(blocking).toEqual([])
   })
 
   it("shares one filter across dashboard panels", () => {
@@ -483,15 +508,18 @@ describe("row filter (Jev-native)", () => {
 })
 
 describe("fallback partition (safe display defaults never block)", () => {
-  it("treats include/display flags as non-blocking", () => {
+  it("treats include/display/filter flags as non-blocking", () => {
     expect(isBlockingFallback("include_col0")).toBe(false)
     expect(isBlockingFallback("include_col4")).toBe(false)
     expect(isBlockingFallback("show_legend")).toBe(false)
     expect(isBlockingFallback("show_totals")).toBe(false)
     expect(isBlockingFallback("horizontal")).toBe(false)
+    expect(isBlockingFallback("filter_column")).toBe(false)
+    expect(isBlockingFallback("filter_op")).toBe(false)
+    expect(isBlockingFallback("filter_negate")).toBe(false)
+    expect(isBlockingFallback("filter_value_col2")).toBe(false)
     expect(isBlockingFallback("view")).toBe(true)
     expect(isBlockingFallback("x_field")).toBe(true)
-    expect(isBlockingFallback("filter_negate")).toBe(true)
     expect(isBlockingFallback("panel_count")).toBe(true)
   })
 
@@ -568,7 +596,7 @@ describe("fallback partition (safe display defaults never block)", () => {
     expect(dashboard.panels[0].view).toBe("bar")
   })
 
-  it("still blocks when Jev leans a real filter column but hedges", () => {
+  it("degrades to unfiltered when Jev leans a real filter column but hedges", () => {
     const schema = inferSchema([{ a: "x" }, { a: "y" }])
     const answers = {
       panel_count: { choice: "one", confidence: 0.95 },
@@ -576,10 +604,11 @@ describe("fallback partition (safe display defaults never block)", () => {
       view: { choice: "table", confidence: 0.9 },
       filter_column: { choice: "col0", confidence: 0.4 },
     }
-    const { usedFallback } = dashboardFromAnswers(answers, schema, "Table", [{ a: "x" }])
-    expect(usedFallback).toContain("filter_column")
+    const { dashboard, usedFallback, nonBlocking } = dashboardFromAnswers(answers, schema, "Table", [{ a: "x" }])
+    expect(dashboard.panels[0].filter).toBeNull()
+    expect(nonBlocking).toContain("filter_column")
     const { blocking } = partitionFallbacks(usedFallback)
-    expect(blocking).toContain("filter_column")
+    expect(blocking).not.toContain("filter_column")
   })
 
   it("shows everything unsplit when Jev hedges on color/size (live replay)", () => {

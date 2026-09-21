@@ -196,35 +196,48 @@ export function filterLabel(filter, schema) {
   return negate ? `${name} ≠ ${value}` : `${name} = ${value}`
 }
 
-// Shared (whole-dashboard) filter from Jev answers. Column and op use the
-// standard mergers; the value must be a real cell in that column (guards
-// against a hallucinated choice) — otherwise no filter, recorded fallback.
-// Leaning-"none" is different: Jev's top pick is unfiltered but hedged
-// (e.g. none@0.43 vs scattered columns). Showing all rows is the safe,
-// visible default, so that never blocks — it lands in nonBlocking instead.
-function sharedFilter(m, fb, answers, usedFallback, nonBlocking) {
+// Shared (whole-dashboard) filter from Jev answers. Targeting (column +
+// value) is all-or-nothing: the value must be a real cell in that column
+// (guards against a hallucinated choice), and anything Jev leaves unsure
+// degrades to unfiltered with a note — a half-specified filter never vetoes
+// the render ("show miles by route" names a grouping, not a filter, and Jev
+// hedges the value). Operator and polarity fall back to constants with a
+// note once the target is verified. Leaning-"none" is the same idea: Jev's
+// top pick is unfiltered but hedged (e.g. none@0.43 vs scattered columns),
+// so showing all rows lands in nonBlocking instead of blocking.
+function sharedFilter(answers, fb, nonBlocking) {
+  const schema = { columns: fb.schemaColumns || [] }
   const raw = answers?.filter_column
   const rawConf = Number(raw?.confidence ?? NaN)
   if (raw?.choice === "none" && !(rawConf >= 0.5)) {
     nonBlocking.push("filter_column")
     return null
   }
+  const notes = []
+  const m = makeMergers(answers, schema, notes, nonBlocking)
   const column = m.fieldChoice("filter_column", "none")
-  if (column === "none" || column === "count_rows") return null
-  const op = m.choice("filter_op", "equals", FILTER_OPS)
-  const negate = m.noul("filter_negate", false)
+  if (column === "none" || column === "count_rows") {
+    if (notes.includes("filter_column")) nonBlocking.push("filter_column")
+    return null
+  }
   const key = `filter_value_${column}`
   const a = answers?.[key]
   const conf = Number(a?.confidence ?? NaN)
   const value = typeof a?.choice === "string" ? a.choice.trim() : ""
-  const colName = refToName({ columns: fb.schemaColumns || [] }, column)
-  const want = value.toLowerCase()
-  const test = filterTest(op, want)
-  const ok = value !== "" && conf >= 0.5 && (fb.allRows || []).some((r) => {
+  const op = m.choice("filter_op", "equals", FILTER_OPS)
+  const negate = m.noul("filter_negate", false)
+  const colName = refToName(schema, column)
+  const test = filterTest(op, value.toLowerCase())
+  const verified = value !== "" && conf >= 0.5 && (fb.allRows || []).some((r) => {
     const v = cellOf(r, colName)
     return v !== null && v !== undefined && test(String(v).trim().toLowerCase())
   })
-  if (!ok) { usedFallback.push(key); return null }
+  if (notes.includes("filter_column") || !verified) {
+    if (!verified && !notes.includes(key)) notes.push(key)
+    nonBlocking.push(...notes)
+    return null
+  }
+  nonBlocking.push(...notes) // operator / polarity notes only
   return { column, op, value, negate }
 }
 
@@ -322,14 +335,16 @@ function sharedFlags(m, fb) {
 }
 
 // Flags with safe visual defaults (include -> show the column, display
-// flags -> off): Jev being lukewarm about them never blocks a render — the
-// spec carries the fallback and the UI notes it. Broad prompts like "table
-// of all data" land include nouls near 0.7, straddling the confidence cliff,
-// so gating on them breaks visualization. Anything else (view, bindings,
-// filter) still repeats the question.
+// flags -> off) and row filters (drop to unfiltered with a note): Jev being
+// lukewarm about them never blocks a render — the spec carries the fallback
+// and the UI notes it. Broad prompts like "table of all data" land include
+// nouls near 0.7, straddling the confidence cliff, so gating on them breaks
+// visualization. Anything else (view, bindings) still repeats the question.
 export function isBlockingFallback(key) {
   if (typeof key === "string" && key.slice(0, 8) === "include_") return false
   if (key === "show_legend" || key === "show_totals" || key === "horizontal") return false
+  if (key === "filter_column" || key === "filter_op" || key === "filter_negate") return false
+  if (typeof key === "string" && key.slice(0, 13) === "filter_value_") return false
   return true
 }
 
@@ -349,7 +364,7 @@ export function specFromAnswers(answers, schema, prompt, rows = null) {
   const nonBlocking = []
   const m = makeMergers(answers, schema, usedFallback, nonBlocking)
   const mSoft = makeMergers(answers, schema, nonBlocking)
-  const filter = sharedFilter(m, fb, answers, usedFallback, nonBlocking)
+  const filter = sharedFilter(answers, fb, nonBlocking)
   return { spec: panelSpec(m, "", { ...fb, filter }, sharedFlags(mSoft, fb)), usedFallback, nonBlocking }
 }
 
@@ -367,7 +382,7 @@ export function dashboardFromAnswers(answers, schema, prompt, rows = null) {
   const count = Math.min(MAX_PANELS, PANEL_COUNT_WORDS[countWord])
   const layout = m.choice("layout", "single", LAYOUTS)
   const fbBase = { schemaColumns: schema?.columns || [], allRows: rows }
-  const filter = sharedFilter(m, fbBase, answers, usedFallback, nonBlocking)
+  const filter = sharedFilter(answers, fbBase, nonBlocking)
   const fbWithCols = (panel) => ({ ...panel, ...fbBase, filter })
   const shared = sharedFlags(mSoft, { ...fb, schemaColumns: schema?.columns || [] })
   const panels = Array.from({ length: count }, (_, i) =>

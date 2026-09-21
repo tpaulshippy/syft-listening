@@ -6,8 +6,8 @@ import {
   valuesFromAnswers,
   offlineCheck,
   rowsToDataset,
-  editControlHtml,
-  editFormHtml,
+  editPromptFor,
+  parseRowMenu,
 } from "../app/javascript/controllers/input_controller.js"
 
 const YES_NO = { id: "a", name: "Subscribe", type: "yes_no", required: false, options: [] }
@@ -91,27 +91,17 @@ describe("input auto-share", () => {
   })
 })
 
-describe("row edit form", () => {
+describe("voice row edit", () => {
   const genre = { id: "b", name: "Genre", type: "choice_single", required: true, options: ["fiction", "scifi"] }
-  const yn = { id: "a", name: "Subscribe", type: "yes_no", required: false, options: [] }
 
-  it("renders one control per type with current values", () => {
-    expect(editControlHtml(genre, "scifi", 0)).toContain('value="scifi" selected')
-    expect(editControlHtml(yn, "yes", 1)).toContain('value="yes" selected')
-    expect(editControlHtml({ ...genre, type: "text" }, "hi", 2)).toContain('value="hi"')
+  it("prompts with the bare name plus current value", () => {
+    expect(editPromptFor(genre, "scifi")).toBe("Genre (fiction, scifi)? Currently scifi. Say a new value, or keep.")
+    expect(editPromptFor(genre, "")).toContain("Currently empty.")
   })
 
-  it("renders checkboxes for choice_multiple", () => {
-    const tags = { id: "c", name: "Tags", type: "choice_multiple", required: false, options: ["fiction", "scifi"] }
-    const html = editControlHtml(tags, ["fiction"], 0)
-    expect(html).toContain('value="fiction" checked')
-    expect(html).not.toContain('value="scifi" checked')
-  })
-
-  it("builds a labeled form with save/cancel", () => {
-    const html = editFormHtml([genre], { Genre: "scifi" })
-    expect(html).toContain("Genre")
-    expect(html).toContain("input#saveEdit")
-    expect(html).toContain("input#cancelEdit")
+  it("routes edit versus delete", () => {
+    expect(parseRowMenu("edit it")).toBe("edit")
+    expect(parseRowMenu("delete")).toBe("delete")
+    expect(parseRowMenu("scifi")).toBeNull()
   })
 })

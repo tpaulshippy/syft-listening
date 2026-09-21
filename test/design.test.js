@@ -9,6 +9,8 @@ import {
   sessionIntentFromAnswers,
   fieldsNeedingRequired,
   fieldCardHtml,
+  parseEditMenu,
+  parseFieldType,
   addOption,
   validateFieldName,
   loadSchema,
@@ -116,26 +118,38 @@ describe("design options + validation", () => {
   })
 })
 
-describe("field card editor", () => {
+describe("field card", () => {
   const field = { id: "f1", name: "Genre", type: "choice_single", required: true, options: ["a", "b"] }
 
-  it("renders Edit affordance when closed", () => {
+  it("is tappable to select, with no editor panel", () => {
     const html = fieldCardHtml(field, 0, false)
-    expect(html).toContain("design#editField")
+    expect(html).toContain("design#selectField")
     expect(html).not.toContain("<select")
+    expect(html).not.toContain("design#closeEditor")
   })
 
-  it("renders name/type/required/options controls when editing", () => {
-    const html = fieldCardHtml(field, 0, true)
-    expect(html).toContain('value="Genre"')
-    expect(html).toContain("<select")
-    expect(html).toContain("checked")
-    expect(html).toContain("design#addEditorOption")
-    expect(html).toContain("design#closeEditor")
+  it("highlights the selected field", () => {
+    expect(fieldCardHtml(field, 0, true)).toContain("2px solid #2563eb")
+  })
+})
+
+describe("voice edit menu", () => {
+  it("routes aspects, removal, and finish", () => {
+    expect(parseEditMenu("rename it")).toBe("name")
+    expect(parseEditMenu("change the type")).toBe("type")
+    expect(parseEditMenu("add an option")).toBe("options")
+    expect(parseEditMenu("make it required")).toBe("required")
+    expect(parseEditMenu("remove it")).toBe("remove")
+    expect(parseEditMenu("done")).toBe("done")
+    expect(parseEditMenu("scifi")).toBeNull()
   })
 
-  it("hides the option editor for non-choice types", () => {
-    const html = fieldCardHtml({ ...field, type: "text" }, 0, true)
-    expect(html).not.toContain("design#addEditorOption")
+  it("hears field types with synonyms", () => {
+    expect(parseFieldType("multiple choice")).toBe("choice_multiple")
+    expect(parseFieldType("dropdown")).toBe("choice_single")
+    expect(parseFieldType("yes or no")).toBe("yes_no")
+    expect(parseFieldType("email address")).toBe("email")
+    expect(parseFieldType("birthday")).toBe("date")
+    expect(parseFieldType("scifi")).toBeNull()
   })
 })

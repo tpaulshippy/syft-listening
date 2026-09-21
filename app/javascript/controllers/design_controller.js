@@ -155,43 +155,41 @@ export function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
 }
 
-export function fieldCardHtml(field, index, editing = false) {
+export function fieldCardHtml(field, index, selected = false) {
   const opts = CHOICE_TYPES.includes(field.type) && field.options?.length
     ? `<div style="font-size:11px;color:#52525b;margin-top:4px;">options: ${field.options.map(escapeHtml).join(" · ")}</div>`
     : ""
-  const editor = editing ? fieldEditorHtml(field) : ""
-  return `<div style="border:1px solid #e4e4e7;border-radius:12px;padding:10px;" data-field-id="${escapeHtml(field.id)}">` +
+  return `<div data-action="click->design#selectField" data-id="${escapeHtml(field.id)}" style="border:${selected ? "2px solid #2563eb" : "1px solid #e4e4e7"};border-radius:12px;padding:10px;cursor:pointer;">` +
     `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;">` +
     `<strong style="font-size:13px;">${index + 1}. ${escapeHtml(field.name)}</strong>` +
-    `<span style="font-size:11px;color:#71717a;">${escapeHtml(field.type)}${field.required ? " · required" : ""}</span></div>${opts}${editor}` +
-    (editing ? "" : `<div style="display:flex;gap:6px;margin-top:8px;font-size:11px;">` +
-    `<button data-action="click->design#editField" data-id="${escapeHtml(field.id)}" style="border:1px solid #e4e4e7;border-radius:999px;padding:2px 10px;">Edit</button>` +
-    `<button data-action="click->design#removeField" data-id="${escapeHtml(field.id)}" style="border:1px solid #e4e4e7;border-radius:999px;padding:2px 10px;">Remove</button>` +
-    `</div>`) + `</div>`
+    `<span style="font-size:11px;color:#71717a;">${escapeHtml(field.type)}${field.required ? " · required" : ""}</span></div>${opts}</div>`
 }
 
-// Inline editor for one field: rename, retype, toggle required, fix options.
-// Changes apply on edit (change events); Done validates and closes.
-export function fieldEditorHtml(field) {
-  const typeOpts = FIELD_TYPES.map((t) =>
-    `<option value="${t}"${t === field.type ? " selected" : ""}>${t}</option>`).join("")
-  const optRows = (field.options || []).map((o, i) =>
-    `<div style="display:flex;gap:6px;align-items:center;">` +
-    `<span style="flex:1;font-size:12px;">${escapeHtml(o)}</span>` +
-    `<button data-action="click->design#removeEditorOption" data-id="${escapeHtml(field.id)}" data-index="${i}" style="font-size:11px;color:#dc2626;">Remove</button></div>`).join("")
-  const optEditor = CHOICE_TYPES.includes(field.type)
-    ? `<div style="margin-top:6px;"><div style="font-size:11px;color:#71717a;">Options</div>${optRows}` +
-      `<div style="display:flex;gap:6px;margin-top:4px;">` +
-      `<input data-editor-new-option placeholder="New option" style="flex:1;min-width:0;border:1px solid #e4e4e7;border-radius:8px;padding:4px 8px;font-size:12px;" />` +
-      `<button data-action="click->design#addEditorOption" data-id="${escapeHtml(field.id)}" style="border:1px solid #e4e4e7;border-radius:999px;padding:2px 10px;font-size:11px;">Add</button></div></div>`
-    : ""
-  return `<div style="margin-top:8px;border-top:1px dashed #e4e4e7;padding-top:8px;display:grid;gap:6px;">` +
-    `<label style="font-size:11px;color:#71717a;">Name<br /><input data-editor-name value="${escapeHtml(field.name)}" data-action="change->design#editorChanged" style="width:100%;border:1px solid #e4e4e7;border-radius:8px;padding:4px 8px;font-size:13px;color:#18181b;" /></label>` +
-    `<div style="display:flex;gap:8px;align-items:end;">` +
-    `<label style="font-size:11px;color:#71717a;flex:1;">Type<br /><select data-editor-type data-action="change->design#editorChanged" style="width:100%;border:1px solid #e4e4e7;border-radius:8px;padding:4px;font-size:12px;">${typeOpts}</select></label>` +
-    `<label style="font-size:12px;display:flex;gap:4px;align-items:center;"><input type="checkbox" data-editor-required data-action="change->design#editorChanged"${field.required ? " checked" : ""} /> Required</label>` +
-    `<button data-action="click->design#closeEditor" data-id="${escapeHtml(field.id)}" style="border-radius:999px;background:#18181b;color:#fff;padding:4px 14px;font-size:12px;">Done</button></div>` +
-    optEditor + `</div>`
+// Which aspect of a field the user wants to change, from a spoken reply.
+// Returns name | type | options | required | remove | done | null.
+export function parseEditMenu(text) {
+  const p = String(text || "").toLowerCase().trim()
+  if (/^(remove|delete|drop)( it| that| this)?$/.test(p)) return "remove"
+  if (/^(done|finished|that'?s all|no|nope|stop)$/.test(p)) return "done"
+  if (/(re?name|call it|title)/.test(p)) return "name"
+  if (/(option|choice)/.test(p)) return "options"
+  if (/(required|optional|must|need)/.test(p)) return "required"
+  if (/(type|kind|format)/.test(p)) return "type"
+  return null
+}
+
+// A spoken field type, with everyday synonyms. Null when nothing matches.
+export function parseFieldType(text) {
+  const p = String(text || "").toLowerCase()
+  if (/(multiple choice|multi|several|check all)/.test(p)) return "choice_multiple"
+  if (/(single choice|dropdown|pick one|choose one|one of)/.test(p)) return "choice_single"
+  if (/(yes\b.*\bno|true\b.*\bfalse|boolean)/.test(p)) return "yes_no"
+  if (/email/.test(p)) return "email"
+  if (/(date|day|birthday|deadline)/.test(p)) return "date"
+  if (/(time|hour|alarm)/.test(p)) return "time"
+  if (/(number|numeric|amount|count|quantity)/.test(p)) return "number"
+  if (/text/.test(p)) return "text"
+  return null
 }
 
 // --- Stimulus controller: voice-only session ---------------------------------
@@ -204,7 +202,8 @@ export default class extends Controller {
 
   connect() {
     this.fields = loadSchema()
-    this.editingId = null
+    this.selectedId = null
+    this.editing = false
     this.phase = "idle" // idle -> name -> options -> required_fields
     this.pending = null // field under construction
     this.recognition = null
@@ -244,8 +243,11 @@ export default class extends Controller {
     }
     if (this.active) return
     this.active = true
+    this.editing = false
     this.updateButtons()
-    this.askName()
+    // A tapped field means voice-editing; otherwise new-field interview.
+    if (this.selectedField()) this.askEditMenu()
+    else this.askName()
   }
 
   done() {
@@ -268,6 +270,9 @@ export default class extends Controller {
     this.stopSession()
     this.phase = "idle"
     this.pending = null
+    this.editing = false
+    this.selectedId = null
+    this.render()
     this.setQuestion("Done.")
     this.setStatus(status || `Session ended — ${this.fields.length} field${this.fields.length === 1 ? "" : "s"}. Tap Start to add more.`)
     this.updateButtons()
@@ -401,6 +406,10 @@ export default class extends Controller {
     }
     if (this.phase === "options") return this.submitOption(text)
     if (this.phase === "required_fields") return this.submitRequiredFields(text)
+    if (this.phase === "edit_menu") return this.submitEditMenu(text)
+    if (this.phase === "edit_name") return this.submitEditName(text)
+    if (this.phase === "edit_type") return this.submitEditType(text)
+    if (this.phase === "edit_required") return this.submitEditRequired(text)
   }
 
   repeatQuestion() {
@@ -408,6 +417,7 @@ export default class extends Controller {
     if (this.phase === "name") return this.askName()
     if (this.phase === "options") return this.askOptions()
     if (this.phase === "required_fields") return this.askRequiredFields()
+    if (this.phase === "edit_menu") return this.askEditMenu()
   }
 
   async submitName(name) {
@@ -496,6 +506,15 @@ export default class extends Controller {
         this.sayThenListen(`I need at least one option for “${this.pending.name}”. Tell me the first option.`)
         return
       }
+      if (this.editing) {
+        // Editing an existing field in place — nothing to push.
+        this.editing = false
+        this.pending = null
+        saveSchema(this.fields)
+        this.render()
+        this.askEditMenu("Options updated.")
+        return
+      }
       this.commitField()
     } else if (intent === "remove_last") {
       this.pending.options.pop()
@@ -552,76 +571,140 @@ export default class extends Controller {
     })
   }
 
-  // --- field list management (tap Edit to fix; voice session keeps going) --------
-  editField(event) {
-    this.editingId = event.currentTarget.dataset.id
+  // --- tap to select, voice to change ----------------------------------------------
+  // Tapping a field only selects it. Every change happens by voice after Start.
+  selectField(event) {
+    const id = event.currentTarget.dataset.id
+    this.selectedId = this.selectedId === id ? null : id
     this.render()
   }
 
-  editorChanged(event) {
-    const card = event.currentTarget.closest("[data-field-id]")
-    const field = this.fields.find((f) => f.id === card?.dataset.fieldId)
-    if (!field) return
-    const name = card.querySelector("[data-editor-name]")?.value.trim() ?? field.name
-    const err = validateFieldName(name, this.fields.filter((f) => f.id !== field.id))
+  selectedField() {
+    return this.fields.find((f) => f.id === this.selectedId) || null
+  }
+
+  // Voice edit flow for the selected field: menu -> one aspect -> menu -> done.
+  askEditMenu(note = "") {
+    if (!this.active) return
+    const field = this.selectedField()
+    if (!field) { this.askName(); return }
+    this.phase = "edit_menu"
+    this.setHint("Say name, type, options, or required — say “remove” to delete it, “done” to finish.")
+    this.sayThenListen(`${note}Change ${field.name}, or remove it? Say name, type, options, or required.`)
+  }
+
+  async submitEditMenu(text) {
+    const field = this.selectedField()
+    if (!field) { this.askName(); return }
+    const aspect = parseEditMenu(text)
+    if (aspect === "remove") {
+      this.fields = this.fields.filter((f) => f.id !== field.id)
+      this.selectedId = null
+      saveSchema(this.fields)
+      this.render()
+      this.speak(`Removed ${field.name}.`, () => this.endSession(`Removed “${field.name}”. Tap Start to add more.`))
+      return
+    }
+    if (aspect === "done") {
+      this.selectedId = null
+      this.endSession()
+      return
+    }
+    if (aspect === "name") {
+      this.phase = "edit_name"
+      this.sayThenListen(`Say the new name for ${field.name}.`)
+      return
+    }
+    if (aspect === "type") {
+      this.phase = "edit_type"
+      this.sayThenListen(`What type should ${field.name} be? Text, number, date, time, email, yes or no, single choice, or multiple choice.`)
+      return
+    }
+    if (aspect === "required") {
+      this.phase = "edit_required"
+      this.sayThenListen(`Should ${field.name} be required? Say yes or no.`)
+      return
+    }
+    if (aspect === "options") {
+      if (!CHOICE_TYPES.includes(field.type)) {
+        this.sayThenListen(`${field.name} is not a choice field. Say name, type, or required — or done.`)
+        this.phase = "edit_menu"
+        return
+      }
+      this.pending = field
+      this.editing = true
+      this.askOptions()
+      return
+    }
+    this.sayThenListen(`Sorry — say name, type, options, or required. Or say done.`)
+  }
+
+  async submitEditName(text) {
+    const field = this.selectedField()
+    if (!field) { this.askName(); return }
+    const clean = String(text ?? "").trim()
+    const err = validateFieldName(clean, this.fields.filter((f) => f.id !== field.id))
     if (err) {
-      this.setStatus(err)
-      this.render() // revert the input
+      this.sayThenListen(`${err} Say the new name for ${field.name}.`)
       return
     }
-    field.name = name
-    field.type = card.querySelector("[data-editor-type]")?.value || field.type
-    if (!FIELD_TYPES.includes(field.type)) field.type = "text"
-    field.required = card.querySelector("[data-editor-required]")?.checked || false
-    // Flipping required by hand counts as decided; renames/retypes don't.
-    if (event.currentTarget.hasAttribute("data-editor-required")) field.requiredDecided = true
+    const old = field.name
+    field.name = clean
     saveSchema(this.fields)
     this.render()
+    this.logInspector(`renamed ${old} -> ${clean}`)
+    this.askEditMenu(`Renamed to ${clean}.`)
   }
 
-  addEditorOption(event) {
-    const id = event.currentTarget.dataset.id
-    const field = this.fields.find((f) => f.id === id)
-    const card = event.currentTarget.closest("[data-field-id]")
-    const value = card?.querySelector("[data-editor-new-option]")?.value ?? ""
-    if (!field) return
-    const r = addOption(field, value)
-    if (!r.ok) this.setStatus(r.reason === "duplicate" ? "Already have that option." : "Could not add that option.")
-    saveSchema(this.fields)
-    this.render()
-  }
-
-  removeEditorOption(event) {
-    const { id, index } = event.currentTarget.dataset
-    const field = this.fields.find((f) => f.id === id)
-    if (!field) return
-    ;(field.options || []).splice(Number(index), 1)
-    saveSchema(this.fields)
-    this.render()
-  }
-
-  closeEditor(event) {
-    const id = event.currentTarget.dataset.id
-    const field = this.fields.find((f) => f.id === id)
-    if (field && CHOICE_TYPES.includes(field.type) && !(field.options || []).length) {
-      this.setStatus("Add at least one option before closing.")
+  async submitEditType(text) {
+    const field = this.selectedField()
+    if (!field) { this.askName(); return }
+    const type = parseFieldType(text)
+    if (!type) {
+      this.sayThenListen(`I didn't catch a type. Text, number, date, time, email, yes or no, single choice, or multiple choice?`)
       return
     }
-    this.editingId = null
-    this.render()
-  }
-
-  removeField(event) {
-    const id = event.currentTarget.dataset.id
-    if (this.editingId === id) this.editingId = null
-    this.fields = this.fields.filter((f) => f.id !== id)
+    field.type = type
     saveSchema(this.fields)
     this.render()
+    this.logInspector(`retyped ${field.name} -> ${type}`)
+    if (CHOICE_TYPES.includes(type) && !(field.options || []).length) {
+      this.pending = field
+      this.editing = true
+      this.askOptions()
+      return
+    }
+    this.askEditMenu(`Now a ${type} field.`)
+  }
+
+  async submitEditRequired(text) {
+    const field = this.selectedField()
+    if (!field) { this.askName(); return }
+    const key = localStorage.getItem("syft_jev_key") || ""
+    let required = requiredFromAnswers({}, text).required
+    if (key) {
+      try {
+        const res = await fetch("/jev_design", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": document.querySelector('meta[name="csrf-token"]')?.content },
+          body: JSON.stringify({ step: "required", transcript: text, field_name: field.name, api_key: key }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (res.ok && data.answers) required = requiredFromAnswers(data.answers, text).required
+      } catch { /* fallback stands */ }
+    }
+    if (!this.active) return
+    field.required = required
+    field.requiredDecided = true
+    saveSchema(this.fields)
+    this.render()
+    this.logInspector(`required(${field.name}) = ${required}`)
+    this.askEditMenu(required ? "Now required." : "Now optional.")
   }
 
   clearAll() {
     this.fields = []
-    this.editingId = null
+    this.selectedId = null
     saveSchema(this.fields)
     this.render()
   }
@@ -629,7 +712,7 @@ export default class extends Controller {
   render() {
     if (!this.hasFieldListTarget) return
     this.fieldListTarget.innerHTML = this.fields.length
-      ? this.fields.map((f, i) => fieldCardHtml(f, i, f.id === this.editingId)).join("")
+      ? this.fields.map((f, i) => fieldCardHtml(f, i, f.id === this.selectedId)).join("")
       : `<p style="font-size:12px;color:#a1a1aa;">No fields yet — tap Start and speak.</p>`
   }
 

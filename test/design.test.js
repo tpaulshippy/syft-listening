@@ -9,7 +9,7 @@ import {
   fieldsNeedingRequired,
   fieldCardHtml,
   editIntentFromAnswers,
-  editMenuPrompt,
+  editMenuChoices,
   retypeField,
   addOption,
   validateFieldName,
@@ -130,8 +130,8 @@ describe("voice edit menu (Jev first)", () => {
   })
 
   it("only offers options for choice fields", () => {
-    expect(editMenuPrompt({ name: "Genre", type: "choice_single" })).toContain("options")
-    expect(editMenuPrompt({ name: "Age", type: "number" })).not.toContain("options")
+    expect(editMenuChoices({ name: "Genre", type: "choice_single" })).toBe("name · type · options · required · remove · done")
+    expect(editMenuChoices({ name: "Age", type: "number" })).toBe("name · type · required · remove · done")
   })
 
   it("hears retypes through the change_type merger", () => {

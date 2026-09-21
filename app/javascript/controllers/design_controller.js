@@ -168,13 +168,13 @@ export function editIntentFromAnswers(answers) {
   return { aspect: null, usedFallback: ["intent"] }
 }
 
-// The edit-menu question: only offers options for choice fields, so users
-// are never invited down a dead end.
-export function editMenuPrompt(field) {
+// The edit-menu choices, shown on screen (never read aloud): only lists
+// options for choice fields, so users are never invited down a dead end.
+export function editMenuChoices(field) {
   const aspects = CHOICE_TYPES.includes(field.type)
-    ? "name, type, options, or required"
-    : "name, type, or required"
-  return `Change ${field.name}, or remove it? Say ${aspects}.`
+    ? ["name", "type", "options", "required", "remove", "done"]
+    : ["name", "type", "required", "remove", "done"]
+  return aspects.join(" · ")
 }
 
 // (Retype answers come from the `change_type` Jev step.)
@@ -185,7 +185,7 @@ export function editMenuPrompt(field) {
 export default class extends Controller {
   static targets = ["question",
     "fieldList", "status", "inspector", "voiceStatus", "apiKey", "stepHint",
-    "startButton", "doneButton"]
+    "choices", "startButton", "doneButton"]
 
   connect() {
     this.fields = loadSchema()
@@ -266,6 +266,7 @@ export default class extends Controller {
     this.selectedId = null
     this.render()
     this.setQuestion("Done.")
+    this.setChoices("")
     this.setStatus(status || `Session ended — ${this.fields.length} field${this.fields.length === 1 ? "" : "s"}. Tap Start to add more.`)
     this.updateButtons()
   }
@@ -304,6 +305,7 @@ export default class extends Controller {
     this.pending = null
     const n = this.fields.length + 1
     this.setHint("Say the field name. Tap Done when the list is complete.")
+    this.setChoices("")
     this.sayThenListen(`What should field ${n} be called?`)
   }
 
@@ -312,6 +314,7 @@ export default class extends Controller {
     this.phase = "options"
     const count = (this.pending.options || []).length + 1
     this.setHint("Each option is added as heard. Say “done” when finished, “remove last” to undo.")
+    this.setChoices((this.pending.options || []).join(" · "))
     this.sayThenListen(`“${this.pending.name}” — tell me option ${count}, or say “done”.`)
   }
 
@@ -321,6 +324,7 @@ export default class extends Controller {
     if (!unasked.length) { this.endSession(); return }
     this.phase = "required_fields"
     this.setHint("Name the required ones, say “all”, or say “none”.")
+    this.setChoices("")
     this.sayThenListen(`Which fields are required? Name them, or say all or none.`)
   }
 
@@ -336,6 +340,12 @@ export default class extends Controller {
 
   setHint(text) {
     if (this.hasStepHintTarget) this.stepHintTarget.textContent = text
+  }
+
+  // On-screen answer key for the current question. Spoken prompts never
+  // list options aloud — the choices live here instead.
+  setChoices(text) {
+    if (this.hasChoicesTarget) this.choicesTarget.textContent = text
   }
 
   setStatus(text) {
@@ -579,13 +589,15 @@ export default class extends Controller {
   }
 
   // Voice edit flow for the selected field: menu -> one aspect -> menu -> done.
+  // The aspects and types stay on screen; speech asks without listing them.
   askEditMenu(note = "") {
     if (!this.active) return
     const field = this.selectedField()
     if (!field) { this.askName(); return }
     this.phase = "edit_menu"
     this.setHint("Say “done” to finish, or “remove” to delete the field.")
-    this.sayThenListen(`${note ? note + " " : ""}${editMenuPrompt(field)}`)
+    this.setChoices(editMenuChoices(field))
+    this.sayThenListen(`${note ? note + " " : ""}What should I change about ${field.name}?`)
   }
 
   async submitEditMenu(text) {
@@ -612,7 +624,7 @@ export default class extends Controller {
     this.logInspector(`edit intent = ${aspect}${merged.usedFallback.length ? " · unsure" : ""}`)
     if (!this.active) return
     if (!aspect) {
-      this.sayThenListen(`Sorry — ${editMenuPrompt(field)}`)
+      this.sayThenListen(`Sorry — what should I change?`)
       return
     }
     if (aspect === "remove") {
@@ -630,22 +642,25 @@ export default class extends Controller {
     }
     if (aspect === "name") {
       this.phase = "edit_name"
+      this.setChoices("")
       this.sayThenListen(`Say the new name for ${field.name}.`)
       return
     }
     if (aspect === "type") {
       this.phase = "edit_type"
-      this.sayThenListen(`What type should ${field.name} be? Text, number, date, time, email, yes or no, single choice, or multiple choice.`)
+      this.setChoices(FIELD_TYPES.join(" · "))
+      this.sayThenListen(`What type should ${field.name} be?`)
       return
     }
     if (aspect === "required") {
       this.phase = "edit_required"
-      this.sayThenListen(`Should ${field.name} be required? Say yes or no.`)
+      this.setChoices("yes · no")
+      this.sayThenListen(`Should ${field.name} be required?`)
       return
     }
     if (aspect === "options") {
       if (!CHOICE_TYPES.includes(field.type)) {
-        this.sayThenListen(`${field.name} is not a choice field. Say name, type, or required — or done.`)
+        this.sayThenListen(`${field.name} is not a choice field.`)
         this.phase = "edit_menu"
         return
       }
@@ -696,7 +711,7 @@ export default class extends Controller {
     const type = typed.type
     this.logInspector(`retyped ${field.name} -> ${type}${typed.usedFallback.length ? " · unsure" : ""}`)
     if (!type) {
-      this.sayThenListen(`Sorry, I didn't catch the type. Text, number, date, time, email, yes or no, single choice, or multiple choice?`)
+      this.sayThenListen(`Sorry — what type should ${field.name} be?`)
       return
     }
     retypeField(field, type)
@@ -732,7 +747,7 @@ export default class extends Controller {
     if (!this.active) return
     if (merged.required === null) {
       this.logInspector("required unsure — repeating")
-      this.sayThenListen(`Sorry — should ${field.name} be required? Say yes or no.`)
+      this.sayThenListen(`Sorry — should ${field.name} be required?`)
       return
     }
     const required = merged.required
@@ -748,6 +763,7 @@ export default class extends Controller {
     this.fields = []
     this.selectedId = null
     saveSchema(this.fields)
+    this.setChoices("")
     this.render()
   }
 

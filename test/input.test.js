@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   proposeGroup,
   promptFor,
+  spokenPromptFor,
   controlFromAnswers,
   effectiveControl,
   valuesFromAnswers,
@@ -9,6 +10,7 @@ import {
   rowsToDataset,
   rowTableHtml,
   editPromptFor,
+  spokenEditPromptFor,
   rowIntentFromAnswers,
   editFieldFromAnswers,
   dateFromAnswers,
@@ -34,6 +36,13 @@ describe("input grouping", () => {
   it("prompts with the bare field name", () => {
     expect(promptFor([GENRE])).toBe("Genre (fiction, scifi)?")
     expect(promptFor([YES_NO, GENRE])).toBe("Subscribe … Genre (fiction, scifi)?")
+  })
+
+  it("speaks bare names, leaving option lists on screen", () => {
+    expect(spokenPromptFor([GENRE])).toBe("Genre?")
+    expect(spokenPromptFor([YES_NO, GENRE])).toBe("Subscribe … Genre?")
+    expect(spokenPromptFor([])).toBe("")
+    expect(spokenEditPromptFor(GENRE)).toBe("Genre?")
   })
 })
 

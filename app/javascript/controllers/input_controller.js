@@ -69,6 +69,14 @@ export function promptFor(group) {
   return group.length === 1 ? `${parts[0]}?` : `${parts.join(" … ")}?`
 }
 
+// Spoken form of a question: bare field names only. Option lists stay on
+// screen (the question line shows promptFor) and are never read aloud.
+export function spokenPromptFor(group) {
+  if (!group?.length) return ""
+  const parts = group.map((f) => f.name)
+  return group.length === 1 ? `${parts[0]}?` : `${parts.join(" … ")}?`
+}
+
 function confidentChoice(answer, allowed) {
   const conf = Number(answer?.confidence ?? NaN)
   if (answer?.choice && allowed.includes(answer.choice) && conf >= 0.5) return answer.choice
@@ -376,6 +384,12 @@ export function editPromptFor(field) {
   return promptFor([field])
 }
 
+// Spoken form of the guided-edit prompt: bare name only. Options stay on
+// screen in editPromptFor and are never read aloud.
+export function spokenEditPromptFor(field) {
+  return `${field.name}?`
+}
+
 // --- Stimulus controller: voice-only session -----------------------------------
 // One Start button, one Done button. The system speaks each question in schema
 // order, listens, and advances automatically from what the user says.
@@ -506,8 +520,10 @@ export default class extends Controller {
     } catch { onDone?.() }
   }
 
-  sayThenListen(text) {
-    if (this.hasQuestionTarget) this.questionTarget.textContent = text
+  // Speech asks the bare prompt; the question line shows the full prompt
+  // with options, which are never read aloud.
+  sayThenListen(text, display = null) {
+    if (this.hasQuestionTarget) this.questionTarget.textContent = display ?? text
     this.awaiting = true
     this.speak(text, () => { if (this.active && this.awaiting) this.listen() })
   }
@@ -597,7 +613,7 @@ export default class extends Controller {
         : `${group[0].required ? "Required. " : ""}Say “skip” to skip, “go back” to edit.`
     }
     if (this.hasProgressTarget) this.progressTarget.textContent = `Row ${this.rows.length + 1} · field ${this.fieldIndex + 1} of ${this.schema.length}`
-    this.sayThenListen(q)
+    this.sayThenListen(spokenPromptFor(group), q)
   }
 
   async planGroup(a, b) {
@@ -653,18 +669,18 @@ export default class extends Controller {
     this.logInspector(`control=${control}${assumed ? " (assumed — Jev unsure, values confident)" : ""} values=${JSON.stringify(values)}${unsure.length || fbNote ? ` · unsure(${unsure.join(",")}${fbNote ? `,${fbNote}` : ""})` : ""}`)
     if (!this.active) return
     if (!control || unsure.length) {
-      this.sayThenListen(`Sorry — ${promptFor(this.group)}`)
+      this.sayThenListen(`Sorry — ${spokenPromptFor(this.group)}`, `Sorry — ${promptFor(this.group)}`)
       return
     }
 
-    if (control === "repeat") { this.sayThenListen(promptFor(this.group)); return }
+    if (control === "repeat") { this.sayThenListen(spokenPromptFor(this.group), promptFor(this.group)); return }
     if (control === "skip") { this.advance(values, true); return }
     if (control === "edit_previous") { this.goBack(); return }
     if (control === "finish_row") {
       const tail = validateGroup(this.group, values)
       if (!tail.ok) {
         this.setStatus(tail.reason)
-        this.sayThenListen(`${tail.reason} ${promptFor(this.group)}`)
+        this.sayThenListen(`${tail.reason} ${spokenPromptFor(this.group)}`, `${tail.reason} ${promptFor(this.group)}`)
         return
       }
       Object.assign(this.draft, values)
@@ -674,7 +690,7 @@ export default class extends Controller {
     const check = validateGroup(this.group, values)
     if (!check.ok) {
       this.setStatus(check.reason)
-      this.sayThenListen(`${check.reason} ${promptFor(this.group)}`)
+      this.sayThenListen(`${check.reason} ${spokenPromptFor(this.group)}`, `${check.reason} ${promptFor(this.group)}`)
       return
     }
     this.advance(values, false)
@@ -835,7 +851,7 @@ export default class extends Controller {
       this.stepHintTarget.textContent = `Row ${this.selectedIndex + 1} · field ${this.editIdx + 1} of ${this.schema.length}. Say “skip” to leave it, “go back” to revisit.`
     }
     if (this.hasProgressTarget) this.progressTarget.textContent = `Editing row ${this.selectedIndex + 1} · field ${this.editIdx + 1} of ${this.schema.length}`
-    this.sayThenListen(editPromptFor(field, row[field.name]))
+    this.sayThenListen(spokenEditPromptFor(field), editPromptFor(field, row[field.name]))
   }
 
   async submitEditAnswer(text) {
@@ -853,7 +869,7 @@ export default class extends Controller {
     if (!this.active) return
     // The shared control choice carries keep (skip) and go-back intents.
     if (!control || (control !== "skip" && control !== "edit_previous" && unsure.length)) {
-      this.sayThenListen(`Sorry — ${editPromptFor(field, row[field.name])}`)
+      this.sayThenListen(`Sorry — ${spokenEditPromptFor(field)}`, `Sorry — ${editPromptFor(field, row[field.name])}`)
       return
     }
     // Single-question edit: answer commits, skip keeps the old value and
@@ -877,7 +893,7 @@ export default class extends Controller {
       return
     }
     if (control === "repeat") {
-      this.sayThenListen(editPromptFor(field, row[field.name]))
+      this.sayThenListen(spokenEditPromptFor(field), editPromptFor(field, row[field.name]))
       return
     }
     if (control === "finish_row") return this.commitEdit()
@@ -885,7 +901,7 @@ export default class extends Controller {
     const check = validateGroup([field], values)
     if (!check.ok) {
       this.setStatus(check.reason)
-      this.sayThenListen(`${check.reason} ${editPromptFor(field, values[field.id])}`)
+      this.sayThenListen(`${check.reason} ${spokenEditPromptFor(field)}`, `${check.reason} ${editPromptFor(field, values[field.id])}`)
       return
     }
     this.editValues[field.id] = values[field.id]

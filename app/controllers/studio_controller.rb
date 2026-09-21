@@ -92,7 +92,128 @@ class StudioController < ApplicationController
     post_to_jev(payload, api_key, questions.size, schema)
   end
 
+  # POST /jev_command — voice command router for the studio page.
+  # Body: { transcript, current_tab, fields ([{id, name}]), row_count,
+  # columns ([names]), api_key }. Jev decides everything: which tab
+  # (destination choice), which field (design_target choice over field ids
+  # plus new_field), and which row (row_target choice over row_1..row_N plus
+  # new_row). The transcript itself is never inspected here — it rides in
+  # state and only Jev reads it. A visualize destination means the transcript
+  # is the render prompt verbatim (carried, never parsed).
+  MAX_COMMAND_ROWS = 50
+
+  def command
+    transcript = params[:transcript].to_s.strip
+    api_key = params[:api_key].to_s.strip.presence || ENV["TYPESAFE_API_KEY"].to_s.strip.presence
+    return render json: { error: "No transcript provided" }, status: :bad_request if transcript.blank?
+    return render json: { error: "Missing Jev API key. Paste your TypeSafe key for voice commands." }, status: :unauthorized if api_key.blank?
+
+    fields = command_fields
+    return render json: { error: fields[:error] }, status: :bad_request if fields[:error]
+    rows = command_row_count
+    return render json: { error: rows[:error] }, status: :bad_request if rows[:error]
+    columns = command_columns
+
+    current_tab = params[:current_tab].to_s.strip
+    current_tab = "design" if current_tab.empty?
+    unless %w[design input visualize].include?(current_tab)
+      return render json: { error: "Unknown tab (expected design, input, visualize)" }, status: :bad_request
+    end
+
+    questions = command_questions(fields[:fields], rows[:count], columns)
+    payload = {
+      model: JEV_MODEL,
+      state: {
+        transcript: transcript,
+        current_tab: current_tab,
+        fields: fields[:fields].map { |f| f[:name] },
+        row_count: rows[:count],
+        columns: columns
+      },
+      questions: questions
+    }
+    post_to_jev(payload, api_key, questions.size, { columns: [], row_count: rows[:count] })
+  end
+
   private
+
+  def command_fields
+    raw = params[:fields]
+    return { fields: [] } if raw.nil? || (raw.is_a?(String) && raw.strip.empty?)
+
+    parsed = raw.is_a?(Array) ? raw : parse_command_json(raw.to_s)
+    return parsed if parsed.is_a?(Hash) && parsed[:error]
+    return { error: "Fields must be an array" } unless parsed.is_a?(Array)
+
+    fields = parsed.first(MAX_COLUMNS).map do |f|
+      h = f.respond_to?(:to_unsafe_h) ? f.to_unsafe_h : f.to_h
+      { id: h["id"].to_s.strip, name: h["name"].to_s.strip }
+    end
+    fields = fields.reject { |f| f[:id].empty? || f[:name].empty? }
+    { fields: fields }
+  end
+
+  def command_row_count
+    raw = params[:row_count]
+    return { count: 0 } if raw.nil? || raw.to_s.strip.empty?
+
+    count = raw.to_i
+    return { error: "Row count must be 0 or more" } if count.negative?
+    return { error: "Row count too large (max #{MAX_COMMAND_ROWS * 4})" } if count > MAX_COMMAND_ROWS * 4
+
+    { count: count }
+  end
+
+  def command_columns
+    raw = params[:columns]
+    return [] if raw.nil? || (raw.is_a?(String) && raw.strip.empty?)
+
+    parsed = raw.is_a?(Array) ? raw : parse_command_json(raw.to_s)
+    return [] unless parsed.is_a?(Array)
+
+    parsed.map(&:to_s).map(&:strip).reject(&:empty?).first(MAX_COLUMNS)
+  end
+
+  def parse_command_json(raw)
+    JSON.parse(raw)
+  rescue JSON::ParserError
+    { error: "Fields/columns must be a JSON array" }
+  end
+
+  def command_questions(fields, row_count, columns)
+    design_criteria = { "new_field" => "The speaker wants to create or add a new field",
+                        "none" => "No design action — the speaker wants something else" }
+    fields.each do |f|
+      design_criteria[f[:id]] = "`transcript` means the field \"#{f[:name]}\""
+    end
+    row_criteria = { "new_row" => "The speaker wants to add a new row",
+                     "none" => "No row action — the speaker wants something else" }
+    [ row_count, MAX_COMMAND_ROWS ].min.times do |i|
+      n = (i + 1).to_s
+      row_criteria["row_#{n}"] = "`transcript` means row #{n}"
+    end
+    {
+      "destination" => {
+        type: "choice",
+        instructions: "Which studio tab does the speaker want in `transcript` (currently on `current_tab`, fields `fields`, `row_count` rows, columns `columns`)?",
+        criteria: {
+          design: "Design fields — creating a field, renaming, changing a type, options, or required",
+          input: "Input rows — adding a row, filling answers, editing or deleting a row",
+          visualize: "Visualize the data — a chart, table, cards, KPIs, totals, or trend over the columns"
+        }
+      },
+      "design_target" => {
+        type: "choice",
+        instructions: "If the speaker wants the design tab, which field does `transcript` name? (used only then)",
+        criteria: design_criteria
+      },
+      "row_target" => {
+        type: "choice",
+        instructions: "If the speaker wants the input tab, which row does `transcript` name? (used only then)",
+        criteria: row_criteria
+      }
+    }
+  end
 
   def extract_rows
     if params[:sample].to_s.strip.present?

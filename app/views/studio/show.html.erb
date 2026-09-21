@@ -9,6 +9,17 @@
     <span class="text-xs text-zinc-500 dark:text-zinc-400">design → input → visualize · voice + Jev, no LLM</span>
   </div>
 
+  <div class="mt-2 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900" data-controller="studio-command">
+    <div class="flex items-center gap-2">
+      <button data-studio-command-target="micButton" data-action="click->studio-command#toggleVoice" aria-label="Voice command for every tab"
+              class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-white transition-transform hover:scale-105 active:scale-95 dark:bg-zinc-50 dark:text-zinc-950">
+        <span aria-hidden="true">🎙</span>
+      </button>
+      <p class="text-sm text-zinc-600 dark:text-zinc-300">Command by voice — Jev routes it (“create a new field”, “edit the third row”, “visualize totals by day”).</p>
+    </div>
+    <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-studio-command-target="status" aria-live="polite">Tap 🎙 and say what to do.</p>
+  </div>
+
   <div class="mt-2 flex gap-2" role="tablist" aria-label="Data workflow">
     <button role="tab" data-studio-tabs-target="tab" data-action="click->studio-tabs#show" data-tab="design">Design</button>
     <button role="tab" data-studio-tabs-target="tab" data-action="click->studio-tabs#show" data-tab="input">Input</button>

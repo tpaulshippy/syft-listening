@@ -597,8 +597,18 @@ export default class extends Controller {
     this.lastAutoLoaded = null
     this.handleInputRowsChanged = () => this.autoLoadFromInput()
     this.handleTabShown = (event) => { if (event?.detail === "visualize") this.autoLoadFromInput() }
+    // Global voice commands (Jev-routed): the prompt is the transcript
+    // verbatim — carried, never parsed — rendered through the normal ask().
+    this.handleVoiceCommand = (event) => {
+      const prompt = event?.detail?.prompt
+      if (typeof prompt !== "string" || !prompt.trim()) return
+      this.promptTarget.value = prompt
+      this.promptInput()
+      this.ask()
+    }
     window.addEventListener("syft:input-rows-changed", this.handleInputRowsChanged)
     window.addEventListener("syft:tab-shown", this.handleTabShown)
+    window.addEventListener("syft:visualize-command", this.handleVoiceCommand)
     this.refreshInputShare()
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) this.supportWarningTarget.classList.remove("hidden")
@@ -608,6 +618,7 @@ export default class extends Controller {
     try { this.recognition?.stop() } catch { /* ignore */ }
     try { window.removeEventListener("syft:input-rows-changed", this.handleInputRowsChanged) } catch { /* ignore */ }
     try { window.removeEventListener("syft:tab-shown", this.handleTabShown) } catch { /* ignore */ }
+    try { window.removeEventListener("syft:visualize-command", this.handleVoiceCommand) } catch { /* ignore */ }
     this.destroyCharts()
   }
 

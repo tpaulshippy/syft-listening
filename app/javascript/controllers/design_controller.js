@@ -207,10 +207,29 @@ export default class extends Controller {
     this.setQuestion("Tap Start, then speak — I'll ask for each field.")
     this.setStatus("Idle. Tap Start to begin.")
     this.updateButtons()
+    // Global voice commands (Jev-routed): create a field or edit one by id.
+    // The action and field id are Jev decisions — never parsed here.
+    this.handleVoiceCommand = (event) => {
+      const detail = event?.detail || {}
+      if (detail.action !== "create" && detail.action !== "edit") return
+      this.fields = loadSchema()
+      if (detail.action === "edit") {
+        const exists = (this.fields || []).some((f) => f.id === detail.fieldId)
+        if (!exists) return
+        this.selectedId = detail.fieldId
+      } else {
+        this.selectedId = null
+      }
+      this.render()
+      if (this.active) this.stopSession()
+      this.start()
+    }
+    window.addEventListener("syft:design-command", this.handleVoiceCommand)
   }
 
   disconnect() {
     this.stopSession()
+    try { window.removeEventListener("syft:design-command", this.handleVoiceCommand) } catch { /* ignore */ }
   }
 
   stopSession() {

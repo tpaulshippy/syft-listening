@@ -191,4 +191,68 @@ RSpec.describe "Studio", type: :request do
       expect(response).to have_http_status(:bad_gateway)
     end
   end
+
+  describe "POST /jev_command" do
+    it "rejects empty transcript" do
+      post "/jev_command", params: { transcript: "", api_key: "ts_test" }
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    it "rejects missing api key" do
+      post "/jev_command", params: { transcript: "create a new field", api_key: "" }
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it "rejects an unknown current tab" do
+      post "/jev_command", params: { transcript: "create a new field", current_tab: "nope", api_key: "ts_test" }
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    it "builds the Jev-only router questions from fields and row count" do
+      http = instance_double(Net::HTTP)
+      upstream = instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:use_ssl=)
+      allow(http).to receive(:open_timeout=)
+      allow(http).to receive(:read_timeout=)
+      allow(http).to receive(:request) do |req|
+        body = JSON.parse(req.body)
+        expect(body["model"]).to eq("jev-latest")
+        expect(body["state"]["transcript"]).to include("third row")
+        expect(body["state"]["current_tab"]).to eq("input")
+        questions = body["questions"]
+        expect(questions["destination"]["criteria"]).to include("design", "input", "visualize")
+        expect(questions["design_target"]["criteria"]).to include("new_field", "none", "f1")
+        expect(questions["design_target"]["criteria"]["f1"]).to include("Name")
+        expect(questions["row_target"]["criteria"]).to include("new_row", "none", "row_1", "row_3")
+        expect(questions["row_target"]["criteria"]).not_to include("row_4")
+        expect(questions.keys).to contain_exactly("destination", "design_target", "row_target")
+        upstream
+      end
+
+      post "/jev_command", params: {
+        transcript: "edit the third row",
+        current_tab: "input",
+        fields: [{ id: "f1", name: "Name" }],
+        row_count: 3,
+        columns: ["Name"],
+        api_key: "ts_test"
+      }
+      expect(response).to have_http_status(:success)
+      parsed = JSON.parse(response.body)
+      expect(parsed["question_count"]).to eq(3)
+    end
+
+    it "returns bad gateway on Jev timeout" do
+      http = instance_double(Net::HTTP)
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:use_ssl=)
+      allow(http).to receive(:open_timeout=)
+      allow(http).to receive(:read_timeout=)
+      allow(http).to receive(:request).and_raise(Net::ReadTimeout)
+
+      post "/jev_command", params: { transcript: "visualize totals by day", api_key: "ts_test" }
+      expect(response).to have_http_status(:bad_gateway)
+    end
+  end
 end

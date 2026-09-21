@@ -16,6 +16,7 @@ Rails.application.routes.draw do
   # Generalized voice UI studio (schema-driven questions, Chart.js render)
   get "/studio", to: "studio#show", as: "studio"
   post "/jev_studio", to: "studio#analyze", as: "jev_studio"
+  post "/jev_command", to: "studio#command", as: "jev_command"
 
   # Defines the root path route ("/")
   root "speech#show"

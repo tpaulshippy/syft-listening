@@ -421,10 +421,30 @@ export default class extends Controller {
     this.setQuestion("Tap Start, then speak — I'll ask each question in order.")
     this.setStatus("Idle. Tap Start to begin.")
     this.updateButtons()
+    // Global voice commands (Jev-routed): add a row or edit one by index.
+    // The action and row index are Jev decisions — never parsed here.
+    this.handleVoiceCommand = (event) => {
+      const detail = event?.detail || {}
+      if (detail.action !== "add" && detail.action !== "edit") return
+      this.schema = loadSchema()
+      this.rows = loadRows()
+      if (detail.action === "edit") {
+        const i = Number(detail.rowIndex)
+        if (!Number.isInteger(i) || i < 0 || i >= this.rows.length) return
+        this.selectedIndex = i
+      } else {
+        this.selectedIndex = null
+      }
+      this.render()
+      if (this.active) this.stopSession()
+      this.start()
+    }
+    window.addEventListener("syft:input-command", this.handleVoiceCommand)
   }
 
   disconnect() {
     this.stopSession()
+    try { window.removeEventListener("syft:input-command", this.handleVoiceCommand) } catch { /* ignore */ }
   }
 
   stopSession() {

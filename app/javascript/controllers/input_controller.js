@@ -261,11 +261,14 @@ export function validateGroup(group, values) {
   }
   return { ok: true }
 }
-// Merges one prompt's Jev answers onto 1-2 fields. `transcript` is only the
-// verbatim value carrier for text/time/email (used when Jev's validity noul
-// confirms) — it is never parsed or matched. Dates ride Jev's month/day/
-// year choices (composed to ISO above); numbers are Jev-validated then
-// coerced with Number(). Anything unsure repeats.
+// Merges one prompt's Jev answers onto 1-2 fields. `transcript` is the
+// verbatim value carrier for text/time/email — it is never parsed or
+// matched. Dates ride Jev's month/day/year choices (composed to ISO
+// above); numbers are Jev-validated then coerced with Number(). Text has
+// no constraints (any non-empty speech is valid), so a hedged validity
+// noul never drops what the user said — only an explicit Jev veto or a
+// missing response repeats. Time/email keep the validity gate (a
+// non-time/non-email must not save). Anything else unsure repeats.
 export function valuesFromAnswers(answers, group, transcript) {
   const values = {}
   const usedFallback = []
@@ -312,6 +315,22 @@ export function valuesFromAnswers(answers, group, transcript) {
       const num = valid ? numberFromTranscript(transcript) : null
       if (num === null) usedFallback.push(`valid${suffix}`)
       values[field.id] = num
+    } else if (field.type === "text") {
+      // Verbatim trust: any non-empty transcript IS the value. Jev's
+      // validity noul only vetoes (explicit false); a hedge never drops
+      // speech — the control choice already routes skip/repeat. No Jev
+      // response at all (offline) still repeats.
+      const t = String(transcript ?? "").trim()
+      const responded = answers != null && Object.keys(answers).length > 0
+      const valid = noulBool(answers?.[`valid${suffix}`])
+      if (!t || !responded) {
+        usedFallback.push(`valid${suffix}`)
+        values[field.id] = null
+      } else if (valid === false) {
+        values[field.id] = null
+      } else {
+        values[field.id] = t
+      }
     } else {
       const valid = noulBool(answers?.[`valid${suffix}`])
       if (valid === null) usedFallback.push(`valid${suffix}`)

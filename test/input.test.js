@@ -127,6 +127,33 @@ describe("input values", () => {
     expect(usedFallback).toEqual(["month", "day", "year"])
   })
 
+  it("stores verbatim text even when Jev hedges on validity", () => {
+    const hedged = valuesFromAnswers({
+      control: { choice: "answer", confidence: 0.9 },
+      valid: { noul: 0.6 },
+    }, [NAME], "Roman")
+    expect(hedged.values).toEqual({ e: "Roman" })
+    expect(hedged.usedFallback).toEqual([])
+  })
+
+  it("still repeats text when Jev never responded or nothing was heard", () => {
+    const offline = valuesFromAnswers({}, [NAME], "Roman")
+    expect(offline.values.e).toBeNull()
+    expect(offline.usedFallback).toContain("valid")
+    const empty = valuesFromAnswers({ control: { choice: "answer", confidence: 0.9 } }, [NAME], "   ")
+    expect(empty.values.e).toBeNull()
+    expect(empty.usedFallback).toContain("valid")
+  })
+
+  it("lets control route skip even when Jev vetoes text validity", () => {
+    const skipped = valuesFromAnswers({
+      control: { choice: "skip", confidence: 0.9 },
+      valid: { noul: 0.05 },
+    }, [NAME], "skip")
+    expect(skipped.values.e).toBeNull()
+    expect(skipped.usedFallback).toEqual([])
+  })
+
   it("coerces Jev-validated numbers: digits via Number(), words via tables", () => {
     const AGE = { id: "g", name: "Age", type: "number", required: true, options: [] }
     const ok = valuesFromAnswers({ valid: { noul: 0.95 } }, [AGE], "42")

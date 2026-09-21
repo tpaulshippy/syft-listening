@@ -8,7 +8,7 @@ import {
   rowsToDataset,
   rowTableHtml,
   editPromptFor,
-  parseRowMenu,
+  rowIntentFromAnswers,
 } from "../app/javascript/controllers/input_controller.js"
 
 const YES_NO = { id: "a", name: "Subscribe", type: "yes_no", required: false, options: [] }
@@ -107,9 +107,10 @@ describe("voice row edit", () => {
     expect(editPromptFor(genre, "")).toContain("Currently empty.")
   })
 
-  it("routes edit versus delete", () => {
-    expect(parseRowMenu("edit it")).toBe("edit")
-    expect(parseRowMenu("delete")).toBe("delete")
-    expect(parseRowMenu("scifi")).toBeNull()
+  it("routes edit versus delete through Jev first", () => {
+    expect(rowIntentFromAnswers({ intent: { choice: "delete", confidence: 0.9 } }, "whatever").intent).toBe("delete")
+    expect(rowIntentFromAnswers({}, "edit it").intent).toBe("edit")
+    expect(rowIntentFromAnswers({}, "delete").intent).toBe("delete")
+    expect(rowIntentFromAnswers({}, "scifi").intent).toBeNull()
   })
 })

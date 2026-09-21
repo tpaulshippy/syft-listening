@@ -48,7 +48,9 @@ class DesignController < ApplicationController
     when "required" then build_required
     when "required_fields" then build_required_fields
     when "session_intent" then build_session_intent
-    else { error: "Unknown step (expected classify, option_intent, required, required_fields, session_intent)" }
+    when "edit_intent" then build_edit_intent
+    when "change_type" then build_change_type
+    else { error: "Unknown step (expected classify, option_intent, required, required_fields, session_intent, edit_intent, change_type)" }
     end
   end
 
@@ -174,6 +176,47 @@ class DesignController < ApplicationController
             edit_last: "Edit or rename the last field",
             delete_last: "Delete or remove the last field"
           }
+        }
+      }
+    }
+  end
+
+  # Voice edit menu: which aspect of the tapped field does the speaker name?
+  def build_edit_intent
+    transcript = params[:transcript].to_s.strip
+    return { error: "No transcript provided" } if transcript.blank?
+
+    {
+      state: { transcript: transcript, field_name: params[:field_name].to_s.strip },
+      questions: {
+        "intent" => {
+          type: "choice",
+          instructions: "Which part of `field_name` does the speaker want to change in `transcript`?",
+          criteria: {
+            name: "Rename the field (its name or title)",
+            type: "Change the data type",
+            options: "Change the fixed list of options",
+            required: "Change whether the field is required",
+            remove: "Delete or remove the whole field",
+            done: "Nothing more (done, finished)"
+          }
+        }
+      }
+    }
+  end
+
+  # Voice retype: the speaker names a new data type for an existing field.
+  def build_change_type
+    transcript = params[:transcript].to_s.strip
+    return { error: "No transcript provided" } if transcript.blank?
+
+    {
+      state: { transcript: transcript, field_name: params[:field_name].to_s.strip },
+      questions: {
+        "field_type" => {
+          type: "choice",
+          instructions: "What data type does the speaker want for `field_name` in `transcript`?",
+          criteria: field_type_criteria
         }
       }
     }

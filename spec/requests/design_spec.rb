@@ -74,8 +74,7 @@ RSpec.describe "Design", type: :request do
       expect(response).to have_http_status(:success)
     end
 
-    it "builds one required noul per finished field" do
-      http = stub_jev
+    it "builds one required noul per finished field" do      http = stub_jev
       allow(http).to receive(:request) do |req|
         body = JSON.parse(req.body)
         expect(body["state"]["transcript"]).to eq("email and birthday")
@@ -96,6 +95,31 @@ RSpec.describe "Design", type: :request do
     it "rejects empty transcripts on intent steps" do
       post "/jev_design", params: { step: "required", transcript: "", api_key: "ts_test" }
       expect(response).to have_http_status(:bad_request)
+    end
+
+    it "builds an edit intent choice for the voice edit menu" do
+      http = stub_jev
+      allow(http).to receive(:request) do |req|
+        body = JSON.parse(req.body)
+        expect(body["state"]["transcript"]).to eq("change the name")
+        expect(body["questions"]["intent"]["criteria"]).to include("name", "type", "options", "required", "remove", "done")
+        instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
+      end
+
+      post "/jev_design", params: { step: "edit_intent", transcript: "change the name", field_name: "Genre", api_key: "ts_test" }
+      expect(response).to have_http_status(:success)
+    end
+
+    it "builds a change_type choice over the 8-type registry" do
+      http = stub_jev
+      allow(http).to receive(:request) do |req|
+        body = JSON.parse(req.body)
+        expect(body["questions"]["field_type"]["criteria"]).to include("number", "email", "choice_multiple")
+        instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
+      end
+
+      post "/jev_design", params: { step: "change_type", transcript: "make it a number", field_name: "Age", api_key: "ts_test" }
+      expect(response).to have_http_status(:success)
     end
 
     it "returns bad gateway on Jev timeout" do

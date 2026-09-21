@@ -161,8 +161,21 @@ class StudioController < ApplicationController
     { columns: columns, row_count: rows.size }
   end
 
+  # No regex anywhere in this app: slugify is a char loop, type checks read
+  # parts and digits directly.
   def slugify(name, taken)
-    base = name.to_s.downcase.gsub(/[^a-z0-9]+/, "_").gsub(/^_|_$/, "")
+    base = ""
+    last_was_gap = true
+    name.to_s.downcase.each_char do |ch|
+      if (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9")
+        base += ch
+        last_was_gap = false
+      elsif !last_was_gap
+        base += "_"
+        last_was_gap = true
+      end
+    end
+    base = base.chomp("_")
     base = "col" if base.empty?
     slug = base
     i = 2
@@ -182,14 +195,31 @@ class StudioController < ApplicationController
     "categorical"
   end
 
+  def digit_string?(str)
+    !str.empty? && str.each_char.all? { |c| c >= "0" && c <= "9" }
+  end
+
+  def decimal_string?(str)
+    s = str.start_with?("-") ? str[1..] : str
+    return false if s.nil? || s.empty?
+
+    parts = s.split(".")
+    parts.size <= 2 && parts.all? { |part| digit_string?(part) }
+  end
+
   def numeric_value?(v)
     return true if v.is_a?(Numeric)
 
-    v.is_a?(String) && v.strip.match?(/\A-?\d+(\.\d+)?\z/)
+    v.is_a?(String) && decimal_string?(v.strip)
   end
 
   def temporal_value?(v)
-    v.is_a?(String) && v.strip.match?(/\A\d{4}-\d{2}(-\d{2})?\z/)
+    return false unless v.is_a?(String)
+
+    parts = v.strip.split("-")
+    (parts.size == 2 && digit_string?(parts[0]) && parts[0].size == 4 && digit_string?(parts[1]) && parts[1].size == 2) ||
+      (parts.size == 3 && digit_string?(parts[0]) && parts[0].size == 4 && digit_string?(parts[1]) && parts[1].size == 2 &&
+        digit_string?(parts[2]) && parts[2].size == 2)
   end
 
   def truncate_rows(rows)

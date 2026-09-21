@@ -9,8 +9,7 @@ import {
   sessionIntentFromAnswers,
   fieldsNeedingRequired,
   fieldCardHtml,
-  parseEditMenu,
-  parseFieldType,
+  editIntentFromAnswers,
   editMenuPrompt,
   addOption,
   validateFieldName,
@@ -134,17 +133,18 @@ describe("field card", () => {
   })
 })
 
-describe("voice edit menu", () => {
-  it("routes aspects, removal, and finish", () => {
-    expect(parseEditMenu("name")).toBe("name")
-    expect(parseEditMenu("rename it")).toBe("name")
-    expect(parseEditMenu("change the name")).toBe("name")
-    expect(parseEditMenu("change the type")).toBe("type")
-    expect(parseEditMenu("add an option")).toBe("options")
-    expect(parseEditMenu("make it required")).toBe("required")
-    expect(parseEditMenu("remove it")).toBe("remove")
-    expect(parseEditMenu("done")).toBe("done")
-    expect(parseEditMenu("scifi")).toBeNull()
+describe("voice edit menu (Jev first)", () => {
+  it("trusts the edit_intent choice, falls back to whole words", () => {
+    expect(editIntentFromAnswers({ intent: { choice: "type", confidence: 0.9 } }, "whatever").aspect).toBe("type")
+    expect(editIntentFromAnswers({}, "name").aspect).toBe("name")
+    expect(editIntentFromAnswers({}, "rename it").aspect).toBe("name")
+    expect(editIntentFromAnswers({}, "change the name").aspect).toBe("name")
+    expect(editIntentFromAnswers({}, "change the type").aspect).toBe("type")
+    expect(editIntentFromAnswers({}, "add an option").aspect).toBe("options")
+    expect(editIntentFromAnswers({}, "make it required").aspect).toBe("required")
+    expect(editIntentFromAnswers({}, "remove it").aspect).toBe("remove")
+    expect(editIntentFromAnswers({}, "done").aspect).toBe("done")
+    expect(editIntentFromAnswers({}, "scifi").aspect).toBeNull()
   })
 
   it("only offers options for choice fields", () => {
@@ -152,12 +152,8 @@ describe("voice edit menu", () => {
     expect(editMenuPrompt({ name: "Age", type: "number" })).not.toContain("options")
   })
 
-  it("hears field types with synonyms", () => {
-    expect(parseFieldType("multiple choice")).toBe("choice_multiple")
-    expect(parseFieldType("dropdown")).toBe("choice_single")
-    expect(parseFieldType("yes or no")).toBe("yes_no")
-    expect(parseFieldType("email address")).toBe("email")
-    expect(parseFieldType("birthday")).toBe("date")
-    expect(parseFieldType("scifi")).toBeNull()
+  it("hears retypes through the change_type merger", () => {
+    expect(typeFromAnswers({ field_type: { choice: "number", confidence: 0.9 } }, "make it a number").type).toBe("number")
+    expect(typeFromAnswers({}, "make it multiple choice").type).toBe("choice_multiple")
   })
 })

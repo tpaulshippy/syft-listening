@@ -82,23 +82,111 @@ function noulBool(answer) {
   return p >= 0.5
 }
 
+// Word tokens for the no-key fallbacks: lowercase words, edge punctuation
+// stripped. Understanding goes to Jev first; whole-word checks are last resort.
+function isWordChar(ch) {
+  return (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9")
+}
+
+export function words(text) {
+  const out = []
+  for (const raw of String(text || "").toLowerCase().split(" ")) {
+    let s = raw
+    while (s && !isWordChar(s[0])) s = s.slice(1)
+    while (s && !isWordChar(s[s.length - 1])) s = s.slice(0, -1)
+    if (s) out.push(s)
+  }
+  return out
+}
+
+export function hasWord(text, ...candidates) {
+  const ws = words(text)
+  return candidates.some((c) => ws.includes(c))
+}
+
+function startsWithPhrase(text, ...phrases) {
+  const t = String(text || "").toLowerCase().trim()
+  return phrases.some((ph) => t === ph || t.startsWith(ph + " ") || t.startsWith(ph))
+}
+
+function isDigit(ch) {
+  return ch >= "0" && ch <= "9"
+}
+
+function allDigits(s) {
+  return s.length > 0 && [...s].every(isDigit)
+}
+
+function isDecimalString(t) {
+  let s = t
+  if (s.startsWith("-")) s = s.slice(1)
+  if (!s) return false
+  const parts = s.split(".")
+  return parts.length <= 2 && parts.every(allDigits)
+}
+
+function looksLikeEmail(t) {
+  if (!t || t.includes(" ")) return false
+  const sides = t.split("@")
+  if (sides.length !== 2 || !sides[0] || !sides[1]) return false
+  const domain = sides[1].split(".")
+  return domain.length >= 2 && domain.every((part) => part.length > 0)
+}
+
+function looksLikeDate(t) {
+  const parts = t.split("-")
+  const lens = parts.length === 2 ? [4, 2] : parts.length === 3 ? [4, 2, 2] : null
+  return !!lens && parts.every((part, i) => part.length === lens[i] && allDigits(part))
+}
+
+function looksLikeTime(t) {
+  let s = t.toLowerCase()
+  for (const suffix of [" am", " pm", "am", "pm", " a.m.", " p.m."]) {
+    if (s.endsWith(suffix)) { s = s.slice(0, -suffix.length).trim(); break }
+  }
+  const parts = s.split(":")
+  return parts.length === 2 && parts[0].length >= 1 && parts[0].length <= 2 &&
+    allDigits(parts[0]) && parts[1].length === 2 && allDigits(parts[1])
+}
+
+// Splits "a, b and c" into ["a", "b", "c"]: commas/semicolons/pluses split,
+// whole-word "and" does too ("candy" survives).
+function splitChoices(t) {
+  const chunks = []
+  for (const c1 of String(t).split(",")) {
+    for (const c2 of c1.split(";")) {
+      for (const c3 of c2.split("+")) chunks.push(c3)
+    }
+  }
+  const out = []
+  for (const chunk of chunks) {
+    const kept = []
+    for (const token of chunk.split(" ")) {
+      const w = token.trim().toLowerCase()
+      if (w && w !== "and") kept.push(token.trim())
+    }
+    if (kept.length) out.push(kept.join(" "))
+  }
+  return out.filter(Boolean)
+}
+
 // Offline validity per type (fallback + block/retry reasons).
 export function offlineCheck(field, value) {
   const t = String(value ?? "").trim()
   if (!t) return { ok: !field.required, reason: field.required ? "An answer is required." : "" }
   switch (field.type) {
     case "number":
-      return /^-?\d+(\.\d+)?$/.test(t) ? { ok: true } : { ok: false, reason: "That didn't look like a number." }
+      return isDecimalString(t) ? { ok: true } : { ok: false, reason: "That didn't look like a number." }
     case "email":
-      return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(t) ? { ok: true } : { ok: false, reason: "That didn't look like an email." }
+      return looksLikeEmail(t) ? { ok: true } : { ok: false, reason: "That didn't look like an email." }
     case "date":
-      return /^\d{4}-\d{2}(-\d{2})?$/.test(t) ? { ok: true } : { ok: false, reason: "Use YYYY-MM-DD." }
+      return looksLikeDate(t) ? { ok: true } : { ok: false, reason: "Use YYYY-MM-DD." }
     case "time":
-      return /^\d{1,2}:\d{2}(\s?[AP]M)?$/i.test(t) ? { ok: true } : { ok: false, reason: "Use HH:MM." }
+      return looksLikeTime(t) ? { ok: true } : { ok: false, reason: "Use HH:MM." }
     case "yes_no": {
-      const p = t.toLowerCase()
-      if (/^(yes|yeah|yep|sure|true)\b/.test(p)) return { ok: true, value: "yes" }
-      if (/^(no|nope|nah|false)\b/.test(p)) return { ok: true, value: "no" }
+      const first = words(t)[0]
+      if (["yes", "yeah", "yep", "sure", "true"].includes(first)) return { ok: true, value: "yes" }
+      if (["no", "nope", "nah", "false"].includes(first)) return { ok: true, value: "no" }
       return { ok: false, reason: "Say yes or no." }
     }
     case "choice_single": {
@@ -106,7 +194,7 @@ export function offlineCheck(field, value) {
       return hit ? { ok: true, value: hit } : { ok: false, reason: `Pick one of: ${(field.options || []).join(", ")}.` }
     }
     case "choice_multiple": {
-      const parts = t.split(/[,;+]|\band\b/i).map((s) => s.trim()).filter(Boolean)
+      const parts = splitChoices(t)
       const hits = parts.map((p) => (field.options || []).find((o) => o.toLowerCase() === p.toLowerCase())).filter(Boolean)
       return hits.length ? { ok: true, value: [...new Set(hits)] } : { ok: false, reason: `Pick from: ${(field.options || []).join(", ")}.` }
     }
@@ -118,14 +206,31 @@ export function offlineCheck(field, value) {
 export function controlFromAnswers(answers, transcript) {
   const hit = confidentChoice(answers?.control, CONTROL_INTENTS)
   if (hit) return { control: hit, usedFallback: [] }
-  const p = String(transcript || "").toLowerCase().trim()
-  if (/^(skip|next|don'?t answer)/.test(p)) return { control: "skip", usedFallback: ["control"] }
-  if (/^(repeat|pardon|say again|what)/.test(p)) return { control: "repeat", usedFallback: ["control"] }
-  if (/^(go back|back|previous|edit last)/.test(p)) return { control: "edit_previous", usedFallback: ["control"] }
-  if (/^(finished|done|save|that'?s all)/.test(p) && p.split(/\s+/).length <= 3) {
-    return { control: "finish_row", usedFallback: ["control"] }
+  const first = words(transcript)[0]
+  if (["skip", "next"].includes(first) || startsWithPhrase(transcript, "don't answer")) {
+    return { control: "skip", usedFallback: ["control"] }
+  }
+  if (["repeat", "pardon", "what"].includes(first) || startsWithPhrase(transcript, "say again")) {
+    return { control: "repeat", usedFallback: ["control"] }
+  }
+  if (startsWithPhrase(transcript, "go back", "edit last") || ["back", "previous"].includes(first)) {
+    return { control: "edit_previous", usedFallback: ["control"] }
+  }
+  if (["finished", "done", "save"].includes(first) || startsWithPhrase(transcript, "that's all")) {
+    if (words(transcript).length <= 3) return { control: "finish_row", usedFallback: ["control"] }
   }
   return { control: "answer", usedFallback: ["control"] }
+}
+
+export const ROW_INTENTS = ["edit", "delete"]
+
+// Voice row menu: Jev decides edit vs delete from the `row_intent` choice.
+export function rowIntentFromAnswers(answers, transcript) {
+  const hit = confidentChoice(answers?.intent, ROW_INTENTS)
+  if (hit) return { intent: hit, usedFallback: [] }
+  if (hasWord(transcript, "delete", "remove")) return { intent: "delete", usedFallback: ["intent"] }
+  if (hasWord(transcript, "edit", "change", "yes", "update")) return { intent: "edit", usedFallback: ["intent"] }
+  return { intent: null, usedFallback: ["intent"] }
 }
 
 // Merges one prompt's Jev answers onto 1-2 fields. Values for open types
@@ -176,7 +281,9 @@ export function valuesFromAnswers(answers, group, transcript) {
 }
 
 export function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
+  // No regex anywhere in this app: plain string replacements only.
+  return String(s ?? "").split("&").join("&amp;").split("<").join("&lt;")
+    .split(">").join("&gt;").split('"').join("&quot;").split("'").join("&#39;")
 }
 
 // Auto-share payload for Visualize: rows already keyed by field name, so
@@ -206,14 +313,6 @@ export function rowTableHtml(schema, rows, selectedIndex = null) {
 export function editPromptFor(field, current) {
   const display = Array.isArray(current) ? current.join(", ") : String(current ?? "").trim()
   return `${promptFor([field])} Currently ${display || "empty"}. Say a new value, or keep.`
-}
-
-// Row-menu routing from a spoken reply: edit the tapped row or delete it.
-export function parseRowMenu(text) {
-  const p = String(text || "").toLowerCase().trim()
-  if (/^(delete|remove)( it| that| this)?$/.test(p)) return "delete"
-  if (/^(edit|change|yes|update)( it| that| this)?$/.test(p)) return "edit"
-  return null
 }
 
 // --- Stimulus controller: voice-only session -----------------------------------
@@ -572,7 +671,26 @@ export default class extends Controller {
 
   async submitRowMenu(text) {
     if (!this.active) return
-    const want = parseRowMenu(text)
+    const key = localStorage.getItem("syft_jev_key") || ""
+    let merged = { intent: null, usedFallback: ["intent", "no-key"] }
+    if (key) {
+      try {
+        const res = await fetch("/jev_input", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": document.querySelector('meta[name="csrf-token"]')?.content },
+          body: JSON.stringify({ step: "row_intent", transcript: text, api_key: key }),
+        })
+        const data = await res.json().catch(() => ({}))
+        merged = rowIntentFromAnswers(res.ok ? data.answers : {}, text)
+      } catch {
+        merged = rowIntentFromAnswers({}, text)
+      }
+    } else {
+      merged = rowIntentFromAnswers({}, text)
+    }
+    const want = merged.intent
+    this.logInspector(`row intent = ${want}${merged.usedFallback.length ? " · fallback" : ""}`)
+    if (!this.active) return
     if (want === "delete") {
       const n = this.selectedIndex + 1
       this.rows.splice(this.selectedIndex, 1)
@@ -608,13 +726,14 @@ export default class extends Controller {
     const row = this.rows[this.selectedIndex]
     if (!row) return this.endEdit("Record is gone.")
     const field = this.schema[this.editIdx]
-    const p = String(text || "").toLowerCase().trim()
-    if (/^(keep|skip|next|same|no change)$/.test(p)) {
+    // Exact session commands act as voice-buttons; values go to Jev.
+    const kept = ["keep", "skip", "next", "same", "no change"].includes(String(text || "").toLowerCase().trim())
+    if (kept) {
       this.editIdx += 1
       this.askEditField()
       return
     }
-    if (/^(go back|back|previous)$/.test(p)) {
+    if (["go back", "back", "previous"].includes(String(text || "").toLowerCase().trim())) {
       this.editIdx = Math.max(0, this.editIdx - 1)
       delete this.editValues[this.schema[this.editIdx].id]
       this.setStatus("Went back one question.")

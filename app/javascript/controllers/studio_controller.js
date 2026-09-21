@@ -129,12 +129,22 @@ export function parseCsv(text) {
 }
 
 export function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
+  // No regex anywhere in this app: plain string replacements only.
+  return String(s ?? "").split("&").join("&amp;").split("<").join("&lt;")
+    .split(">").join("&gt;").split('"').join("&quot;").split("'").join("&#39;")
 }
 
 export function slugify(name, taken = {}) {
-  let base = String(name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")
+  // Char loop: lowercase alphanumerics, runs of anything else become one "_".
+  const lower = String(name ?? "").toLowerCase()
+  let base = ""
+  let lastWasGap = true
+  for (const ch of lower) {
+    if (ch >= "a" && ch <= "z" || ch >= "0" && ch <= "9") { base += ch; lastWasGap = false }
+    else if (!lastWasGap) { base += "_"; lastWasGap = true }
+  }
   if (!base) base = "col"
+  if (base.endsWith("_")) base = base.slice(0, -1)
   let slug = base
   let i = 2
   while (taken[slug]) { slug = `${base}_${i}`; i += 1 }
@@ -142,13 +152,33 @@ export function slugify(name, taken = {}) {
   return slug
 }
 
+function isDigit(ch) {
+  return ch >= "0" && ch <= "9"
+}
+
+function isDecimalString(t) {
+  let s = t
+  if (s.startsWith("-")) s = s.slice(1)
+  if (!s) return false
+  const parts = s.split(".")
+  if (parts.length > 2) return false
+  return parts.every((part) => part.length > 0 && [...part].every(isDigit))
+}
+
 export function isNumericValue(v) {
   if (typeof v === "number" && Number.isFinite(v)) return true
-  return typeof v === "string" && v.trim().match(/^-?\d+(\.\d+)?$/) !== null
+  return typeof v === "string" && isDecimalString(v.trim())
+}
+
+function isDateParts(parts, lens) {
+  return parts.length === lens.length &&
+    parts.every((part, i) => part.length === lens[i] && [...part].every(isDigit))
 }
 
 export function isTemporalValue(v) {
-  return typeof v === "string" && v.trim().match(/^\d{4}-\d{2}(-\d{2})?$/) !== null
+  if (typeof v !== "string") return false
+  const parts = v.trim().split("-")
+  return isDateParts(parts, [4, 2]) || isDateParts(parts, [4, 2, 2])
 }
 
 export function columnType(values) {
@@ -271,7 +301,7 @@ export function defaultSpec(schema, prompt) {
   const cats = colsByType(schema, ["categorical", "temporal", "text"])
   const temporal = colsByType(schema, ["temporal"])
   // Name a column if the prompt mentions it.
-  const mentioned = (c) => p.includes(c.name.toLowerCase()) || p.includes(c.slug.replace(/_/g, " "))
+  const mentioned = (c) => p.includes(c.name.toLowerCase()) || p.includes(c.slug.split("_").join(" "))
   const named = (schema?.columns || []).find(mentioned)
   const numericNamed = numeric.find(mentioned)?.slug || null
   let view = "table"
@@ -385,9 +415,22 @@ export const LAYOUTS = ["single", "stack", "side-by-side", "grid"]
 export const PANEL_COUNT_WORDS = { one: 1, two: 2, three: 3 }
 
 // Voice prompts compose with "and / plus / with": each clause becomes a panel.
+// Whole-word split (no regex): "candy" never splits, "and" always does.
+const CLAUSE_WORDS = ["and", "plus", "with", "alongside"]
+
 export function splitPrompt(prompt) {
-  return String(prompt || "").split(/\s+(?:and|plus|with|alongside)\s+/i)
-    .map((s) => s.trim()).filter(Boolean).slice(0, MAX_PANELS)
+  const clauses = []
+  let current = []
+  for (const token of String(prompt || "").split(" ")) {
+    if (CLAUSE_WORDS.includes(token.toLowerCase()) && current.length) {
+      clauses.push(current.join(" "))
+      current = []
+    } else {
+      current.push(token)
+    }
+  }
+  if (current.join(" ").trim()) clauses.push(current.join(" "))
+  return clauses.map((s) => s.trim()).filter(Boolean).slice(0, MAX_PANELS)
 }
 
 export function defaultDashboard(schema, prompt) {

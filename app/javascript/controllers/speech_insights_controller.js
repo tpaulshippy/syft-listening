@@ -10,7 +10,8 @@ export function clampInt(raw, min, max, fallback) {
 }
 
 export function countWords(text) {
-  return (text || "").split(/\s+/).filter(Boolean).length
+  // No regex anywhere in this app: split on the plain space, drop empties.
+  return (text || "").split(" ").filter(Boolean).length
 }
 
 export function noulConfidence(p) {
@@ -600,7 +601,7 @@ export default class extends Controller {
     this.lastAnalyzedEnd = this.analyzingEnd
     this.lastErrorEnd = null
     this.renderAnswers(answers)
-    this.setStatus(`Analyzed: “${state.replace(/\s+/g, " ").trim()}”`)
+    this.setStatus(`Analyzed: “${state.split(" ").filter(Boolean).join(" ")}”`)
   }
 
   handleAnalyzeError(data, status) {
@@ -678,9 +679,12 @@ export default class extends Controller {
   }
 
   hexToRgba(hex, alpha) {
-    const m = /^#?([0-9a-f]{6})$/i.exec(hex || "")
-    if (!m) return hex
-    const n = parseInt(m[1], 16)
+    // Plain char check: optional "#", then exactly six hex digits.
+    const s = String(hex || "").startsWith("#") ? String(hex).slice(1) : String(hex || "")
+    const isHex = s.length === 6 && [...s].every((c) =>
+      (c >= "0" && c <= "9") || (c >= "a" && c <= "f") || (c >= "A" && c <= "F"))
+    if (!isHex) return hex
+    const n = parseInt(s, 16)
     return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`
   }
 

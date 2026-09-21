@@ -110,6 +110,19 @@ RSpec.describe "Input", type: :request do
       expect(response).to have_http_status(:bad_request)
     end
 
+    it "builds a row intent choice for the voice row menu" do
+      http = stub_jev
+      allow(http).to receive(:request) do |req|
+        body = JSON.parse(req.body)
+        expect(body["state"]["transcript"]).to eq("edit it")
+        expect(body["questions"]["intent"]["criteria"]).to include("edit", "delete")
+        instance_double(Net::HTTPResponse, code: "200", body: { answers: {} }.to_json)
+      end
+
+      post "/jev_input", params: { step: "row_intent", transcript: "edit it", api_key: "ts_test" }
+      expect(response).to have_http_status(:success)
+    end
+
     it "returns bad gateway on Jev timeout" do
       http = instance_double(Net::HTTP)
       allow(Net::HTTP).to receive(:new).and_return(http)

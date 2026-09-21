@@ -29,4 +29,19 @@ export default [
       "no-restricted-imports": ["error", { patterns: ["./*", "../*"] }],
     },
   },
+  {
+    // Understanding belongs to Jev, not pattern matching: regex literals
+    // are banned from app JavaScript (mechanical transforms use char loops
+    // and plain string ops instead).
+    files: ["app/javascript/**/*.js"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: 'Literal[regex], NewExpression[callee.name="RegExp"]',
+          message: "No regex in app code — ask Jev, or use plain string ops.",
+        },
+      ],
+    },
+  },
 ]

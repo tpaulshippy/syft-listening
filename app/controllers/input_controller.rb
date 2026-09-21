@@ -45,7 +45,8 @@ class InputController < ApplicationController
     case step
     when "plan_group" then build_plan_group
     when "answer" then build_answer
-    else { error: "Unknown step (expected plan_group, answer)" }
+    when "row_intent" then build_row_intent
+    else { error: "Unknown step (expected plan_group, answer, row_intent)" }
     end
   end
 
@@ -150,6 +151,26 @@ class InputController < ApplicationController
         skip: "Skip this question (skip, next, don't answer)",
         edit_previous: "Go back and change the previous answer",
         finish_row: "Done with this record (finished, done, save it)"
+      }
+    }
+  end
+
+  # Voice row menu: change the tapped record or delete it?
+  def build_row_intent
+    transcript = params[:transcript].to_s.strip
+    return { error: "No transcript provided" } if transcript.blank?
+
+    {
+      state: { transcript: transcript },
+      questions: {
+        "intent" => {
+          type: "choice",
+          instructions: "What does the speaker want to do with the record in `transcript`?",
+          criteria: {
+            edit: "Change answers in the record (edit, change, update)",
+            delete: "Remove the whole record (delete, remove)"
+          }
+        }
       }
     }
   end

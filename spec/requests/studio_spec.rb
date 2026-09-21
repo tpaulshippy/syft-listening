@@ -25,7 +25,8 @@ RSpec.describe "Studio", type: :request do
       expect(body).not_to include('data-studio-target="prompt"')
       expect(body).not_to include("studio#usePrompt")
       expect(body).to include('data-studio-target="canvas"')
-      expect(body).to include('data-studio-target="apiKey"')
+      expect(body).to include('data-api-key-target="input"')
+      expect(body).not_to include('data-studio-target="apiKey"')
     end
   end
 

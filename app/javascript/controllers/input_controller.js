@@ -395,7 +395,7 @@ export function spokenEditPromptFor(field) {
 // in schema order, listens, and advances automatically from what the user says.
 export default class extends Controller {
   static targets = ["question", "status", "progress",
-    "rowsTable", "inspector", "voiceStatus", "apiKey", "stepHint"]
+    "rowsTable", "voiceStatus", "stepHint"]
 
   connect() {
     this.schema = loadSchema()
@@ -410,12 +410,8 @@ export default class extends Controller {
     this.recognition = null
     this.active = false
     this.awaiting = false
-    if (this.hasApiKeyTarget) {
-      this.apiKeyTarget.value = localStorage.getItem("syft_jev_key") || ""
-      this.apiKeyTarget.addEventListener("input", () => {
-        localStorage.setItem("syft_jev_key", this.apiKeyTarget.value.trim())
-      })
-    }
+    // The key lives in the single top-level card — read fresh at session
+    // start, never cached here.
     this.render()
     this.setQuestion("Say “add a new row” — I'll ask each question in order.")
     this.setStatus(this.rows.length ? `${this.rows.length} row${this.rows.length === 1 ? "" : "s"} saved.` : "No rows yet.")
@@ -648,7 +644,6 @@ export default class extends Controller {
       const p = Number(data.answers?.ask_together?.noul ?? NaN)
       if (!res.ok || Number.isNaN(p)) return false
       if (Math.abs(p - 0.5) * 2 < 0.5) return false
-      this.logInspector(`ask_together(${a.name}+${b.name}) = ${p >= 0.5}`)
       return p >= 0.5
     } catch {
       return false
@@ -665,7 +660,6 @@ export default class extends Controller {
     this.setStatus("Checking with Jev…")
     const key = localStorage.getItem("syft_jev_key") || ""
     let answers = {}
-    let fbNote = "no-key"
     if (key) {
       try {
         const res = await fetch("/jev_input", {
@@ -678,14 +672,13 @@ export default class extends Controller {
           }),
         })
         const data = await res.json().catch(() => ({}))
-        if (res.ok && data.answers) { answers = data.answers; fbNote = "" }
-      } catch { fbNote = "connection" }
+        if (res.ok && data.answers) answers = data.answers
+      } catch { /* offline: answers stay empty, question repeats */ }
     }
     const { control: rawControl, usedFallback: cfb } = controlFromAnswers(answers)
     const { values, usedFallback: vfb } = valuesFromAnswers(answers, this.group, text)
-    const { control, usedFallback: efb, assumed } = effectiveControl(rawControl, cfb, vfb)
+    const { control, usedFallback: efb } = effectiveControl(rawControl, cfb, vfb)
     const unsure = [...efb, ...vfb]
-    this.logInspector(`control=${control}${assumed ? " (assumed — Jev unsure, values confident)" : ""} values=${JSON.stringify(values)}${unsure.length || fbNote ? ` · unsure(${unsure.join(",")}${fbNote ? `,${fbNote}` : ""})` : ""}`)
     if (!this.active) return
     if (!control || unsure.length) {
       this.sayThenListen(`Sorry — ${spokenPromptFor(this.group)}`, `Sorry — ${promptFor(this.group)}`)
@@ -804,7 +797,6 @@ export default class extends Controller {
       merged = rowIntentFromAnswers({}, text)
     }
     const want = merged.intent
-    this.logInspector(`row intent = ${want}${merged.usedFallback.length ? " · fallback" : ""}`)
     if (!this.active) return
     if (want === "delete") {
       const n = this.selectedIndex + 1
@@ -861,7 +853,6 @@ export default class extends Controller {
     } else {
       merged = editFieldFromAnswers({}, this.schema)
     }
-    this.logInspector(`edit field = ${merged.fieldId}${merged.usedFallback.length ? " · unsure" : ""}`)
     if (!this.active) return
     const picked = (this.schema || []).findIndex((f) => f.id === merged.fieldId)
     if (picked < 0) {
@@ -891,12 +882,11 @@ export default class extends Controller {
     if (!row) return this.endEdit("Row is gone.")
     const field = this.schema[this.editIdx]
     this.setStatus("Checking with Jev…")
-    const { answers, fbNote } = await this.jevAnswer(text, [field])
+    const { answers } = await this.jevAnswer(text, [field])
     const { control: rawControl, usedFallback: cfb } = controlFromAnswers(answers)
     const { values, usedFallback: vfb } = valuesFromAnswers(answers, [field], text)
-    const { control, usedFallback: efb, assumed } = effectiveControl(rawControl, cfb, vfb)
+    const { control, usedFallback: efb } = effectiveControl(rawControl, cfb, vfb)
     const unsure = [...efb, ...vfb]
-    this.logInspector(`edit ${field.name}=${JSON.stringify(values[field.id])} control=${control}${assumed ? " (assumed — Jev unsure, values confident)" : ""}${unsure.length || fbNote ? ` · unsure(${unsure.join(",")}${fbNote ? `,${fbNote}` : ""})` : ""}`)
     if (!this.active) return
     // The shared control choice carries keep (skip) and go-back intents.
     if (!control || (control !== "skip" && control !== "edit_previous" && unsure.length)) {
@@ -1003,10 +993,4 @@ export default class extends Controller {
     if (this.hasRowsTableTarget) this.rowsTableTarget.innerHTML = rowTableHtml(this.schema, this.rows, this.selectedIndex)
   }
 
-  logInspector(line) {
-    if (!this.hasInspectorTarget) return
-    const div = document.createElement("div")
-    div.textContent = line
-    this.inspectorTarget.prepend(div)
-  }
 }

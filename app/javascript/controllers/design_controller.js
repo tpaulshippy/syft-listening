@@ -184,7 +184,7 @@ export function editMenuChoices(field) {
 // listens, and advances automatically from what the user says. No typing anywhere.
 export default class extends Controller {
   static targets = ["question",
-    "fieldList", "status", "inspector", "voiceStatus", "apiKey", "stepHint",
+    "fieldList", "status", "voiceStatus", "stepHint",
     "choices"]
 
   connect() {
@@ -196,13 +196,8 @@ export default class extends Controller {
     this.recognition = null
     this.active = false
     this.awaiting = false
-    const stored = localStorage.getItem("syft_jev_key") || ""
-    if (this.hasApiKeyTarget) {
-      this.apiKeyTarget.value = stored
-      this.apiKeyTarget.addEventListener("input", () => {
-        localStorage.setItem("syft_jev_key", this.apiKeyTarget.value.trim())
-      })
-    }
+    // The key lives in the single top-level card — read fresh at session
+    // start, never cached here.
     this.render()
     this.setQuestion("Say “create a new field” — I'll ask for each field.")
     this.setStatus(this.fields.length
@@ -469,7 +464,6 @@ export default class extends Controller {
       }
     }
     const intent = merged.intent
-    this.logInspector(`session intent = ${intent}${merged.usedFallback.length ? " · unsure" : ""}`)
     if (!this.active) return
     if (!intent) {
       this.sayThenListen(`Sorry — what should field ${this.fields.length + 1} be called? Say the name, or “finished” to end.`)
@@ -522,7 +516,6 @@ export default class extends Controller {
     // Jev decides the type from the name alone — never asked outright.
     // Unsure defaults to text; it can be retyped by voice when editing.
     this.pending.type = type || "text"
-    this.logInspector(`field_type = ${this.pending.type}${type ? "" : " (defaulted — Jev unsure)"}`)
     if (CHOICE_TYPES.includes(this.pending.type)) this.askOptions()
     else this.commitField()
   }
@@ -574,7 +567,6 @@ export default class extends Controller {
       }
     }
     const intent = merged.intent
-    this.logInspector(`option intent = ${intent}${merged.usedFallback.length ? " · unsure" : ""}`)
     if (!this.active) return
     if (!intent) {
       this.sayThenListen(`Sorry — say the next option, “done” to finish, or “remove last” to undo.`)
@@ -631,7 +623,6 @@ export default class extends Controller {
       }
     }
     if (merged.usedFallback.length) {
-      this.logInspector("required unsure — repeating")
       this.sayThenListen(`Sorry — which fields are required? Name them, or say all or none.`)
       return
     }
@@ -642,7 +633,6 @@ export default class extends Controller {
     }
     saveSchema(this.fields)
     this.render()
-    this.logInspector(`required = ${unasked.filter((f) => f.required).map((f) => f.name).join(", ") || "none"}`)
     if (!this.active) return
     const names = unasked.filter((f) => f.required).map((f) => f.name)
     this.speak(names.length ? `Marked ${names.join(", ")} as required.` : "Nothing marked required.", () => {
@@ -698,7 +688,6 @@ export default class extends Controller {
       merged = editIntentFromAnswers({}, text)
     }
     const aspect = merged.aspect
-    this.logInspector(`edit intent = ${aspect}${merged.usedFallback.length ? " · unsure" : ""}`)
     if (!this.active) return
     if (!aspect) {
       this.sayThenListen(`Sorry — what should I change?`)
@@ -757,11 +746,9 @@ export default class extends Controller {
       this.sayThenListen(`${err} Say the new name for ${field.name}.`)
       return
     }
-    const old = field.name
     field.name = clean
     saveSchema(this.fields)
     this.render()
-    this.logInspector(`renamed ${old} -> ${clean}`)
     this.askEditMenu(`Renamed to ${clean}.`)
   }
 
@@ -786,7 +773,6 @@ export default class extends Controller {
     }
     if (!this.active) return
     const type = typed.type
-    this.logInspector(`retyped ${field.name} -> ${type}${typed.usedFallback.length ? " · unsure" : ""}`)
     if (!type) {
       this.sayThenListen(`Sorry — what type should ${field.name} be?`)
       return
@@ -823,7 +809,6 @@ export default class extends Controller {
     }
     if (!this.active) return
     if (merged.required === null) {
-      this.logInspector("required unsure — repeating")
       this.sayThenListen(`Sorry — should ${field.name} be required?`)
       return
     }
@@ -832,7 +817,6 @@ export default class extends Controller {
     field.requiredDecided = true
     saveSchema(this.fields)
     this.render()
-    this.logInspector(`required(${field.name}) = ${required}`)
     this.askEditMenu(required ? "Now required." : "Now optional.")
   }
 
@@ -851,10 +835,4 @@ export default class extends Controller {
       : `<p style="font-size:12px;color:#a1a1aa;">No fields yet — say “create a new field”.</p>`
   }
 
-  logInspector(line) {
-    if (!this.hasInspectorTarget) return
-    const div = document.createElement("div")
-    div.textContent = line
-    this.inspectorTarget.prepend(div)
-  }
 }

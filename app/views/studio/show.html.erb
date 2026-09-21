@@ -26,6 +26,22 @@
     <button role="tab" data-studio-tabs-target="tab" data-action="click->studio-tabs#show" data-tab="visualize">Visualize</button>
   </div>
 
+  <!-- The studio's only key input — every tab reads it from this browser. -->
+  <div class="mt-2 rounded-2xl border border-black/5 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-zinc-900" data-controller="api-key">
+    <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <span class="text-[11px] font-medium tracking-[0.2em] text-zinc-400 dark:text-zinc-500">JEV API KEY</span>
+      <input data-api-key-target="input" type="password" placeholder="ts_..." autocomplete="off" spellcheck="false"
+             class="w-full rounded-xl border border-zinc-200 bg-transparent px-3 py-2 font-mono text-base placeholder:text-zinc-400 focus:outline-none dark:border-zinc-800 dark:placeholder:text-zinc-600 sm:flex-1" />
+      <div class="flex gap-2">
+        <button data-action="click->api-key#toggleVisibility"
+                class="flex-1 rounded-full border border-zinc-300 px-3 py-2 text-xs text-zinc-600 sm:flex-none dark:border-zinc-700 dark:text-zinc-300">Show</button>
+        <button data-action="click->api-key#test"
+                class="flex-1 rounded-full bg-zinc-950 px-4 py-2 text-xs font-semibold text-white sm:flex-none dark:bg-zinc-50 dark:text-zinc-950">Test</button>
+      </div>
+    </div>
+    <p data-api-key-target="status" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400"></p>
+  </div>
+
   <!-- Design: voice interview that builds the field list. Jev classifies only. -->
   <section data-studio-tabs-target="panel" data-panel="design" role="tabpanel">
     <div class="w-full" data-controller="design">
@@ -44,18 +60,6 @@
         </div>
         <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Tap a field, or say “edit the … field”, to change or remove it by voice.</p>
         <div data-design-target="fieldList" class="mt-2 grid gap-2"></div>
-      </div>
-
-      <details class="mt-2 rounded-2xl border border-black/5 bg-white/60 px-4 py-2 text-xs text-zinc-600 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-300">
-        <summary class="cursor-pointer py-1 font-medium">How this was built — Jev classifies, you name</summary>
-        <div data-design-target="inspector" class="mt-2 space-y-1 font-mono"></div>
-      </details>
-
-      <div class="mb-3 mt-3 rounded-2xl border border-black/5 bg-white px-5 py-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
-        <h2 class="text-[11px] font-medium tracking-[0.2em] text-zinc-400 dark:text-zinc-500">JEV API KEY</h2>
-        <input data-design-target="apiKey" type="password" placeholder="ts_..." autocomplete="off" spellcheck="false"
-               class="mt-2 w-full rounded-xl border border-zinc-200 bg-transparent px-3 py-2 font-mono text-base placeholder:text-zinc-400 focus:outline-none dark:border-zinc-800 dark:placeholder:text-zinc-600" />
-        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Same key as Visualize (stored only in this browser). A key is required — Jev answers every question.</p>
       </div>
     </div>
   </section>
@@ -82,18 +86,6 @@
         <div data-input-target="rowsTable" class="mt-2"></div>
         <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Saved in this browser — Visualize picks them up automatically.</p>
       </div>
-
-      <details class="mt-2 rounded-2xl border border-black/5 bg-white/60 px-4 py-2 text-xs text-zinc-600 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-300">
-        <summary class="cursor-pointer py-1 font-medium">How this was built — Jev maps, you speak</summary>
-        <div data-input-target="inspector" class="mt-2 space-y-1 font-mono"></div>
-      </details>
-
-      <div class="mb-3 mt-3 rounded-2xl border border-black/5 bg-white px-5 py-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
-        <h2 class="text-[11px] font-medium tracking-[0.2em] text-zinc-400 dark:text-zinc-500">JEV API KEY</h2>
-        <input data-input-target="apiKey" type="password" placeholder="ts_..." autocomplete="off" spellcheck="false"
-               class="mt-2 w-full rounded-xl border border-zinc-200 bg-transparent px-3 py-2 font-mono text-base placeholder:text-zinc-400 focus:outline-none dark:border-zinc-800 dark:placeholder:text-zinc-600" />
-        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Same key everywhere (stored only in this browser). A key is required — Jev maps and validates every answer.</p>
-      </div>
     </div>
   </section>
 
@@ -117,14 +109,7 @@
     <p class="mt-1 font-mono text-[11px] text-zinc-500 dark:text-zinc-400" data-studio-target="schemaLine">No dataset yet.</p>
   </div>
 
-  <!-- Request -> UI latency line -->
-  <div class="mt-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm">
-    <p class="text-zinc-500 dark:text-zinc-400">Request → UI
-      <span data-studio-target="latency" class="whitespace-nowrap text-2xl font-bold text-emerald-700 dark:text-emerald-400">—</span>
-    </p>
-    <p class="min-w-0 text-xs text-zinc-500 sm:text-right dark:text-zinc-400" data-studio-target="questionCount"></p>
-  </div>
-  <p class="text-xs text-zinc-500 dark:text-zinc-400" data-studio-target="status" aria-live="polite"></p>
+  <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400" data-studio-target="status" aria-live="polite"></p>
 
   <!-- Rendered interface -->
   <div data-studio-target="canvas"
@@ -132,34 +117,6 @@
     <p class="text-sm text-zinc-400">Rows from the Input tab appear here — then say how to render them.</p>
   </div>
 
-  <!-- Answer inspector -->
-  <details class="mt-2 rounded-2xl border border-black/5 bg-white/60 px-4 py-2 text-xs text-zinc-600 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-300">
-    <summary class="cursor-pointer py-1 font-medium">How this was built — schema-driven questions</summary>
-    <p class="mt-1 leading-relaxed">
-      The server reads your dataset's column names and generates the question set
-      from them: field-binding <code>choice</code> options are your actual
-      columns (with sample values as evidence), plus one <code>include_*</code> flag per column. Jev answers them all in parallel and this
-      generic interpreter maps the winning spec onto Chart.js or table/cards/KPI DOM. Anything
-      Jev is unsure of (&lt; 0.5) repeats the question instead of rendering.
-    </p>
-    <div data-studio-target="inspector" class="mt-2 space-y-1 font-mono"></div>
-  </details>
-
-  <!-- API key (shared) -->
-  <div class="mb-3 mt-3 rounded-2xl border border-black/5 bg-white px-5 py-4 shadow-sm dark:border-white/10 dark:bg-zinc-900">
-    <h2 class="text-[11px] font-medium tracking-[0.2em] text-zinc-400 dark:text-zinc-500">JEV API KEY</h2>
-    <div class="mt-2 flex flex-col gap-2 sm:flex-row">
-      <input data-studio-target="apiKey" type="password" placeholder="ts_..." autocomplete="off" spellcheck="false"
-             class="w-full rounded-xl border border-zinc-200 bg-transparent px-3 py-2 font-mono text-base placeholder:text-zinc-400 focus:outline-none dark:border-zinc-800 dark:placeholder:text-zinc-600 sm:w-auto sm:flex-1" />
-      <div class="flex gap-2">
-        <button data-action="click->studio#toggleKeyVisibility"
-                class="flex-1 rounded-full border border-zinc-300 px-3 py-2 text-xs text-zinc-600 sm:flex-none dark:border-zinc-700 dark:text-zinc-300">Show</button>
-        <button data-action="click->studio#testKey" data-studio-target="testButton"
-                class="flex-1 rounded-full bg-zinc-950 px-4 py-2 text-xs font-semibold text-white sm:flex-none dark:bg-zinc-50 dark:text-zinc-950">Test</button>
-      </div>
-    </div>
-    <p data-studio-target="keyStatus" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400"></p>
-  </div>
 </div>
   </section>
 </div>

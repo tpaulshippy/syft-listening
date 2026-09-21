@@ -573,25 +573,14 @@ export function resolveChartClass(root) {
 export default class extends Controller {
   static targets = [
     "dataset", "schemaLine", "canvas",
-    "latency", "questionCount", "inspector", "status",
-    "headline", "apiKey", "keyStatus", "testButton", "inputShare",
+    "status", "headline", "inputShare",
   ]
 
   connect() {
     this.charts = []
     this.ChartClass = null
-    this.apiKeyTarget.value = localStorage.getItem("syft_jev_key") || ""
-    this.apiKeyTarget.addEventListener("input", () => {
-      localStorage.setItem("syft_jev_key", this.apiKeyTarget.value.trim())
-      this.updateKeyStatus()
-    })
-    this.apiKeyTarget.addEventListener("paste", () => {
-      setTimeout(() => {
-        localStorage.setItem("syft_jev_key", this.apiKeyTarget.value.trim())
-        this.testKey()
-      }, 0)
-    })
-    this.updateKeyStatus()
+    // The key lives in the single top-level card — read fresh per render,
+    // never cached here.
     this.lastAutoLoaded = null
     this.handleInputRowsChanged = () => this.autoLoadFromInput()
     this.handleTabShown = (event) => { if (event?.detail === "visualize") this.autoLoadFromInput() }
@@ -677,44 +666,6 @@ export default class extends Controller {
     this.refreshInputShare()
   }
 
-  // --- key (shared) ---------------------------------------------------------------
-  updateKeyStatus() {
-    const key = this.apiKeyTarget.value.trim()
-    const ok = key.length > 0 && localStorage.getItem("syft_jev_key_ok") === key
-    this.keyStatusTarget.textContent = ok ? "✓ Key works — Jev will answer the schema-driven question set."
-      : key ? "Tap Test to verify this key."
-      : "Add your key — every render is answered by Jev."
-    this.keyStatusTarget.className = "mt-1 text-xs " + (ok ? "text-emerald-600" : "text-zinc-500 dark:text-zinc-400")
-  }
-
-  toggleKeyVisibility() {
-    this.apiKeyTarget.type = this.apiKeyTarget.type === "password" ? "text" : "password"
-  }
-
-  async testKey() {
-    const key = this.apiKeyTarget.value.trim()
-    if (!key) { this.keyStatusTarget.textContent = "Paste your key first."; return }
-    this.keyStatusTarget.textContent = "Testing…"
-    try {
-      const res = await fetch("/jev_analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": document.querySelector('meta[name="csrf-token"]')?.content },
-        body: JSON.stringify({ text: "The Eiffel Tower is in Paris.", metrics: ["specificity"], api_key: key }),
-      })
-      if (res.ok) {
-        localStorage.setItem("syft_jev_key_ok", key)
-        this.updateKeyStatus()
-      } else {
-        localStorage.removeItem("syft_jev_key_ok")
-        this.keyStatusTarget.textContent = "✗ Key rejected — check it and try again."
-        this.keyStatusTarget.className = "text-xs mt-1 text-red-600"
-      }
-    } catch {
-      this.keyStatusTarget.textContent = "✗ Could not reach the server."
-      this.keyStatusTarget.className = "text-xs mt-1 text-red-600"
-    }
-  }
-
   // --- build (Jev only — no key or unsure answers repeat, never render) ---------
   async ask() {
     const prompt = String(this.request || "").trim()
@@ -722,14 +673,13 @@ export default class extends Controller {
     const parsed = this.parseDataset()
     if (parsed.error) { this.statusTarget.textContent = parsed.error; return }
     const rows = parsed.rows
-    const t0 = performance.now()
     this.headlineTarget.textContent = prompt
     this.statusTarget.textContent = "Asking Jev the schema-driven questions in parallel…"
     try {
-      const key = this.apiKeyTarget.value.trim()
+      const key = localStorage.getItem("syft_jev_key") || ""
       const schema = inferSchema(rows)
       if (!key) {
-        this.statusTarget.textContent = "Add your Jev key first — every render is answered by Jev."
+        this.statusTarget.textContent = "Add your Jev key above first — every render is answered by Jev."
         return
       }
       const res = await fetch("/jev_studio", {
@@ -740,7 +690,6 @@ export default class extends Controller {
       const data = await res.json().catch(() => ({}))
       if (res.status === 401) {
         localStorage.removeItem("syft_jev_key_ok")
-        this.updateKeyStatus()
         this.statusTarget.textContent = "Key rejected — check it and try again."
         return
       }
@@ -756,10 +705,7 @@ export default class extends Controller {
         this.statusTarget.textContent = `Jev wasn't sure about ${blocking.slice(0, 4).join(", ")} — rephrase and say it again.`
         return
       }
-      this.renderResult(dashboard, rows, serverSchema, prompt, t0, {
-        count: data.question_count ?? Object.keys(data.answers).length,
-        model: data.model || "jev-latest",
-        answers: data.answers,
+      this.renderResult(dashboard, rows, serverSchema, prompt, {
         usedFallback: notes,
       })
     } catch {
@@ -767,23 +713,13 @@ export default class extends Controller {
     }
   }
 
-  renderResult(dashboard, rows, schema, prompt, t0, meta) {
-    const ms = Math.round(performance.now() - t0)
+  renderResult(dashboard, rows, schema, prompt, meta) {
     this.destroyCharts()
     this.canvasTarget.innerHTML =
       `<div style="${dashboardContainerStyle(dashboard.layout)}">` +
       dashboard.panels.map((panel, i) => panelSectionHtml(panel, rows, schema, i)).join("") +
       `</div>`
     this.mountPanelCharts(dashboard, rows, schema)
-    this.latencyTarget.textContent = `${ms.toLocaleString()} ms`
-    this.questionCountTarget.textContent =
-      `${meta.count} multiple-choice answers in parallel · ${meta.model}`
-    const rows_out = Object.entries(meta.answers || {}).slice(0, 80).map(([k, a]) => {
-      const val = a?.choice ?? (a?.noul != null ? (Number(a.noul) >= 0.5 ? "yes" : "no") : "?")
-      const c = a?.confidence ?? (a?.noul != null ? noulConfidence(a.noul) : null)
-      return `<div>${escapeHtml(k)} = <strong>${escapeHtml(val)}</strong> <span style="color:#a1a1aa;">${c == null ? "" : `conf ${Number(c).toFixed(2)}`}</span></div>`
-    })
-    this.inspectorTarget.innerHTML = rows_out.join("")
     const n = dashboard.panels.length
     const defaultsNote = (meta.usedFallback || []).length
       ? ` Showed defaults for ${meta.usedFallback.slice(0, 4).join(", ")}.`

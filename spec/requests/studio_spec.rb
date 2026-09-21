@@ -235,9 +235,9 @@ RSpec.describe "Studio", type: :request do
       post "/jev_command", params: {
         transcript: "edit the third row",
         current_tab: "input",
-        fields: [{ id: "f1", name: "Name" }],
+        fields: [ { id: "f1", name: "Name" } ],
         row_count: 3,
-        columns: ["Name"],
+        columns: [ "Name" ],
         api_key: "ts_test"
       }
       expect(response).to have_http_status(:success)

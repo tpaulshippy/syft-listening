@@ -580,6 +580,48 @@ describe("fallback partition (safe display defaults never block)", () => {
     const { blocking } = partitionFallbacks(usedFallback)
     expect(blocking).toContain("filter_column")
   })
+
+  it("shows everything unsplit when Jev hedges on color/size (live replay)", () => {
+    const spaced = [
+      { "Did you brush your teeth": "no", "What's your name": "Roman" },
+      { "Did you brush your teeth": "yes", "What's your name": "Renée" },
+    ]
+    const schema = inferSchema(spaced)
+    // Exact live Jev values for "...bar chart with no filter":
+    // color col3@0.49, size col4@0.49 — sensible leans, under the cliff.
+    const answers = {
+      panel_count: { choice: "one", confidence: 1.0 },
+      layout: { choice: "single", confidence: 0.91 },
+      view: { choice: "bar", confidence: 0.99 },
+      x_field: { choice: "col1", confidence: 0.92 },
+      y_field: { choice: "count_rows", confidence: 0.52 },
+      color_field: { choice: "col1", confidence: 0.49 },
+      size_field: { choice: "none", confidence: 0.49 },
+      aggregation: { choice: "count", confidence: 0.77 },
+      sort_by: { choice: "label_asc", confidence: 0.57 },
+      filter_column: { choice: "none", confidence: 0.86 },
+    }
+    const { dashboard, usedFallback, nonBlocking } = dashboardFromAnswers(answers, schema, "Bar chart with no filter", spaced)
+    expect(dashboard.panels[0].colorField).toBe("none")
+    expect(dashboard.panels[0].sizeField).toBe("none")
+    expect(nonBlocking).toContain("color_field")
+    expect(nonBlocking).toContain("size_field")
+    const { blocking } = partitionFallbacks(usedFallback)
+    expect(blocking).toEqual([])
+  })
+
+  it("still honors a confident color split", () => {
+    const schema = inferSchema(SAMPLES.bookstore)
+    const { dashboard, nonBlocking } = dashboardFromAnswers({
+      panel_count: { choice: "one", confidence: 0.95 },
+      view: { choice: "bar", confidence: 0.9 },
+      x_field: { choice: "col1", confidence: 0.9 },
+      y_field: { choice: "col3", confidence: 0.9 },
+      color_field: { choice: "col4", confidence: 0.9 },
+    }, schema, "Bars")
+    expect(dashboard.panels[0].colorField).toBe("col4")
+    expect(nonBlocking).not.toContain("color_field")
+  })
 })
 
 describe("input auto-load guard", () => {

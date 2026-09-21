@@ -232,7 +232,7 @@ export function constantSpec(schema, prompt) {
 }
 
 // Merge Jev answers over the constant spec; refs validated vs schema.
-function makeMergers(answers, schema, usedFallback) {
+function makeMergers(answers, schema, usedFallback, nonBlocking = usedFallback) {
   const validRefs = new Set((schema?.columns || []).map((_, i) => `col${i}`))
   const fieldChoice = (key, fallback) => {
     const a = answers?.[key]
@@ -257,7 +257,17 @@ function makeMergers(answers, schema, usedFallback) {
     if (noulConfidence(p) < 0.5) { usedFallback.push(key); return fallback }
     return p >= 0.5
   }
-  return { fieldChoice, choice, noul }
+  // Split drivers (color/size): when Jev can't confidently pick a column,
+  // "none" (show everything unsplit) is the safe visible default — a split
+  // never hides data, so this never blocks.
+  const softNoneChoice = (key) => {
+    const a = answers?.[key]
+    const conf = Number(a?.confidence ?? NaN)
+    if (a?.choice && (a.choice === "none" || validRefs.has(a.choice)) && conf >= 0.5) return a.choice
+    nonBlocking.push(key)
+    return "none"
+  }
+  return { fieldChoice, choice, noul, softNoneChoice }
 }
 
 // One panel's spec. Suffix "" reads the un-suffixed (panel-1) keys,
@@ -270,8 +280,8 @@ function panelSpec(m, suffix, fb, shared) {
     view,
     xField: view === "kpi" ? fb.xField : m.fieldChoice(`x_field${suffix}`, fb.xField),
     yField: m.fieldChoice(`y_field${suffix}`, fb.yField),
-    colorField: m.fieldChoice(`color_field${suffix}`, fb.colorField),
-    sizeField: m.fieldChoice(`size_field${suffix}`, fb.sizeField),
+    colorField: m.softNoneChoice(`color_field${suffix}`),
+    sizeField: m.softNoneChoice(`size_field${suffix}`),
     aggregation: m.choice(`aggregation${suffix}`, fb.aggregation, ["sum", "avg", "count"]),
     sortBy: m.choice(`sort_by${suffix}`, fb.sortBy, ["value_desc", "value_asc", "label_asc"]),
     ...shared,
@@ -319,7 +329,7 @@ export function specFromAnswers(answers, schema, prompt, rows = null) {
   const fb = { ...constantSpec(schema, prompt), schemaColumns: schema?.columns || [], allRows: rows }
   const usedFallback = []
   const nonBlocking = []
-  const m = makeMergers(answers, schema, usedFallback)
+  const m = makeMergers(answers, schema, usedFallback, nonBlocking)
   const mSoft = makeMergers(answers, schema, nonBlocking)
   const filter = sharedFilter(m, fb, answers, usedFallback, nonBlocking)
   return { spec: panelSpec(m, "", { ...fb, filter }, sharedFlags(mSoft, fb)), usedFallback, nonBlocking }
@@ -333,7 +343,7 @@ export function dashboardFromAnswers(answers, schema, prompt, rows = null) {
   const fb = constantSpec(schema, prompt)
   const usedFallback = []
   const nonBlocking = []
-  const m = makeMergers(answers, schema, usedFallback)
+  const m = makeMergers(answers, schema, usedFallback, nonBlocking)
   const mSoft = makeMergers(answers, schema, nonBlocking)
   const countWord = m.choice("panel_count", "one", Object.keys(PANEL_COUNT_WORDS))
   const count = Math.min(MAX_PANELS, PANEL_COUNT_WORDS[countWord])

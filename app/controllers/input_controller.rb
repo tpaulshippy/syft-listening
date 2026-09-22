@@ -1,7 +1,3 @@
-require "net/http"
-require "uri"
-require "json"
-
 # Data input — voice-driven row filling, Jev-automated, no LLM text.
 #
 # The user speaks every value verbatim. Jev only maps and validates:
@@ -19,8 +15,7 @@ require "json"
 # be asked together — the backend proposes the next contiguous pair, Jev
 # decides via the plan_group noul. Order is never reordered.
 class InputController < ApplicationController
-  JEV_URL = "https://api.typesafe.ai/v1/systemone".freeze
-  JEV_MODEL = "jev-latest".freeze
+  include JevProxy
 
   OPEN_TYPES = %w[text number date time email].freeze
   CLOSED_TYPES = %w[yes_no choice_single choice_multiple].freeze
@@ -34,14 +29,14 @@ class InputController < ApplicationController
 
   def resolve
     step = params[:step].to_s.strip.presence || "answer"
-    api_key = params[:api_key].to_s.strip.presence || ENV["TYPESAFE_API_KEY"].to_s.strip.presence
+    api_key = jev_api_key
     return render json: { error: "Missing Jev API key. Paste your TypeSafe key for input." }, status: :unauthorized if api_key.blank?
 
     built = build_for_step(step)
     return render json: { error: built[:error] }, status: :bad_request if built[:error]
 
     payload = { model: JEV_MODEL, state: built[:state], questions: built[:questions] }
-    post_to_jev(payload, api_key, built[:questions].size, step)
+    jev_post(payload, api_key, question_count: built[:questions].size, step: step)
   end
 
   private
@@ -135,16 +130,10 @@ class InputController < ApplicationController
   end
 
   def parse_fields_json(raw)
-    return { error: "No fields provided (design fields first)" } if raw.strip.empty?
-
-    begin
-      parsed = JSON.parse(raw)
-    rescue JSON::ParserError
-      return { error: "Fields must be a JSON array" }
-    end
-    return { error: "Fields must be an array of field objects" } unless parsed.is_a?(Array)
-
-    parsed
+    parse_json_array_param(raw,
+      empty_message: "No fields provided (design fields first)",
+      invalid_message: "Fields must be a JSON array",
+      not_array_message: "Fields must be an array of field objects")
   end
 
   def control_question
@@ -189,10 +178,7 @@ class InputController < ApplicationController
     parsed = raw.is_a?(Array) ? raw : parse_fields_json(raw.to_s)
     return parsed if parsed.is_a?(Hash) && parsed[:error]
 
-    fields = parsed.first(20).map do |f|
-      h = f.respond_to?(:to_unsafe_h) ? f.to_unsafe_h : f.to_h
-      { id: h["id"].to_s.strip, name: h["name"].to_s.strip }
-    end
+    fields = normalize_id_name_fields(parsed, 20)
     return { error: "No fields provided" } if fields.empty?
     return { error: "Fields need ids and names" } if fields.any? { |f| f[:id].empty? || f[:name].empty? }
 
@@ -294,45 +280,5 @@ class InputController < ApplicationController
     when "email" then "a real email address — a name, an @ sign, and a domain"
     else "a non-empty answer"
     end
-  end
-
-  def post_to_jev(payload, api_key, question_count, step)
-    uri = URI(JEV_URL)
-    http = Net::HTTP.new(uri.host, uri.port)
-    http.use_ssl = true
-    http.open_timeout = 10
-    http.read_timeout = 20
-
-    request = Net::HTTP::Post.new(uri.path, {
-                                    "Authorization" => "Bearer #{api_key}",
-                                    "Content-Type" => "application/json"
-                                  })
-    request.body = payload.to_json
-
-    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    upstream = http.request(request)
-    elapsed_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
-
-    body = upstream.body.to_s
-    parsed = parse_upstream_body(body)
-    Rails.logger.warn "Jev API error #{upstream.code}: #{body.truncate(500)}" unless upstream.code.to_i == 200
-    if parsed.is_a?(Hash) && upstream.code.to_i == 200
-      parsed["question_count"] = question_count
-      parsed["upstream_ms"] = elapsed_ms
-      parsed["step"] = step
-    end
-    render json: parsed, status: upstream.code.to_i
-  rescue Net::OpenTimeout, Net::ReadTimeout => e
-    Rails.logger.warn "Jev API timeout: #{e.class}"
-    render json: { error: "Jev API timed out, try again." }, status: :bad_gateway
-  rescue StandardError => e
-    Rails.logger.warn "Jev proxy error: #{e.class}"
-    render json: { error: "Could not reach Jev API." }, status: :bad_gateway
-  end
-
-  def parse_upstream_body(body)
-    JSON.parse(body)
-  rescue JSON::ParserError
-    { "raw" => body }
   end
 end

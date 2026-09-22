@@ -1,11 +1,7 @@
-require "net/http"
-require "uri"
-require "json"
-
 class SpeechController < ApplicationController
+  include JevProxy
+
   ALLOWED_METRICS = %w[factual_claim specificity complexity grammar emotion habits].freeze
-  JEV_URL = "https://api.typesafe.ai/v1/systemone".freeze
-  JEV_MODEL = "jev-latest".freeze
 
   # Public page — no login required
   def show
@@ -20,14 +16,14 @@ class SpeechController < ApplicationController
   def analyze
     text = extract_text
     metrics = extract_metrics
-    api_key = resolve_api_key
+    api_key = jev_api_key
 
     return render json: { error: "No text provided" }, status: :bad_request if text.blank?
     return render json: { error: "No metrics selected" }, status: :bad_request if metrics.empty?
     return render json: { error: "Missing Jev API key. Paste your TypeSafe key to analyze." }, status: :unauthorized if api_key.blank?
 
     payload = { model: JEV_MODEL, state: { transcript: text }, questions: build_questions(metrics) }
-    post_to_jev(payload, api_key)
+    jev_post(payload, api_key)
   end
 
   private
@@ -38,10 +34,6 @@ class SpeechController < ApplicationController
 
   def extract_metrics
     Array(params[:metrics]).map(&:to_s) & ALLOWED_METRICS
-  end
-
-  def resolve_api_key
-    params[:api_key].to_s.strip.presence || ENV["TYPESAFE_API_KEY"].to_s.strip.presence
   end
 
   def build_questions(metrics)
@@ -138,43 +130,5 @@ class SpeechController < ApplicationController
       [ "repetition", { type: "noul", instructions: "Does the speaker repeat a word, phrase, or idea in `transcript`?" } ],
       [ "question_asked", { type: "noul", instructions: "Does the speaker ask a question in `transcript`?" } ]
     ]
-  end
-
-  def post_to_jev(payload, api_key)
-    uri = URI(JEV_URL)
-    http = Net::HTTP.new(uri.host, uri.port)
-    http.use_ssl = true
-    http.open_timeout = 10
-    http.read_timeout = 20
-
-    request = Net::HTTP::Post.new(uri.path, {
-      "Authorization" => "Bearer #{api_key}",
-      "Content-Type" => "application/json"
-    })
-    request.body = payload.to_json
-
-    render_upstream(http, request)
-  rescue Net::OpenTimeout, Net::ReadTimeout => e
-    Rails.logger.warn "Jev API timeout: #{e.class}"
-    render json: { error: "Jev API timed out, try again." }, status: :bad_gateway
-  rescue => e
-    Rails.logger.warn "Jev proxy error: #{e.class}"
-    render json: { error: "Could not reach Jev API." }, status: :bad_gateway
-  end
-
-  def render_upstream(http, request)
-    upstream = http.request(request)
-    body = upstream.body.to_s
-    parsed = parse_upstream_body(body)
-    # Log upstream rejections (body holds Jev's error detail, never the key)
-    # so validation errors like HTTP 422 can be diagnosed from the message.
-    Rails.logger.warn "Jev API error #{upstream.code}: #{body.truncate(500)}" unless upstream.code.to_i == 200
-    render json: parsed, status: upstream.code.to_i
-  end
-
-  def parse_upstream_body(body)
-    JSON.parse(body)
-  rescue JSON::ParserError
-    { "raw" => body }
   end
 end

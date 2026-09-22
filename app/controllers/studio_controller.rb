@@ -1,7 +1,3 @@
-require "net/http"
-require "uri"
-require "json"
-
 # Generalized voice UI studio — the same parallel fan-out pattern as Builder,
 # but data-agnostic: the question set is generated from the dataset's own
 # schema instead of being hardcoded for tasks/calendar.
@@ -20,8 +16,8 @@ require "json"
 # winning spec onto Chart.js (bar/line/pie/scatter/bubbles) or hand-rendered
 # table/cards/kpi DOM. Jev selects parameters; it never invents components.
 class StudioController < ApplicationController
-  JEV_URL = "https://api.typesafe.ai/v1/systemone".freeze
-  JEV_MODEL = "jev-latest".freeze
+  include JevProxy
+
   MAX_ROWS = 25
   MAX_COLUMNS = 60
   MAX_STATE_BYTES = 12_000
@@ -69,7 +65,7 @@ class StudioController < ApplicationController
   # api_key }. Builds schema-driven questions, fans out to Jev once.
   def analyze
     prompt = params[:prompt].to_s.strip
-    api_key = params[:api_key].to_s.strip.presence || ENV["TYPESAFE_API_KEY"].to_s.strip.presence
+    api_key = jev_api_key
     rows = extract_rows
 
     return render json: { error: "No request provided" }, status: :bad_request if prompt.blank?
@@ -89,7 +85,7 @@ class StudioController < ApplicationController
     }
     # Keep state small: truncate serialized rows if needed (schema stays whole).
     payload[:state][:rows] = truncate_rows(payload[:state][:rows]) if payload.to_json.bytesize > MAX_STATE_BYTES * 4
-    post_to_jev(payload, api_key, questions.size, schema)
+    jev_post(payload, api_key, question_count: questions.size, schema: schema)
   end
 
   # POST /jev_command — voice command router for the studio page.
@@ -104,7 +100,7 @@ class StudioController < ApplicationController
 
   def command
     transcript = params[:transcript].to_s.strip
-    api_key = params[:api_key].to_s.strip.presence || ENV["TYPESAFE_API_KEY"].to_s.strip.presence
+    api_key = jev_api_key
     return render json: { error: "No transcript provided" }, status: :bad_request if transcript.blank?
     return render json: { error: "Missing Jev API key. Paste your TypeSafe key for voice commands." }, status: :unauthorized if api_key.blank?
 
@@ -132,7 +128,7 @@ class StudioController < ApplicationController
       },
       questions: questions
     }
-    post_to_jev(payload, api_key, questions.size, { columns: [], row_count: rows[:count] })
+    jev_post(payload, api_key, question_count: questions.size, schema: { columns: [], row_count: rows[:count] })
   end
 
   private
@@ -141,14 +137,14 @@ class StudioController < ApplicationController
     raw = params[:fields]
     return { fields: [] } if raw.nil? || (raw.is_a?(String) && raw.strip.empty?)
 
-    parsed = raw.is_a?(Array) ? raw : parse_command_json(raw.to_s)
+    parsed = raw.is_a?(Array) ? raw : parse_json_array_param(raw.to_s,
+      empty_message: "Fields/columns must be a JSON array",
+      invalid_message: "Fields/columns must be a JSON array",
+      not_array_message: "Fields must be an array")
     return parsed if parsed.is_a?(Hash) && parsed[:error]
     return { error: "Fields must be an array" } unless parsed.is_a?(Array)
 
-    fields = parsed.first(MAX_COLUMNS).map do |f|
-      h = f.respond_to?(:to_unsafe_h) ? f.to_unsafe_h : f.to_h
-      { id: h["id"].to_s.strip, name: h["name"].to_s.strip }
-    end
+    fields = normalize_id_name_fields(parsed, MAX_COLUMNS)
     fields = fields.reject { |f| f[:id].empty? || f[:name].empty? }
     { fields: fields }
   end
@@ -168,16 +164,13 @@ class StudioController < ApplicationController
     raw = params[:columns]
     return [] if raw.nil? || (raw.is_a?(String) && raw.strip.empty?)
 
-    parsed = raw.is_a?(Array) ? raw : parse_command_json(raw.to_s)
+    parsed = raw.is_a?(Array) ? raw : parse_json_array_param(raw.to_s,
+      empty_message: "Fields/columns must be a JSON array",
+      invalid_message: "Fields/columns must be a JSON array",
+      not_array_message: "Fields/columns must be a JSON array")
     return [] unless parsed.is_a?(Array)
 
     parsed.map(&:to_s).map(&:strip).reject(&:empty?).first(MAX_COLUMNS)
-  end
-
-  def parse_command_json(raw)
-    JSON.parse(raw)
-  rescue JSON::ParserError
-    { error: "Fields/columns must be a JSON array" }
   end
 
   def command_questions(fields, row_count, columns)
@@ -239,13 +232,10 @@ class StudioController < ApplicationController
   end
 
   def parse_dataset_json(raw)
-    return { error: "No dataset provided (paste a JSON array of objects)" } if raw.blank?
-
-    begin
-      JSON.parse(raw)
-    rescue JSON::ParserError
-      { error: "Dataset is not valid JSON (expected an array of objects)" }
-    end
+    parse_json_array_param(raw,
+      empty_message: "No dataset provided (paste a JSON array of objects)",
+      invalid_message: "Dataset is not valid JSON (expected an array of objects)",
+      not_array_message: "Dataset is not valid JSON (expected an array of objects)")
   end
 
   # Column names in order. There are no inferred types and no slug transform:
@@ -469,45 +459,5 @@ class StudioController < ApplicationController
 
   def noul(instructions)
     { type: "noul", instructions: instructions }
-  end
-
-  def post_to_jev(payload, api_key, question_count, schema)
-    uri = URI(JEV_URL)
-    http = Net::HTTP.new(uri.host, uri.port)
-    http.use_ssl = true
-    http.open_timeout = 10
-    http.read_timeout = 20
-
-    request = Net::HTTP::Post.new(uri.path, {
-                                    "Authorization" => "Bearer #{api_key}",
-                                    "Content-Type" => "application/json"
-                                  })
-    request.body = payload.to_json
-
-    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    upstream = http.request(request)
-    elapsed_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
-
-    body = upstream.body.to_s
-    parsed = parse_upstream_body(body)
-    Rails.logger.warn "Jev API error #{upstream.code}: #{body.truncate(500)}" unless upstream.code.to_i == 200
-    if parsed.is_a?(Hash) && upstream.code.to_i == 200
-      parsed["question_count"] = question_count
-      parsed["upstream_ms"] = elapsed_ms
-      parsed["schema"] = schema
-    end
-    render json: parsed, status: upstream.code.to_i
-  rescue Net::OpenTimeout, Net::ReadTimeout => e
-    Rails.logger.warn "Jev API timeout: #{e.class}"
-    render json: { error: "Jev API timed out, try again." }, status: :bad_gateway
-  rescue StandardError => e
-    Rails.logger.warn "Jev proxy error: #{e.class}"
-    render json: { error: "Could not reach Jev API." }, status: :bad_gateway
-  end
-
-  def parse_upstream_body(body)
-    JSON.parse(body)
-  rescue JSON::ParserError
-    { "raw" => body }
   end
 end
